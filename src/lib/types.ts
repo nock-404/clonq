@@ -270,3 +270,15 @@ export interface RunEntryPage {
   entries: RunEntry[];
   total: number;
 }
+
+export interface Snapshot {
+  /** Folder name, e.g. "2026-09-23_14-05-09". */
+  stamp: string;
+  files: number;
+  bytes: number;
+}
+
+export interface ArchivedFile {
+  path: string;
+  size: number;
+}

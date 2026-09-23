@@ -84,3 +84,11 @@ export function formatPercent(value: number, digits = 0): string {
 export function formatDay(iso: string): string {
   return new Date(`${iso}T12:00:00`).toLocaleDateString(LOCALE, { weekday: "short", day: "numeric", month: "short" });
 }
+
+/** "2026-09-23_14-05-09" as a readable local date and time. */
+export function formatStamp(stamp: string): string {
+  const match = stamp.match(/^(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})$/);
+  if (!match) return stamp;
+  const [, y, mo, d, h, mi, se] = match;
+  return dateTime.format(new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(se)));
+}

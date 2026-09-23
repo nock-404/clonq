@@ -1,3 +1,4 @@
+mod archive;
 mod cloud;
 mod commands;
 mod config;
@@ -111,6 +112,9 @@ pub fn run() {
             commands::open_main_window,
             commands::quit,
             commands::run_entries,
+            commands::archive_snapshots,
+            commands::archive_files,
+            commands::restore_archive,
             setup::mounted_volumes,
             setup::location_statuses,
             setup::add_folder_location,

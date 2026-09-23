@@ -3,6 +3,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  ArchivedFile,
+  Snapshot,
   EntryKind,
   RunEntryPage,
   CloudProvider,
@@ -35,6 +37,11 @@ export const api = {
   recentRuns: (limit: number) => invoke<Run[]>("recent_runs", { limit }),
   runEntries: (runId: string, kind: EntryKind | null, query: string, offset: number, limit: number) =>
     invoke<RunEntryPage>("run_entries", { runId, kind, query, offset, limit }),
+  archiveSnapshots: (jobId: string) => invoke<Snapshot[]>("archive_snapshots", { jobId }),
+  archiveFiles: (jobId: string, stamp: string) => invoke<ArchivedFile[]>("archive_files", { jobId, stamp }),
+  /** Copies into a new folder in Downloads; returns that folder. */
+  restoreArchive: (jobId: string, stamp: string, path?: string) =>
+    invoke<string>("restore_archive", { jobId, stamp, path: path ?? null }),
   jobStats: (jobId: string) => invoke<JobStats>("job_stats", { jobId }),
   overview: () => invoke<Overview>("overview"),
   setUiSettings: (settings: UiSettings) => invoke<Config>("set_ui_settings", { settings }),

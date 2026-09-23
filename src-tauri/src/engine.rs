@@ -881,7 +881,7 @@ fn rclone_pattern(pattern: &str) -> String {
 }
 
 /// rsync splits `--rsh` on spaces and honours single quotes (see rsync(1), -e).
-fn shell_join(parts: &[String]) -> String {
+pub(crate) fn shell_join(parts: &[String]) -> String {
     parts
         .iter()
         .map(|part| {
