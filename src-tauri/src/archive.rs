@@ -157,7 +157,7 @@ pub async fn restore(job: &Job, config: &Config, rclone_config: &Path, downloads
     if only.is_some_and(|path| path.split('/').any(|part| part == "..")) {
         return Err(Error::Job("path must not climb out of the archive".into()));
     }
-    let destination = downloads.join("clonq-wiederhergestellt").join(sanitize(&job.name)).join(stamp);
+    let destination = fresh_path(&downloads.join("clonq-wiederhergestellt").join(sanitize(&job.name)).join(stamp));
     std::fs::create_dir_all(&destination)?;
     let inner = only.map(|path| path.trim_matches('/').to_string()).filter(|path| !path.is_empty());
     let root = archive_root(job, config)?;
@@ -191,6 +191,18 @@ pub async fn restore(job: &Job, config: &Config, rclone_config: &Path, downloads
         return Err(Error::Job("restoring from the archive failed".into()));
     }
     Ok(destination)
+}
+
+/// `path` itself if nothing is there yet, otherwise `path (2)`, `path (3)` …
+pub fn fresh_path(path: &Path) -> PathBuf {
+    if !path.exists() {
+        return path.to_path_buf();
+    }
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    (2..)
+        .map(|n| path.with_file_name(format!("{name} ({n})")))
+        .find(|candidate| !candidate.exists())
+        .expect("a free name")
 }
 
 /// A whole folder is copied by its contents, a single file as itself.
@@ -252,7 +264,10 @@ mod tests {
         let whole = restore(&job, &config, &rclone_config, &downloads, stamp, None).await.unwrap();
         assert_eq!(std::fs::read_to_string(whole.join("sub/b.txt")).unwrap(), "old b");
         assert!(whole.starts_with(downloads.join("clonq-wiederhergestellt")));
-        std::fs::remove_dir_all(&whole).unwrap();
+        std::fs::write(whole.join("a.txt"), "edited after restore").unwrap();
+        let second = restore(&job, &config, &rclone_config, &downloads, stamp, None).await.unwrap();
+        assert_ne!(whole, second, "a second restore gets its own folder");
+        assert_eq!(std::fs::read_to_string(whole.join("a.txt")).unwrap(), "edited after restore");
         let single = restore(&job, &config, &rclone_config, &downloads, stamp, Some("sub/b.txt")).await.unwrap();
         assert_eq!(std::fs::read_to_string(single.join("b.txt")).unwrap(), "old b");
         assert!(restore(&job, &config, &rclone_config, &downloads, stamp, Some("../x")).await.is_err());

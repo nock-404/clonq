@@ -146,7 +146,7 @@ pub async fn download(place: &Place, config: &Config, rclone_config: &Path, down
     let name = place.path.trim_matches('/').rsplit('/').next().filter(|name| !name.is_empty()).unwrap_or(location_name);
     let folder = downloads.join("clonq-dateien").join(location_name.replace(['/', ':'], "-"));
     std::fs::create_dir_all(&folder)?;
-    let destination = folder.join(name);
+    let destination = crate::archive::fresh_path(&folder.join(name));
     match target(place, config)? {
         Target::Local(path) => {
             let status = Command::new(&config.rsync_path)
@@ -186,6 +186,10 @@ pub async fn rename(place: &Place, new_name: &str, config: &Config, rclone_confi
             std::fs::rename(from, to)?;
         }
         (Target::Rclone(from), Target::Rclone(to)) => {
+            // moveto would overwrite a file or merge into a folder of that name.
+            if rclone(config, rclone_config, &["lsjson", "--stat", &to]).await.is_ok() {
+                return Err(Error::Job(format!("{new_name} already exists")));
+            }
             rclone(config, rclone_config, &["moveto", &from, &to]).await?;
         }
         _ => return Err(Error::Job("rename failed".into())),
@@ -246,6 +250,8 @@ mod tests {
         assert_eq!(text.text.as_deref(), Some("# Hallo"));
         let copy = download(&place("sub"), &config, &rclone_config, &root.join("Downloads"), "Root").await.unwrap();
         assert_eq!(std::fs::read_to_string(copy.join("b.txt")).unwrap(), "b");
+        let again = download(&place("sub"), &config, &rclone_config, &root.join("Downloads"), "Root").await.unwrap();
+        assert_ne!(copy, again, "a second download gets its own folder");
         rename(&place("note.md"), "notes.md", &config, &rclone_config).await.unwrap();
         assert!(root.join("data/notes.md").exists());
         assert!(rename(&place("notes.md"), "../x", &config, &rclone_config).await.is_err());
@@ -267,6 +273,9 @@ mod tests {
         let place = |path: &str| Place { location: "cloud".into(), path: path.into() };
         let entries = list(&place(""), &config, &rclone_config).await.unwrap();
         assert_eq!(entries.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), vec!["sub", "note.md"]);
+        std::fs::write(root.join("data/sub/taken.txt"), "keep").unwrap();
+        assert!(rename(&place("sub/b.txt"), "taken.txt", &config, &rclone_config).await.is_err(), "never over an existing file");
+        assert_eq!(std::fs::read_to_string(root.join("data/sub/taken.txt")).unwrap(), "keep");
         rename(&place("sub/b.txt"), "c.txt", &config, &rclone_config).await.unwrap();
         assert!(root.join("data/sub/c.txt").exists());
         delete(&place("sub/c.txt"), &config, &rclone_config).await.unwrap();
