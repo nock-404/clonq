@@ -4,6 +4,7 @@ import { modeLabel } from "../../lib/labels";
 import type { Conflicts, Mode } from "../../lib/types";
 import { UiInput } from "../../ui";
 import { UiChip } from "../../ui/UiChip";
+import { UiDisclosureRow } from "../../ui/UiDisclosureRow";
 import { UiModeDiagram } from "../../ui/UiModeDiagram";
 import { UiNumberField } from "../../ui/UiNumberField";
 import { UiOptionCard } from "../../ui/UiOptionCard";
@@ -22,6 +23,7 @@ import {
   deletesIn,
   keepDaysOf,
   percentOf,
+  conflictTag,
   sortExcludes,
   type ArchiveDraft,
 } from "./draft";
@@ -70,6 +72,20 @@ function loserReason(conflicts: Conflicts, archive: boolean): ReactNode {
   return archive ? "Er wird ins Archiv verschoben." : "Ohne Archiv lässt er sich nicht wiederherstellen.";
 }
 
+/** The conflict rule in a few words, for the folded row. */
+function conflictSummary(conflicts: Conflicts): string {
+  const winner = conflictTag(conflicts);
+  if (conflicts.prefer === "none") return winner;
+  return `${winner} · Verlierer ${conflicts.loser === "keep" ? "umbenennen" : "löschen"}`;
+}
+
+/** The first patterns and how many more, for the folded row. */
+function excludesSummary(excludes: string[]): string {
+  if (excludes.length === 0) return "keine";
+  const shown = excludes.slice(0, 2).join(", ");
+  return excludes.length > 2 ? `${shown} und ${excludes.length - 2} weitere` : shown;
+}
+
 /** Step 3: how the two ends follow each other, what a conflict does, how much a run may delete, what it keeps, and what stays out. */
 export function ModeStep({
   mode,
@@ -86,6 +102,10 @@ export function ModeStep({
   shortcuts,
 }: ModeStepProps) {
   const [pattern, setPattern] = useState("");
+  // Conflict rules and archive stay folded until needed, so the step fits without scrolling.
+  const [openConflicts, setOpenConflicts] = useState(false);
+  const [openArchive, setOpenArchive] = useState(false);
+  const [openExcludes, setOpenExcludes] = useState(false);
   const ids = useId();
   const percentBad = percentOf(maxDeletePercent) === null;
   const twoWay = mode === "bidirectional";
@@ -143,35 +163,35 @@ export function ModeStep({
 
       <div className="hairline flex flex-col rounded-[var(--radius-panel)] bg-well">
         {twoWay ? (
-          <UiSettingRow
+          <UiDisclosureRow
             icon={Zap}
             title="Wenn eine Datei auf beiden Seiten geändert wurde"
-            control={
-              <span className="flex w-64">
-                <UiSelect
-                  label="Welche Fassung bei einem Konflikt gewinnt"
-                  value={conflicts.prefer}
-                  options={PREFER_CHOICES}
-                  onChange={(prefer) => onConflicts({ ...conflicts, prefer })}
-                />
+            summary={conflictSummary(conflicts)}
+            open={openConflicts}
+            onToggle={() => setOpenConflicts((value) => !value)}
+          >
+            <span className="flex w-64">
+              <UiSelect
+                label="Welche Fassung bei einem Konflikt gewinnt"
+                value={conflicts.prefer}
+                options={PREFER_CHOICES}
+                onChange={(prefer) => onConflicts({ ...conflicts, prefer })}
+              />
+            </span>
+            <div className="flex items-center gap-3">
+              <UiRadioSegments
+                label="Was mit dem Verlierer geschieht"
+                segments={loserSegments}
+                value={conflicts.loser}
+                onChange={(loser) => onConflicts({ ...conflicts, loser })}
+                disabled={noWinner}
+                describedBy={`${ids}-loser`}
+              />
+              <span id={`${ids}-loser`} className="min-w-0 text-[0.6875rem] leading-snug text-ink-faint">
+                {loserReason(conflicts, archive.enabled)}
               </span>
-            }
-            below={
-              <div className="flex items-center gap-3">
-                <UiRadioSegments
-                  label="Was mit dem Verlierer geschieht"
-                  segments={loserSegments}
-                  value={conflicts.loser}
-                  onChange={(loser) => onConflicts({ ...conflicts, loser })}
-                  disabled={noWinner}
-                  describedBy={`${ids}-loser`}
-                />
-                <span id={`${ids}-loser`} className="min-w-0 text-[0.6875rem] leading-snug text-ink-faint">
-                  {loserReason(conflicts, archive.enabled)}
-                </span>
-              </div>
-            }
-          />
+            </div>
+          </UiDisclosureRow>
         ) : null}
 
         {deletesIn(mode) ? (
@@ -202,56 +222,65 @@ export function ModeStep({
           />
         ) : null}
 
-        <UiSettingRow
+        <UiDisclosureRow
           icon={Archive}
           title="Gelöschtes und Überschriebenes aufheben"
-          description={
-            daysProblem ??
-            (archive.enabled ? (
-              <>
-                {beforeFolder} <span className="font-mono">{ARCHIVE_FOLDER}</span> {afterFolder}
-              </>
-            ) : (
-              "Was ein Lauf löscht oder überschreibt, lässt sich danach nicht wiederherstellen."
-            ))
-          }
-          descriptionId={`${ids}-days`}
+          summary={daysProblem ?? (archive.enabled ? `An · ${archive.keepDays} ${keepDaysOf(archive.keepDays) === 1 ? "Tag" : "Tage"}` : "Aus")}
           invalid={daysProblem !== null}
-          off={!archive.enabled}
-          control={<UiSwitch checked={archive.enabled} onChange={(enabled) => onArchive({ ...archive, enabled })} label="Gelöschtes und Überschriebenes aufheben" />}
-          inline={
-            <UiNumberField
-              label="Aufbewahrungsdauer in Tagen"
-              before="für"
-              after={keepDaysOf(archive.keepDays) === 1 ? "Tag" : "Tage"}
-              value={archive.keepDays}
-              onChange={(keepDays) => onArchive({ ...archive, keepDays })}
-              disabled={!archive.enabled}
-              invalid={daysProblem !== null}
-              min={1}
-              max={365}
-              describedBy={`${ids}-days`}
-            />
-          }
-        />
+          // An invalid number must stay in sight until it is fixed.
+          open={openArchive || daysProblem !== null}
+          onToggle={() => setOpenArchive((value) => !value)}
+        >
+          <div className="flex items-center gap-3">
+            <UiSwitch checked={archive.enabled} onChange={(enabled) => onArchive({ ...archive, enabled })} label="Gelöschtes und Überschriebenes aufheben" />
+            <div className={`flex items-center gap-1.5 text-xs transition-opacity ${archive.enabled ? "text-ink-soft" : "text-ink-faint opacity-60"}`}>
+              <UiNumberField
+                label="Aufbewahrungsdauer in Tagen"
+                before="für"
+                after={keepDaysOf(archive.keepDays) === 1 ? "Tag" : "Tage"}
+                value={archive.keepDays}
+                onChange={(keepDays) => onArchive({ ...archive, keepDays })}
+                disabled={!archive.enabled}
+                invalid={daysProblem !== null}
+                min={1}
+                max={365}
+                describedBy={`${ids}-days`}
+              />
+            </div>
+          </div>
+          <span id={`${ids}-days`} className={`text-[0.6875rem] leading-snug ${daysProblem ? "text-danger" : "text-ink-faint"}`}>
+            {daysProblem ??
+              (archive.enabled ? (
+                <>
+                  {beforeFolder} <span className="font-mono">{ARCHIVE_FOLDER}</span> {afterFolder}
+                </>
+              ) : (
+                "Was ein Lauf löscht oder überschreibt, lässt sich danach nicht wiederherstellen."
+              ))}
+          </span>
+        </UiDisclosureRow>
 
-        <UiSettingRow
+        <UiDisclosureRow
           icon={ListFilter}
           title="Ausschlüsse"
-          description="Endet ein Muster auf /, gilt es nur für Ordner; beginnt es mit /, nur für die oberste Ebene."
-          field={
-            <div className="flex flex-wrap items-center gap-1.5">
-              {excludes.map((item) => (
-                <UiChip key={item} mono onRemove={() => onExcludes(excludes.filter((other) => other !== item))} removeLabel={`${item} entfernen`}>
-                  {item}
-                </UiChip>
-              ))}
-              <span className="min-w-[10rem] flex-1" data-own-enter>
-                <UiInput value={pattern} onChange={setPattern} onKeyDown={onPatternKey} placeholder="Muster, zum Beispiel .DS_Store" mono />
-              </span>
-            </div>
-          }
-        />
+          summary={excludesSummary(excludes)}
+          open={openExcludes}
+          onToggle={() => setOpenExcludes((value) => !value)}
+        >
+          <div className="flex flex-wrap items-center gap-1.5">
+            {excludes.map((item) => (
+              <UiChip key={item} mono onRemove={() => onExcludes(excludes.filter((other) => other !== item))} removeLabel={`${item} entfernen`}>
+                {item}
+              </UiChip>
+            ))}
+            <span className="min-w-[10rem] flex-1" data-own-enter>
+              <UiInput value={pattern} onChange={setPattern} onKeyDown={onPatternKey} placeholder="Muster, zum Beispiel .DS_Store" mono />
+            </span>
+          </div>
+          <span className="text-[0.6875rem] leading-snug text-ink-faint">
+            Endet ein Muster auf /, gilt es nur für Ordner; beginnt es mit /, nur für die oberste Ebene.
+          </span>
+        </UiDisclosureRow>
       </div>
     </div>
   );

@@ -1084,16 +1084,21 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
   ];
   const twoWay: ModusStep[] = [...toArt, ["radio", "Beidseitig"]];
   const toName: ModusStep[] = [["button", "Weiter"], ["step", "Auslöser"], ["button", "Weiter"], ["step", "Name"]];
+  const CONFLICT_ROW = "Wenn eine Datei auf beiden Seiten geändert wurde";
+  const ARCHIVE_ROW = "Gelöschtes und Überschriebenes aufheben";
   const scenarios: Record<string, ModusStep[]> = {
     art: toArt,
     spiegel: [...toArt, ["radio", "Spiegel"]],
     backup: [...toArt, ["radio", "Backup"]],
     beidseitig: twoWay,
-    "beide-behalten": [...twoWay, ["select", "Welche Fassung bei einem Konflikt gewinnt", "none"]],
-    "verlierer-loeschen": [...twoWay, ["radio", "Verlierer löschen"]],
-    "archiv-aus": [...twoWay, ["button", "Gelöschtes und Überschriebenes aufheben"], ["scrollEnd"]],
-    "archiv-tage": [...toArt, ["radio", "Spiegel"], ["fill", "30", "7"]],
-    "archiv-ungueltig": [...toArt, ["radio", "Backup"], ["fill", "30", "400"]],
+    // Conflict rules and archive are folded rows; the first click on their title opens them.
+    "beidseitig-offen": [...twoWay, ["button", CONFLICT_ROW], ["button", ARCHIVE_ROW]],
+    "beide-behalten": [...twoWay, ["button", CONFLICT_ROW], ["select", "Welche Fassung bei einem Konflikt gewinnt", "none"]],
+    "verlierer-loeschen": [...twoWay, ["button", CONFLICT_ROW], ["radio", "Verlierer löschen"]],
+    // The second click finds the switch inside, whose label is exactly the row's title.
+    "archiv-aus": [...twoWay, ["button", ARCHIVE_ROW], ["button", ARCHIVE_ROW], ["scrollEnd"]],
+    "archiv-tage": [...toArt, ["radio", "Spiegel"], ["button", ARCHIVE_ROW], ["fill", "30", "7"]],
+    "archiv-ungueltig": [...toArt, ["radio", "Backup"], ["button", ARCHIVE_ROW], ["fill", "30", "400"]],
     zusammenfassung: [...twoWay, ...toName],
     angelegt: [...twoWay, ...toName, ["button", "Anlegen"], ["step", "angelegt"]],
     bearbeiten: [["stepper", "Art"], ["step", "Art"]],

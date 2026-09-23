@@ -160,9 +160,11 @@ export function suggestName(draft: Draft, config: Config | null, jobId: string |
   if (!draft.source || !draft.target) return "";
   const taken = (name: string) => nameTaken(name, config, jobId);
   const from = placeName(draft.source, config);
-  const short = `${from} → ${locationOf(draft.target, config)?.name ?? ""}`;
+  // Two-way jobs get ⇄, the others the one-way →.
+  const arrow = draft.mode === "bidirectional" ? "⇄" : "→";
+  const short = `${from} ${arrow} ${locationOf(draft.target, config)?.name ?? ""}`;
   if (!taken(short)) return short;
-  const long = `${from} → ${placeLabel(draft.target, config)}`;
+  const long = `${from} ${arrow} ${placeLabel(draft.target, config)}`;
   if (!taken(long)) return long;
   let number = 2;
   while (taken(`${long} (${number})`)) number += 1;
