@@ -37,7 +37,7 @@ export function UiButton({ children, onPress, variant = "secondary", icon: Icon,
     >
       {Icon ? <Icon className="size-4" strokeWidth={2.1} /> : null}
       {children}
-      {keys ? <UiKbd keys={keys} /> : null}
+      {keys ? <UiKbd keys={keys} inverse={variant === "primary"} /> : null}
     </button>
   );
 }

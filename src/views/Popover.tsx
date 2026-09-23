@@ -3,15 +3,15 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { clearError, useClonq, useNow } from "../hooks/useClonq";
 import { useHotkeys } from "../hooks/useHotkeys";
 import { api } from "../lib/api";
-import { formatBytes, formatReels } from "../lib/format";
+import { formatBytes } from "../lib/format";
 import { endpointLabel, messageLabel } from "../lib/labels";
 import { isRemote, isRunning, jobActions, jobLine } from "../lib/jobs";
-import { UiActionBar, UiActionPanel, UiEmpty, UiKbd, UiListRow, UiNotice, UiReel, UiSearchField } from "../ui";
+import { UiActionBar, UiActionPanel, UiButton, UiEmpty, UiKbd, UiListRow, UiNotice, UiReel, UiSearchField } from "../ui";
 import { ringOf } from "../ui/rings";
 import { toneText } from "../ui/tone";
 import { actionsFor } from "./jobActions";
 import { overallSummary } from "./summary";
-import { Disc3 } from "lucide-react";
+import { Disc3, ShieldAlert } from "lucide-react";
 
 export function Popover() {
   const state = useClonq();
@@ -126,7 +126,18 @@ export function Popover() {
         )}
         {job && latest?.message && !running && latest.status !== "succeeded" ? (
           <div className="px-1 pt-2">
-            <UiNotice tone={latest.status === "failed" ? "danger" : "warn"}>{messageLabel(latest.message)}</UiNotice>
+            <UiNotice
+              tone={latest.status === "failed" ? "danger" : "warn"}
+              actions={
+                latest.status === "blocked" && !isRemote(job) ? (
+                  <UiButton variant="danger" icon={ShieldAlert} onPress={() => void jobActions.force(job.id)}>
+                    Trotzdem ausführen
+                  </UiButton>
+                ) : undefined
+              }
+            >
+              {messageLabel(latest.message)}
+            </UiNotice>
           </div>
         ) : null}
       </div>
@@ -135,9 +146,9 @@ export function Popover() {
         status={
           <>
             <span className={`size-1.5 shrink-0 rounded-full bg-current ${toneText[summary.tone]}`} />
-            <span className="truncate">
-              {summary.text}
-              {today > 0 ? ` · heute ${formatBytes(today)} ≈ ${formatReels(today)}` : ""}
+            <span className="truncate" title={summary.text}>
+              {summary.short}
+              {today > 0 ? ` · heute ${formatBytes(today)}` : ""}
             </span>
           </>
         }

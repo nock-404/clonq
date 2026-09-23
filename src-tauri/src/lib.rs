@@ -20,7 +20,7 @@ pub const POPOVER: &str = "popover";
 pub const MAIN: &str = "main";
 
 /// Corner radius of the glass popover, in points.
-const POPOVER_RADIUS: f64 = 16.0;
+const POPOVER_RADIUS: f64 = 12.0;
 
 pub struct AppState {
     pub config: RwLock<Config>,

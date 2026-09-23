@@ -1,4 +1,6 @@
-import type { Config, LiveRun, Run } from "../src/lib/types";
+// Dev-only: made-up data that exercises every state of the UI. The app itself only shows real numbers.
+
+import type { Config, DayChange, JobStats, LiveRun, Overview, Run, RunDetail, Sample } from "../src/lib/types";
 
 export type SceneName = "idle" | "running" | "blocked" | "failed" | "fresh";
 
@@ -7,6 +9,8 @@ interface Scene {
   live: LiveRun[];
   latest: Run[];
   recent: Run[];
+  stats: Record<string, JobStats>;
+  overview: Overview;
 }
 
 const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
@@ -14,6 +18,7 @@ const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).
 const config: Config = {
   version: 1,
   rsyncPath: "/opt/homebrew/bin/rsync",
+  ui: { accent: "amber", lamps: true },
   hosts: [],
   jobs: [
     {
@@ -25,6 +30,7 @@ const config: Config = {
       mode: "mirror",
       excludes: ["node_modules/"],
       safety: { maxDeletePercent: 10, alwaysAllowedDeletions: 10 },
+      ring: "blue",
     },
     {
       id: "work-to-storagebox",
@@ -35,6 +41,7 @@ const config: Config = {
       mode: "mirror",
       excludes: ["node_modules/"],
       safety: { maxDeletePercent: 10, alwaysAllowedDeletions: 10 },
+      ring: "green",
     },
     {
       id: "m2mini-to-storagebox",
@@ -45,6 +52,7 @@ const config: Config = {
       mode: "mirror",
       excludes: ["node_modules/", "/WORK/"],
       safety: { maxDeletePercent: 10, alwaysAllowedDeletions: 10 },
+      ring: "red",
     },
   ],
 };
@@ -53,13 +61,21 @@ function run(partial: Partial<Run> & Pick<Run, "id" | "jobId" | "status">): Run 
   return {
     trigger: "manual",
     dryRun: false,
-    startedAt: minutesAgo(3),
-    finishedAt: minutesAgo(2),
-    filesTotal: 18_420,
-    filesTransferred: 14,
-    filesDeleted: 2,
-    bytesTransferred: 48_300_000,
-    targetEntries: 18_420,
+    startedAt: minutesAgo(33),
+    finishedAt: minutesAgo(31),
+    filesTotal: 184_420,
+    filesTransferred: 1_214,
+    filesNew: 902,
+    filesChanged: 312,
+    filesDeleted: 41,
+    bytesTransferred: 1_480_000_000,
+    bytesNew: 1_120_000_000,
+    bytesChanged: 360_000_000,
+    sourceBytes: 96_400_000_000,
+    literalBytes: 1_480_000_000,
+    matchedBytes: 0,
+    wireBytes: 1_492_000_000,
+    targetEntries: 184_420,
     exitCode: 0,
     message: null,
     logPath: "",
@@ -67,18 +83,13 @@ function run(partial: Partial<Run> & Pick<Run, "id" | "jobId" | "status">): Run 
   };
 }
 
+const samples: Sample[] = Array.from({ length: 90 }, (_, i) => [
+  i * 1000,
+  Math.round(i * 16_000_000 + Math.sin(i / 5) * 9_000_000 + i * i * 20_000),
+  i * 13,
+]);
+
 const succeeded = run({ id: "r1", jobId: "work-to-m2mini", status: "succeeded" });
-const dry = run({
-  id: "r0",
-  jobId: "work-to-m2mini",
-  status: "succeeded",
-  dryRun: true,
-  startedAt: minutesAgo(1),
-  finishedAt: minutesAgo(1),
-  filesTransferred: 3,
-  filesDeleted: 0,
-  bytesTransferred: 1_200_000,
-});
 const blocked = run({
   id: "r2",
   jobId: "work-to-m2mini",
@@ -92,11 +103,47 @@ const failed = run({
   jobId: "work-to-m2mini",
   status: "failed",
   exitCode: null,
-  filesTransferred: 0,
+  filesNew: 0,
+  filesChanged: 0,
   filesDeleted: 0,
-  bytesTransferred: 0,
+  bytesNew: 0,
+  bytesChanged: 0,
   message: "source /Users/matthias/Desktop/WORK does not exist",
 });
+
+const detail: RunDetail = {
+  ...succeeded,
+  samples,
+  folders: [
+    { folder: "GM8/clonq", files: 412, bytes: 612_000_000 },
+    { folder: "Projekte/wetterstation", files: 380, bytes: 402_000_000 },
+    { folder: "GM8/matthiasg.rocks", files: 96, bytes: 210_000_000 },
+    { folder: "Musik/kunde-x", files: 41, bytes: 98_000_000 },
+  ],
+};
+
+const daily: DayChange[] = Array.from({ length: 30 }, (_, i) => {
+  const date = new Date(Date.now() - (29 - i) * 86_400_000);
+  const bytes = i % 7 === 5 || i % 7 === 6 ? 0 : Math.round(200_000_000 + Math.abs(Math.sin(i * 1.7)) * 2_400_000_000);
+  return { day: date.toISOString().slice(0, 10), bytes, files: Math.round(bytes / 900_000), runs: bytes > 0 ? 2 : 0 };
+});
+
+function statsFor(jobId: string, withRuns: boolean): JobStats {
+  return {
+    jobId,
+    lastSuccessAt: withRuns ? minutesAgo(31) : null,
+    streak: withRuns ? 41 : 0,
+    runsTotal: withRuns ? 44 : 0,
+    runsCompleted: withRuns ? 43 : 0,
+    averageSeconds: withRuns ? 142 : null,
+    last: withRuns ? { ...detail, jobId } : null,
+    daily: withRuns ? daily : daily.map((day) => ({ ...day, bytes: 0, files: 0, runs: 0 })),
+    topFolders: withRuns ? detail.folders : [],
+    totals: withRuns
+      ? { runs: 43, files: 2_104_380, bytes: 1_412_000_000_000, wireBytes: 1_398_000_000_000, deleted: 12_031 }
+      : { runs: 0, files: 0, bytes: 0, wireBytes: 0, deleted: 0 },
+  };
+}
 
 const running: LiveRun = {
   runId: "live1",
@@ -110,15 +157,32 @@ const running: LiveRun = {
   filesDone: 11_420,
   filesTotal: 18_420,
   filesDeleted: 3,
+  filesNew: 812,
+  filesChanged: 204,
+  filesPerSecond: 2_340,
+  throughput: Array.from({ length: 42 }, (_, i) => 120_000_000 + Math.sin(i / 3) * 60_000_000 + i * 900_000),
+  recentPaths: [
+    "GM8/matthiasg.rocks/public/images/halftone-portrait@2x.png",
+    "GM8/clonq/src/ui/ReelShape.tsx",
+    "Projekte/wetterstation/docs/migration-status.md",
+  ],
   currentPath: "GM8/matthiasg.rocks/public/images/halftone-portrait@2x.png",
   status: "running",
   message: null,
 };
 
+const allStats = (withRuns: boolean) =>
+  Object.fromEntries(config.jobs.map((job) => [job.id, statsFor(job.id, withRuns && job.id === "work-to-m2mini")]));
+
+const overview = (withRuns: boolean): Overview =>
+  withRuns
+    ? { totals: statsFor("x", true).totals, todayBytes: 3_420_000_000, todayFiles: 4_210, todayRuns: 3 }
+    : { totals: { runs: 0, files: 0, bytes: 0, wireBytes: 0, deleted: 0 }, todayBytes: 0, todayFiles: 0, todayRuns: 0 };
+
 export const scenes: Record<SceneName, Scene> = {
-  fresh: { config, live: [], latest: [], recent: [] },
-  idle: { config, live: [], latest: [succeeded], recent: [dry, succeeded, failed] },
-  running: { config, live: [running], latest: [succeeded], recent: [succeeded] },
-  blocked: { config, live: [], latest: [blocked], recent: [blocked, succeeded] },
-  failed: { config, live: [], latest: [failed], recent: [failed, blocked, succeeded, dry] },
+  fresh: { config, live: [], latest: [], recent: [], stats: allStats(false), overview: overview(false) },
+  idle: { config, live: [], latest: [succeeded], recent: [succeeded, failed], stats: allStats(true), overview: overview(true) },
+  running: { config, live: [running], latest: [succeeded], recent: [succeeded], stats: allStats(true), overview: overview(true) },
+  blocked: { config, live: [], latest: [blocked], recent: [blocked, succeeded], stats: allStats(true), overview: overview(true) },
+  failed: { config, live: [], latest: [failed], recent: [failed, blocked, succeeded], stats: allStats(true), overview: overview(true) },
 };

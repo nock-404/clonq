@@ -47,9 +47,9 @@ gezeigt, geprüft und auf ein Okay gewartet.
 
 | Nr. | Inhalt | Stand |
 |---|---|---|
-| 1 | Grundgerüst: Menüleisten-Icon mit Glas-Popover, Hauptfenster, UI-Bausteine, Jobs aus der Konfiguration, rsync-Engine für Spiegel und Backup (lokal) mit Live-Fortschritt, Probelauf und Schutzschwelle, Start per Knopf, Läufe in SQLite | in Arbeit |
+| 1 | Grundgerüst: Menüleiste, Hauptfenster (Raycast-Stil mit Datenspulen), rsync-Engine für Spiegel und Backup (lokal) mit Live-Fortschritt, Probelauf, Schutzschwelle, Kennzahlen und Statistik, Läufe in SQLite | fertig, Spulen-Feinschliff läuft |
 | 2 | Storage Box: SSH-Host anlegen, Schlüssel, Verbindungstest, Remote-Jobs | offen |
-| 3 | Auslöser: Anstecken, Zeitplan, Änderungen, Ketten; Autostart; Mitteilungen | offen |
+| 3 | Auslöser: Anstecken, Zeitplan, Änderungen, Ketten; Autostart; Mitteilungen | in Arbeit |
 | 4 | Verlauf-Ansicht mit Log pro Lauf, Probelauf-Vorschau Datei für Datei | offen |
 | 5 | Job-Editor: Modus, Quelle/Ziel, Ausschlüsse, Schwelle, Archiv | offen |
 | 6 | Archiv für Gelöschtes und Überschriebenes, Wiederherstellen | offen |

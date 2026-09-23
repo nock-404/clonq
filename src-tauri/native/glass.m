@@ -32,6 +32,8 @@ void clonq_apply_glass(void *ns_window, double corner_radius) {
     NSGlassEffectView *glass = [[NSGlassEffectView alloc] initWithFrame:[content bounds]];
     [glass setCornerRadius:corner_radius];
     [glass setStyle:NSGlassEffectViewStyleRegular];
+    // A dark tint keeps the desktop from shining through; only a trace of the glass remains.
+    [glass setTintColor:[NSColor colorWithWhite:0.08 alpha:0.7]];
     backdrop = glass;
   } else {
     NSVisualEffectView *frost = [[NSVisualEffectView alloc] initWithFrame:[content bounds]];

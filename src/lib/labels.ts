@@ -46,11 +46,11 @@ export function messageLabel(message: string): string {
     [/^volume (.+) is not connected$/, (m) => `${tidy(m[1])} ist nicht angeschlossen`],
     [
       /^would delete (\d+) of (\d+) entries on the target \(([\d.]+) %\), limit is ([\d.]+) %$/,
-      (m) => `Würde ${m[1]} von ${m[2]} Einträgen im Ziel löschen (${m[3]} %), erlaubt sind ${m[4]} %`,
+      (m) => `Würde ${count(m[1])} von ${count(m[2])} Einträgen im Ziel löschen (${decimal(m[3])} %), erlaubt sind ${decimal(m[4])} %`,
     ],
     [
       /^deletion limit reached \((\d+) allowed\), the remaining deletions were skipped$/,
-      (m) => `Löschgrenze erreicht (${m[1]} erlaubt) – weitere Löschungen wurden übersprungen`,
+      (m) => `Löschgrenze erreicht (${count(m[1])} erlaubt) – weitere Löschungen wurden übersprungen`,
     ],
     [/^remote endpoints arrive with the Storage Box connection/, () => "Die Storage Box ist noch nicht verbunden"],
     [/^the app quit during this run$/, () => "clonq wurde während des Laufs beendet"],
@@ -60,6 +60,14 @@ export function messageLabel(message: string): string {
     if (match) return render(match);
   }
   return message;
+}
+
+function count(digits: string | undefined): string {
+  return Number(digits ?? 0).toLocaleString("de-DE");
+}
+
+function decimal(value: string | undefined): string {
+  return Number(value ?? 0).toLocaleString("de-DE", { maximumFractionDigits: 1 });
 }
 
 function tidy(path: string | undefined): string {

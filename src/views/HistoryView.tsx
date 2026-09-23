@@ -1,9 +1,11 @@
 import { Clock } from "lucide-react";
 import type { ClonqState } from "../hooks/useClonq";
-import { formatBytes, formatCount, formatDateTime, formatDuration, runDurationSeconds } from "../lib/format";
+import { formatBytes, formatCount, formatDateTime, formatDuration } from "../lib/format";
 import { messageLabel, statusLabel, statusTone } from "../lib/labels";
+import { durationSeconds } from "../lib/runs";
 import type { Run } from "../lib/types";
-import { UiBadge, UiEmpty, UiTable, UiText, type UiColumn } from "../ui";
+import { UiBadge, UiEmpty, UiTable, type UiColumn } from "../ui";
+import { ringBg, ringOf } from "../ui/rings";
 
 interface HistoryViewProps {
   state: ClonqState;
@@ -14,33 +16,39 @@ const triggerLabel: Record<string, string> = {
 };
 
 export function HistoryView({ state }: HistoryViewProps) {
-  const jobName = (jobId: string) => state.config?.jobs.find((job) => job.id === jobId)?.name ?? jobId;
+  const jobs = state.config?.jobs ?? [];
+  const jobOf = (jobId: string) => {
+    const index = jobs.findIndex((job) => job.id === jobId);
+    return { job: jobs[index], index };
+  };
 
   const columns: UiColumn<Run>[] = [
     {
       key: "when",
       header: "Start",
       width: "w-36",
-      render: (run) => <UiText variant="caption">{formatDateTime(run.startedAt)}</UiText>,
+      render: (run) => <span className="text-xs text-ink-soft tabular">{formatDateTime(run.startedAt)}</span>,
     },
     {
       key: "job",
       header: "Job",
-      render: (run) => (
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <UiText variant="label" truncate>
-              {jobName(run.jobId)}
-            </UiText>
-            {run.dryRun ? <UiBadge tone="accent">Probelauf</UiBadge> : null}
+      render: (run) => {
+        const { job, index } = jobOf(run.jobId);
+        return (
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className={`size-2 shrink-0 rounded-full ${ringBg[ringOf(job?.ring ?? null, Math.max(index, 0))]}`} />
+              <span className="truncate text-xs font-medium">{job?.name ?? run.jobId}</span>
+              {run.dryRun ? <UiBadge tone="accent">Probelauf</UiBadge> : null}
+            </div>
+            {run.message ? (
+              <span className="truncate text-[0.6875rem] text-ink-faint" title={messageLabel(run.message)}>
+                {messageLabel(run.message)}
+              </span>
+            ) : null}
           </div>
-          {run.message ? (
-            <UiText variant="caption" tone={statusTone[run.status]} truncate title={messageLabel(run.message)}>
-              {messageLabel(run.message)}
-            </UiText>
-          ) : null}
-        </div>
-      ),
+        );
+      },
     },
     {
       key: "status",
@@ -52,22 +60,21 @@ export function HistoryView({ state }: HistoryViewProps) {
       key: "trigger",
       header: "Auslöser",
       width: "w-24",
-      render: (run) => (
-        <UiText variant="caption" tone="neutral">
-          {triggerLabel[run.trigger] ?? run.trigger}
-        </UiText>
-      ),
+      render: (run) => <span className="text-xs text-ink-faint">{triggerLabel[run.trigger] ?? run.trigger}</span>,
     },
     {
       key: "files",
-      header: "Dateien",
-      width: "w-28",
+      header: "Neu / geändert / gelöscht",
+      width: "w-44",
       align: "end",
       render: (run) => (
-        <UiText variant="caption">
-          {formatCount(run.filesTransferred)}
-          {run.filesDeleted > 0 ? ` / −${formatCount(run.filesDeleted)}` : ""}
-        </UiText>
+        <span className="text-xs tabular">
+          <span className="text-ok">{formatCount(run.filesNew)}</span>
+          <span className="text-ink-faint"> / </span>
+          <span className="text-accent">{formatCount(run.filesChanged)}</span>
+          <span className="text-ink-faint"> / </span>
+          <span className="text-danger">{formatCount(run.filesDeleted)}</span>
+        </span>
       ),
     },
     {
@@ -75,30 +82,29 @@ export function HistoryView({ state }: HistoryViewProps) {
       header: "Menge",
       width: "w-24",
       align: "end",
-      render: (run) => <UiText variant="caption">{formatBytes(run.bytesTransferred)}</UiText>,
+      render: (run) => <span className="text-xs tabular">{formatBytes(run.bytesNew + run.bytesChanged)}</span>,
     },
     {
       key: "duration",
       header: "Dauer",
-      width: "w-24",
+      width: "w-20",
       align: "end",
       render: (run) => {
-        const seconds = runDurationSeconds(run.startedAt, run.finishedAt);
-        return (
-          <UiText variant="caption" tone="neutral">
-            {seconds === null ? "läuft" : formatDuration(seconds)}
-          </UiText>
-        );
+        const seconds = durationSeconds(run);
+        return <span className="text-xs text-ink-faint tabular">{seconds === null ? "läuft" : formatDuration(seconds)}</span>;
       },
     },
   ];
 
   return (
-    <UiTable
-      columns={columns}
-      rows={state.recent}
-      rowKey={(run) => run.id}
-      empty={<UiEmpty icon={Clock} title="Noch keine Läufe" detail="Jeder Lauf erscheint hier, auch Probeläufe." />}
-    />
+    <div className="flex flex-col gap-4">
+      <h1 className="text-xl font-semibold tracking-tight">Verlauf</h1>
+      <UiTable
+        columns={columns}
+        rows={state.recent}
+        rowKey={(run) => run.id}
+        empty={<UiEmpty icon={Clock} title="Noch keine Läufe" detail="Jeder Lauf erscheint hier, auch Probeläufe." />}
+      />
+    </div>
   );
 }

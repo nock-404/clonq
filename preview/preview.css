@@ -1,4 +1,4 @@
-/* Dev-only: stands in for the native glass and the desktop behind it. */
+/* Dev-only: a colourful desktop behind the window, to judge how see-through it is. */
 .preview-desktop {
   background:
     radial-gradient(circle at 20% 20%, oklch(0.75 0.15 30), transparent 45%),
@@ -7,29 +7,20 @@
     oklch(0.55 0.05 260);
 }
 
-.preview-glass {
-  background: oklch(0.97 0 0 / 0.55);
-  backdrop-filter: blur(1.75rem) saturate(1.6);
-  border-radius: 1rem;
-  overflow: hidden;
-  box-shadow: 0 1.25rem 3rem oklch(0 0 0 / 0.3);
-}
-
-@media (prefers-color-scheme: dark) {
-  .preview-glass {
-    background: oklch(0.22 0.01 260 / 0.55);
-  }
-}
-
 /* Window sizes from tauri.conf.json (380×520 and 1040×680 points). */
-#root.preview-glass[data-frame="popover"] {
+#root.preview-frame {
+  margin: 2.5rem;
+  overflow: hidden;
+  border-radius: 0.75rem;
+  box-shadow: 0 1.25rem 3rem oklch(0 0 0 / 0.45);
+}
+
+#root.preview-frame[data-frame="popover"] {
   width: 23.75rem;
   height: 32.5rem;
-  margin: 2.5rem;
 }
 
-#root.preview-glass[data-frame="main"] {
+#root.preview-frame[data-frame="main"] {
   width: 65rem;
   height: 42.5rem;
-  margin: 2.5rem;
 }
