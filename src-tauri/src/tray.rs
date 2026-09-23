@@ -4,14 +4,30 @@ use tauri::image::Image;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, PhysicalPosition, Rect};
 
-use crate::POPOVER;
+use crate::{AppState, POPOVER};
 
 /// Gap between the menu bar and the popover, in points.
 const GAP: f64 = 6.0;
 
+const TRAY_ID: &str = "clonq";
+
+/// The reel in the menu bar at 0°, 40° and 80°; with three windows, 120° looks like 0° again.
+const FRAMES: [&[u8]; 3] = [
+    include_bytes!("../icons/tray.png"),
+    include_bytes!("../icons/tray-40.png"),
+    include_bytes!("../icons/tray-80.png"),
+];
+
+/// While a job runs, the reel moves like a tape drive: a kick of one window step, a hold, again.
+/// Each entry is the frame to show and how long it stays, in milliseconds.
+const KICKS: [(usize, u64); 6] = [(1, 260), (2, 420), (0, 180), (1, 520), (2, 240), (0, 380)];
+
+/// How often the idle icon checks whether a job has started.
+const IDLE_POLL: std::time::Duration = std::time::Duration::from_millis(400);
+
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
-    TrayIconBuilder::with_id("clonq")
-        .icon(Image::from_bytes(include_bytes!("../icons/tray.png"))?)
+    TrayIconBuilder::with_id(TRAY_ID)
+        .icon(Image::from_bytes(FRAMES[0])?)
         .icon_as_template(true)
         .tooltip("clonq")
         .show_menu_on_left_click(false)
@@ -27,6 +43,33 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
             }
         })
         .build(app)?;
+    animate(app.clone())?;
+    Ok(())
+}
+
+/// Turns the menu bar reel while any job runs and puts it back to rest afterwards.
+fn animate(app: AppHandle) -> tauri::Result<()> {
+    let frames = FRAMES.map(Image::from_bytes).into_iter().collect::<tauri::Result<Vec<_>>>()?;
+    tauri::async_runtime::spawn(async move {
+        let mut shown = 0;
+        let mut step = 0;
+        loop {
+            let busy = app.state::<AppState>().engine.busy();
+            let (frame, hold) = if busy {
+                step = (step + 1) % KICKS.len();
+                (KICKS[step].0, std::time::Duration::from_millis(KICKS[step].1))
+            } else {
+                (0, IDLE_POLL)
+            };
+            if frame != shown {
+                if let Some(tray) = app.tray_by_id(TRAY_ID) {
+                    let _ = tray.set_icon(Some(frames[frame].clone()));
+                }
+                shown = frame;
+            }
+            tokio::time::sleep(hold).await;
+        }
+    });
     Ok(())
 }
 

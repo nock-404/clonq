@@ -1,3 +1,4 @@
+import { getVersion } from "@tauri-apps/api/app";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { useEffect, useState } from "react";
 import type { ClonqState } from "../hooks/useClonq";
@@ -5,6 +6,7 @@ import { reportError } from "../hooks/useClonq";
 import { api } from "../lib/api";
 import type { Accent, Reels, UiSettings } from "../lib/types";
 import { UiPanel, UiSegmented, UiSwitch, type UiSegment } from "../ui";
+import { UiLogo } from "../ui/UiLogo";
 import { UiReel as LichtReel } from "../ui/reels/licht/UiReel";
 import { UiReel as PraezisionReel } from "../ui/reels/praezision/UiReel";
 import { UiReel as VakuumReel } from "../ui/reels/vakuum/UiReel";
@@ -28,8 +30,10 @@ const reelStyles: UiSegment<Reels>[] = [
 
 export function SettingsView({ state }: SettingsViewProps) {
   const [autostart, setAutostart] = useState<boolean | null>(null);
+  const [version, setVersion] = useState<string | null>(null);
   useEffect(() => {
     isEnabled().then(setAutostart).catch(() => setAutostart(null));
+    getVersion().then(setVersion).catch(() => setVersion(null));
   }, []);
   const ui = state.config?.ui;
   if (!ui || !state.config) return null;
@@ -66,6 +70,15 @@ export function SettingsView({ state }: SettingsViewProps) {
             Probleme bei automatischen Läufen meldet clonq immer. Auf Wunsch auch jeden erfolgreichen Lauf.
           </span>
           <UiSwitch label="Erfolgreiche Läufe melden" checked={ui.notifySuccess} onChange={(notifySuccess) => save({ notifySuccess })} />
+        </div>
+      </UiPanel>
+      <UiPanel title="Über clonq">
+        <div className="flex items-center gap-4">
+          <UiLogo variant="icon" size="md" />
+          <div className="flex flex-col gap-1">
+            <UiLogo variant="wordmark" size="sm" label="clonq" />
+            {version ? <span className="font-mono text-xs text-ink-faint">Version {version}</span> : null}
+          </div>
         </div>
       </UiPanel>
       <UiPanel title="Werkzeuge">

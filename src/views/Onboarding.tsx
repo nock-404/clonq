@@ -4,6 +4,7 @@ import { formatBytes } from "../lib/format";
 import { openSheet } from "../lib/nav";
 import { UiButton, UiChoiceCard, UiReelPair } from "../ui";
 import { UiLocationGlyph } from "../ui/UiLocationGlyph";
+import { UiLogo } from "../ui/UiLogo";
 
 interface OnboardingProps {
   state: ClonqState;
@@ -22,6 +23,7 @@ export function Onboarding({ state }: OnboardingProps) {
         <UiReelPair ring="blue" progress={0} running={false} label="Leeres Band" />
       </div>
       <div className="flex max-w-md flex-col gap-4">
+        {hasLocations ? null : <UiLogo variant="wordmark" size="md" label="clonq" />}
         <h1 className="text-2xl font-semibold tracking-tight">{hasLocations ? "Jetzt der erste Job" : "Noch ist kein Band eingelegt"}</h1>
         <p className="text-[0.8125rem] leading-relaxed text-ink-soft">
           {hasLocations

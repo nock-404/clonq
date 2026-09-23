@@ -7,6 +7,7 @@ import { formatBytes } from "../lib/format";
 import { messageLabel, placeLabel } from "../lib/labels";
 import { isRunning, jobActions, jobLine, jobReady } from "../lib/jobs";
 import { UiActionBar, UiActionPanel, UiButton, UiEmpty, UiKbd, UiListRow, UiNotice, UiReel, UiSearchField } from "../ui";
+import { UiLogo } from "../ui/UiLogo";
 import { ringOf } from "../ui/rings";
 import { toneText } from "../ui/tone";
 import { actionsFor } from "./jobActions";
@@ -160,6 +161,7 @@ export function Popover() {
       <UiActionBar
         status={
           <>
+            <UiLogo variant="mark" size="xs" label="clonq" />
             <span className={`size-1.5 shrink-0 rounded-full bg-current ${toneText[summary.tone]}`} />
             <span className="truncate" title={summary.text}>
               {summary.short}

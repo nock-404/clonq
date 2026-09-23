@@ -115,6 +115,11 @@ impl Engine {
         active.values().map(|entry| entry.live.clone()).collect()
     }
 
+    /// Whether any job is running right now.
+    pub fn busy(&self) -> bool {
+        !self.active.lock().expect("active lock").is_empty()
+    }
+
     pub fn cancel(&self, job_id: &str) -> bool {
         let active = self.active.lock().expect("active lock");
         match active.get(job_id) {

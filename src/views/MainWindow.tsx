@@ -7,6 +7,7 @@ import { isRunning } from "../lib/jobs";
 import { closeSheet, navigate, openSheet, useNav } from "../lib/nav";
 import { reachLabel } from "../lib/labels";
 import { UiIconButton, UiNavItem, UiNotice, UiReel } from "../ui";
+import { UiLogo } from "../ui/UiLogo";
 import { UiLocationGlyph } from "../ui/UiLocationGlyph";
 import { ringOf } from "../ui/rings";
 import { toneText } from "../ui/tone";
@@ -45,7 +46,11 @@ export function MainWindow() {
 
   return (
     <div className="relative flex h-full bg-canvas text-ink">
-      <aside className="hairline-r flex w-60 shrink-0 flex-col gap-0.5 overflow-y-auto bg-well px-2.5 pt-12 pb-3" data-tauri-drag-region>
+      <aside className="hairline-r flex w-60 shrink-0 flex-col gap-0.5 overflow-y-auto bg-well px-2.5 pt-3.5 pb-3" data-tauri-drag-region>
+        {/* Level with the traffic lights, on the right; the whole strip stays a drag area. */}
+        <div className="mb-2.5 flex h-8 shrink-0 justify-end pr-1.5" data-tauri-drag-region>
+          <UiLogo variant="wordmark" size="md" label="clonq" />
+        </div>
         <UiNavItem icon={LayoutGrid} label="Übersicht" active={section.kind === "overview"} onPress={() => navigate({ kind: "overview" })} />
 
         <SidebarHeading label="Jobs" onAdd={locations.length > 0 ? () => openSheet({ kind: "jobWizard" }) : undefined} addLabel="Job anlegen" />
