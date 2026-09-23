@@ -1,4 +1,5 @@
 import { FlaskConical, Play, ShieldAlert, Square } from "lucide-react";
+import type { KeyboardEvent } from "react";
 import type { ClonqState } from "../hooks/useClonq";
 import { useHotkeys } from "../hooks/useHotkeys";
 import {
@@ -14,8 +15,10 @@ import {
 import { isRunning, jobActions, jobReady, progressLine } from "../lib/jobs";
 import { locationOf, messageLabel, reachLabel, statusLabel } from "../lib/labels";
 import { durationSeconds, ratesOf, savedPercent } from "../lib/runs";
+import { openSheet } from "../lib/nav";
 import type { Job } from "../lib/types";
 import {
+  UiBadge,
   UiBars,
   UiButton,
   UiCounter,
@@ -27,8 +30,11 @@ import {
   UiReelPair,
   UiSparkline,
   UiStat,
+  UiText,
 } from "../ui";
+import { UiLinkButton } from "../ui/UiLinkButton";
 import { ringOf } from "../ui/rings";
+import { ArchivePanel } from "./ArchivePanel";
 import { JobHeader } from "./jobs/JobHeader";
 
 interface JobDetailProps {
@@ -239,6 +245,39 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
           {durationSeconds(latest) !== null ? ` · ${formatDuration(durationSeconds(latest) ?? 0)}` : ""}
         </span>
       ) : null}
+
+      {/* ↵ on a link, list, field or button in the archive belongs to it; it never starts the job. */}
+      <div onKeyDown={keepEnter}>
+        <UiPanel title="Archiv">
+          <div className="flex min-w-0 items-center gap-2">
+            <UiBadge>{job.archive.enabled ? "An" : "Aus"}</UiBadge>
+            <UiText tone="neutral" truncate>
+              {archiveSentence(job)}
+            </UiText>
+            <UiLinkButton onPress={() => openSheet({ kind: "jobWizard", jobId: job.id })}>Ändern</UiLinkButton>
+          </div>
+          <ArchivePanel
+            job={job}
+            revision={`${latest?.id ?? ""}:${latest?.finishedAt ?? ""}`}
+            target={locationOf(job.target, state.config)}
+            reach={state.locations[job.target.location]?.reach}
+            now={now}
+          />
+        </UiPanel>
+      </div>
     </div>
   );
+}
+
+/** Stops a plain ↵ before it reaches the view's hotkeys, which would start the job and swallow the key. */
+function keepEnter(event: KeyboardEvent<HTMLElement>) {
+  if (event.key === "Enter" && !event.metaKey) event.stopPropagation();
+}
+
+/** The archive setting as one sentence. A two-way job keeps an archive on both sides. */
+function archiveSentence(job: Job): string {
+  const { enabled, keepDays } = job.archive;
+  if (!enabled) return "Gelöschtes und Überschriebenes wird nicht aufbewahrt.";
+  const days = keepDays === 1 ? "einen Tag" : `${formatCount(keepDays)} Tage`;
+  return `Gelöschtes und Überschriebenes bleibt ${days} lang ${job.mode === "bidirectional" ? "auf beiden Seiten" : "im Ziel"} erhalten.`;
 }

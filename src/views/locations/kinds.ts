@@ -42,7 +42,7 @@ export const KINDS: KindInfo[] = [
     short: "Ein Rechner, der per SSH erreichbar ist",
     long: "Zum Beispiel eine Hetzner Storage Box. clonq meldet sich mit einem eigenen Schlüssel an. Das Passwort wird nur einmal gebraucht, um diesen Schlüssel zu hinterlegen.",
     needs: "Du brauchst Adresse, Benutzernamen und einmalig das Passwort.",
-    lamps: ["Schlüssel", "Hinterlegt", "Getestet", "Ordner"],
+    lamps: ["Echtheit", "Hinterlegt", "Getestet", "Ordner"],
   },
   {
     kind: "smb",

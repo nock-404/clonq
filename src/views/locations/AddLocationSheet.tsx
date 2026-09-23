@@ -105,6 +105,7 @@ function AddLocationFlow({ open, preset, onClose, onAdded }: AddLocationSheetPro
       event.stopPropagation();
       if (discarding) setDiscarding(false);
       else if (setup?.abandon) setup.abandon();
+      else if (setup?.back) setup.back();
       else if (setup && !setup.final) back();
       else requestClose();
       return;
@@ -116,7 +117,14 @@ function AddLocationFlow({ open, preset, onClose, onAdded }: AddLocationSheetPro
       if (target instanceof HTMLButtonElement) return;
       event.preventDefault();
       if (discarding) onClose();
-      else if (!action.disabled) action.run();
+      else if (!action.disabled && action.enter !== false) action.run();
+      return;
+    }
+    // A confirmation that plain Enter must not give takes ⌘↵ instead.
+    if (event.key === "Enter" && event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.isComposing && action.enter === false) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!discarding && !action.disabled) action.run();
       return;
     }
     if (discarding) return;
@@ -188,7 +196,7 @@ function AddLocationFlow({ open, preset, onClose, onAdded }: AddLocationSheetPro
           {setup.secondary.label}
         </UiButton>
       ) : null}
-      <UiButton variant="primary" icon={action.icon} keys={action.disabled ? undefined : ["↵"]} disabled={action.disabled} onPress={action.run}>
+      <UiButton variant="primary" icon={action.icon} keys={action.disabled ? undefined : action.enter === false ? ["⌘", "↵"] : ["↵"]} disabled={action.disabled} onPress={action.run}>
         {action.label}
       </UiButton>
     </>

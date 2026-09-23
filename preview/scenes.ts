@@ -337,3 +337,25 @@ export const orteNewDrives: MountedVolume[] = [
   },
 ];
 // --- end Orte --------------------------------------------------------------------------------
+
+// --- Modus (two-way sync, conflict rules, archive in the job wizard) --------------------------
+// A two-way job with rules other than the defaults, so that editing it shows its saved rules.
+// preview.tsx adds it to a scene only when asked (?modusJob=1).
+
+import type { Job } from "../src/lib/types";
+
+export const modusTwoWayJob: Job = {
+  id: "fotos-beidseitig",
+  name: "Fotos → M2mini",
+  enabled: true,
+  source: { location: "desktop", path: "Fotos" },
+  target: { location: "m2mini", path: "Fotos" },
+  mode: "bidirectional",
+  excludes: ["node_modules/", ".DS_Store"],
+  safety: { maxDeletePercent: 25, alwaysAllowedDeletions: 10 },
+  archive: { enabled: true, keepDays: 14 },
+  conflicts: { prefer: "source", loser: "delete" },
+  ring: "yellow",
+  triggers: { onMount: true, onChangeAfterSeconds: null, everyMinutes: null, dailyAt: null, afterJob: null },
+};
+// --- end Modus -------------------------------------------------------------------------------

@@ -2,7 +2,7 @@ import { Check } from "lucide-react";
 import type { Config, Job } from "../../lib/types";
 import { UiText } from "../../ui";
 import { ringBg, ringOf } from "../../ui/rings";
-import { hasAutomatic, triggerWords } from "./draft";
+import { firstRunSentences, hasAutomatic, triggerWords } from "./draft";
 
 interface DoneStepProps {
   job: Job;
@@ -30,7 +30,9 @@ export function DoneStep({ job, config }: DoneStepProps) {
         <UiText tone="neutral">{startSentence(job, config)}</UiText>
       </div>
       <p className="max-w-[26rem] text-xs leading-relaxed text-ink-faint">
-        Ein Probelauf zeigt, was der erste Lauf kopieren und löschen würde, ohne dabei etwas zu verändern.
+        {job.mode === "bidirectional"
+          ? [...firstRunSentences(job.conflicts, job.archive.enabled), "Ein Probelauf zeigt, was der erste Lauf in welche Richtung kopieren würde."].join(" ")
+          : "Ein Probelauf zeigt, was der erste Lauf kopieren und löschen würde, ohne dabei etwas zu verändern."}
       </p>
     </div>
   );

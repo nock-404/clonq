@@ -2,7 +2,7 @@
 
 import type { ClonqState } from "../../hooks/useClonq";
 import { locationOf, messageLabel, placeLabel } from "../../lib/labels";
-import type { Config, Job, JobInput, Location, LocationStatus, Mode, Place, Ring, Triggers } from "../../lib/types";
+import type { Config, ConflictPrefer, Conflicts, Job, JobInput, Location, LocationStatus, Mode, Place, Ring, Triggers } from "../../lib/types";
 import { RINGS, ringOf } from "../../ui/rings";
 
 export const STEPS = ["Quelle", "Ziel", "Art", "Auslöser", "Name"] as const;
@@ -23,6 +23,12 @@ export interface TriggerDraft {
   afterJob: string | null;
 }
 
+/** The archive as the form holds it: the days as typed, kept while the archive is off. */
+export interface ArchiveDraft {
+  enabled: boolean;
+  keepDays: string;
+}
+
 export interface Draft {
   source: Place | null;
   target: Place | null;
@@ -30,6 +36,9 @@ export interface Draft {
   mode: Mode | null;
   excludes: string[];
   maxDeletePercent: string;
+  archive: ArchiveDraft;
+  /** Only used by a two-way job, but kept while another mode is tried. */
+  conflicts: Conflicts;
   triggers: TriggerDraft;
   /** Whether the triggers act; without triggers it does not matter. */
   enabled: boolean;
@@ -40,6 +49,9 @@ export interface Draft {
 }
 
 const DEFAULT_DELETE_PERCENT = 10;
+/** The defaults of the Rust side, see Archive and Conflicts in src-tauri/src/config.rs. */
+const DEFAULT_KEEP_DAYS = 30;
+const DEFAULT_CONFLICTS: Conflicts = { prefer: "newer", loser: "keep" };
 
 export const ringName: Record<Ring, string> = {
   blue: "Blau",
@@ -78,6 +90,8 @@ export function draftFrom(job: Job | undefined, config: Config | null): Draft {
       mode: job.mode,
       excludes: sortExcludes(job.excludes),
       maxDeletePercent: String(job.safety.maxDeletePercent),
+      archive: { enabled: job.archive.enabled, keepDays: String(job.archive.keepDays) },
+      conflicts: { ...job.conflicts },
       triggers: triggerDraft(job.triggers),
       enabled: job.enabled,
       name: job.name,
@@ -91,6 +105,8 @@ export function draftFrom(job: Job | undefined, config: Config | null): Draft {
     mode: null,
     excludes: [],
     maxDeletePercent: String(DEFAULT_DELETE_PERCENT),
+    archive: { enabled: true, keepDays: String(DEFAULT_KEEP_DAYS) },
+    conflicts: { ...DEFAULT_CONFLICTS },
     triggers: triggerDraft(null),
     enabled: true,
     name: "",
@@ -345,6 +361,120 @@ function everyWords(minutes: number): string {
   return `alle ${minutes} Minuten`;
 }
 
+// ── Two-way sync and archive ────────────────────────────────────────────────
+
+/** Whether a run of this mode deletes, so that the deletion limit applies. */
+export function deletesIn(mode: Mode | null): boolean {
+  return mode === "mirror" || mode === "bidirectional";
+}
+
+/** Days to keep archived files: a whole number from 1 to 365, or null. */
+export function keepDaysOf(text: string): number | null {
+  if (!/^\d+$/.test(text.trim())) return null;
+  const value = Number(text.trim());
+  return value >= 1 && value <= 365 ? value : null;
+}
+
+export function archiveProblem(archive: ArchiveDraft): string | null {
+  return archive.enabled && keepDaysOf(archive.keepDays) === null ? "Die Aufbewahrungsdauer muss eine ganze Zahl von 1 bis 365 Tagen sein." : null;
+}
+
+export const PERCENT_PROBLEM = "Die Schutzschwelle muss eine Zahl zwischen 0 und 100 sein.";
+
+/** The problem with the mode step, as a sentence, or null. */
+export function modeProblem(draft: Draft): string | null {
+  if (!draft.mode) return "Es ist noch keine Art gewählt.";
+  if (deletesIn(draft.mode) && percentOf(draft.maxDeletePercent) === null) return PERCENT_PROBLEM;
+  return archiveProblem(draft.archive);
+}
+
+/** The choices for the winner of a conflict, in the order the menu shows them. */
+export const PREFER_CHOICES: { value: ConflictPrefer; label: string; tag: string }[] = [
+  { value: "newer", label: "Neuere Fassung gewinnt", tag: "Neuere gewinnt" },
+  { value: "older", label: "Ältere Fassung gewinnt", tag: "Ältere gewinnt" },
+  { value: "larger", label: "Größere Fassung gewinnt", tag: "Größere gewinnt" },
+  { value: "smaller", label: "Kleinere Fassung gewinnt", tag: "Kleinere gewinnt" },
+  { value: "source", label: "Quelle gewinnt", tag: "Quelle gewinnt" },
+  { value: "target", label: "Ziel gewinnt", tag: "Ziel gewinnt" },
+  { value: "none", label: "Nicht entscheiden – beide behalten", tag: "Beide behalten" },
+];
+
+/** The example name bisync gives a losing copy that is kept. */
+export const CONFLICT_EXAMPLE = "Bericht.pdf.conflict1";
+
+/** The conflict rule in a few words, for the label on the tape, e.g. "Neuere gewinnt". */
+export function conflictTag(conflicts: Conflicts): string {
+  return PREFER_CHOICES.find((choice) => choice.value === conflicts.prefer)?.tag ?? "";
+}
+
+/** The winner of a conflict, e.g. "Neuere Fassung gewinnt". */
+export function preferLabel(prefer: ConflictPrefer): string {
+  return PREFER_CHOICES.find((choice) => choice.value === prefer)?.label ?? "";
+}
+
+// With "none" the loser setting does not apply. The draft still keeps and sends it, so that it is
+// back when another winner is chosen. Checked with rclone 1.75.1: bisync with --conflict-resolve
+// none and --conflict-loser delete renames both copies (.conflict1, .conflict2) and deletes neither.
+
+/** What happens to the losing copy, as a sentence; it depends on the archive. */
+export function loserSentence(conflicts: Conflicts, archive: boolean): string {
+  if (conflicts.prefer === "none") return "Beide Fassungen bleiben unter neuen Namen erhalten.";
+  if (conflicts.loser === "keep") return `Der Verlierer wird umbenannt, zum Beispiel in „${CONFLICT_EXAMPLE}“.`;
+  return archive ? "Der Verlierer wird ins Archiv verschoben." : "Der Verlierer wird gelöscht.";
+}
+
+/** The whole conflict rule in a few words, for the summary, e.g. "Neuere gewinnt, Verlierer umbenannt". */
+export function conflictSummary(conflicts: Conflicts, archive: boolean): string {
+  const tag = conflictTag(conflicts);
+  if (conflicts.prefer === "none") return tag;
+  if (conflicts.loser === "keep") return `${tag}, Verlierer umbenannt`;
+  return `${tag}, Verlierer ${archive ? "archiviert" : "gelöscht"}`;
+}
+
+/** The folder at the top of every target (on both sides of a two-way job) that holds the archive. */
+export const ARCHIVE_FOLDER = ".clonq-archiv";
+
+/**
+ * Where archived files are kept, in words that go around the folder name: before it and after it.
+ * "So lange" refers to the days beside the sentence.
+ */
+export function archivePlace(mode: Mode | null): [string, string] {
+  return mode === "bidirectional" ? ["clonq hebt sie so lange auf beiden Seiten im Ordner", "auf."] : ["clonq hebt sie so lange im Ordner", "des Ziels auf."];
+}
+
+/** "30 Tage", "1 Tag". */
+export function daysWords(days: number): string {
+  return `${days} ${days === 1 ? "Tag" : "Tage"}`;
+}
+
+/** The version the first two-way run keeps where a file differs on both sides, see resync_args in engine.rs. */
+const FIRST_RUN_WINNER: Record<ConflictPrefer, string> = {
+  newer: "die neuere Fassung",
+  older: "die ältere Fassung",
+  larger: "die größere Fassung",
+  smaller: "die kleinere Fassung",
+  source: "die Fassung der Quelle",
+  target: "die Fassung des Ziels",
+  none: "die neuere Fassung",
+};
+
+/**
+ * What the first run of a two-way job does. It merges both sides (bisync --resync) and deletes
+ * nothing, but where a file differs on both sides it keeps one version and overwrites the other;
+ * "none" only applies from the second run on.
+ */
+export function firstRunSentences(conflicts: Conflicts, archive: boolean): string[] {
+  const kept = `Wo eine Datei auf beiden Seiten verschieden ist, behält er ${FIRST_RUN_WINNER[conflicts.prefer]}`;
+  return [
+    "Der erste Lauf gleicht beide Seiten ab und löscht nichts.",
+    archive ? `${kept}; die andere wird ins Archiv verschoben.` : `${kept} und überschreibt die andere.`,
+    ...(conflicts.prefer === "none" ? ["Beide Fassungen zu behalten gilt erst ab dem zweiten Lauf."] : []),
+  ];
+}
+
+/** A two-way job copies what only the target holds into the source, once, on its first run. */
+export const MERGE_NOTICE = "Der erste beidseitige Lauf überträgt auch alles, was nur im Ziel liegt, in die Quelle.";
+
 // ── Saving ──────────────────────────────────────────────────────────────────
 
 export function percentOf(text: string): number | null {
@@ -354,8 +484,9 @@ export function percentOf(text: string): number | null {
 }
 
 export function toInput(draft: Draft, job: Job | undefined, name: string, config: Config | null): JobInput | null {
-  // Only a mirror deletes; for the other modes a stray value falls back to the default.
-  const percent = percentOf(draft.maxDeletePercent) ?? (draft.mode === "mirror" ? null : DEFAULT_DELETE_PERCENT);
+  // Only a mirror and a two-way job delete; for the other modes a stray value falls back to the
+  // job's own limit, and for a new job to the default.
+  const percent = percentOf(draft.maxDeletePercent) ?? (deletesIn(draft.mode) ? null : (job?.safety.maxDeletePercent ?? DEFAULT_DELETE_PERCENT));
   if (!draft.source || !draft.target || !draft.mode || percent === null) return null;
   return {
     id: job?.id ?? null,
@@ -369,10 +500,9 @@ export function toInput(draft: Draft, job: Job | undefined, name: string, config
     // "When plugged in" only means something while a side of the job is a drive.
     triggers: { ...toTriggers(draft.triggers), onMount: draft.triggers.onMount && drivesOf(draft, config).length > 0 },
     enabled: draft.enabled,
-    // The wizard does not show the archive and the conflict rules yet; an edited job keeps its own,
-    // a new one gets the defaults of the Rust side.
-    archive: job?.archive,
-    conflicts: job?.conflicts,
+    // While the archive is off its days cannot be typed, so a stray value falls back to the last good one.
+    archive: { enabled: draft.archive.enabled, keepDays: keepDaysOf(draft.archive.keepDays) ?? job?.archive.keepDays ?? DEFAULT_KEEP_DAYS },
+    conflicts: { ...draft.conflicts },
   };
 }
 

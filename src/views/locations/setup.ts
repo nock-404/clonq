@@ -17,6 +17,11 @@ export interface SetupAction {
   icon?: LucideIcon;
   run: () => void;
   disabled: boolean;
+  /**
+   * False for a confirmation that a habitual Enter must not give, e.g. that a
+   * fingerprint matches: only a click or ⌘↵ presses it.
+   */
+  enter?: boolean;
 }
 
 /** What the drive front beside the form shows. */
@@ -47,6 +52,8 @@ export interface Setup {
   busy: boolean;
   /** Gives up waiting for a call that may take minutes; Escape does the same. */
   abandon?: () => void;
+  /** One step back inside the form, e.g. from the fingerprints to the address; Escape does this before leaving the form. */
+  back?: () => void;
   /** Arrow keys outside of fields, e.g. to move through a list of drives. */
   onArrow?: (step: 1 | -1) => void;
   /** Added to the question before closing, e.g. that a key already exists. */

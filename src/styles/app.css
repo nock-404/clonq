@@ -265,3 +265,43 @@
 @utility glow-danger {
   box-shadow: 0 0 0.5rem color-mix(in oklch, var(--danger) 55%, transparent);
 }
+
+/* ── Modus (two-way sync, conflict rules, archive) ──────────────────────── */
+
+@theme inline {
+  /* A record arriving on the source tape from the target below it. */
+  --animate-record-arrive-up: record-arrive-up 0.8s ease-out both;
+
+  @keyframes record-arrive-up {
+    0% { opacity: 0; transform: translateY(60%); }
+    70% { opacity: 1; }
+    100% { opacity: 1; transform: none; }
+  }
+}
+
+/* Reels that wind back: every turning part inside plays its keyframes backwards. At the end of a
+   turn a reel stands where it started, so switching there does not jump. */
+@utility rewind {
+  & * {
+    animation-direction: reverse;
+  }
+}
+
+/* A scroll area that fades out at the bottom while there is more below. The fade comes from a
+   scroll-driven animation, so an area that does not scroll has no timeline and no fade. */
+@property --scroll-fade {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0rem;
+}
+
+@utility scroll-fade {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--scroll-fade)), transparent);
+  animation: scroll-fade linear both;
+  animation-timeline: scroll(self);
+}
+
+@keyframes scroll-fade {
+  0%, 92% { --scroll-fade: 1.5rem; }
+  100% { --scroll-fade: 0rem; }
+}

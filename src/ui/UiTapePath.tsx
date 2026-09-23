@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type AnimationEvent } from "react";
 import type { Tone } from "../lib/labels";
 import type { LocationKind, Ring } from "../lib/types";
 import { toneSoft } from "./tone";
@@ -33,6 +33,10 @@ interface UiTapePathProps {
   sourceTag?: UiTapeTag | null;
   /** A label on the tape between the deck and the target, e.g. the triggers. */
   targetTag?: UiTapeTag | null;
+  /** A second label, under the tape between the source and the deck, e.g. the conflict rule of a two-way job. */
+  sourceNote?: UiTapeTag | null;
+  /** Changes run both ways: after each pulse the reels wind one turn forward and one turn back. */
+  twoWay?: boolean;
   /** Any value; whenever it changes, the reels turn one revolution. */
   pulse?: string | number;
   /** The reels spool, the tape runs and the lamp on the head glows, e.g. once a job is saved. */
@@ -65,13 +69,14 @@ function packRadius(fill: number): number {
 }
 
 /** Keeps the reels turning for whole revolutions after each pulse, so they stop where they started. */
-function useTurns(pulse: string | number | undefined): boolean {
+function useTurns(pulse: string | number | undefined, enabled: boolean): boolean {
   const [spinning, setSpinning] = useState(false);
   const startedAt = useRef<number | null>(null);
   const last = useRef(pulse);
   useEffect(() => {
     if (last.current === pulse) return;
     last.current = pulse;
+    if (!enabled) return;
     const now = performance.now();
     const start = startedAt.current ?? now;
     startedAt.current = start;
@@ -82,8 +87,68 @@ function useTurns(pulse: string | number | undefined): boolean {
     }, start + turns * TURN_MS - now);
     setSpinning(true);
     return () => window.clearTimeout(timer);
-  }, [pulse]);
-  return spinning;
+  }, [pulse, enabled]);
+  return spinning && enabled;
+}
+
+/** A turn of every reel style lasts longer than this; several events of one turn count once. */
+const SAME_TURN_MS = 600;
+/** In case no turn ever ends, e.g. with animations switched off. */
+const TWO_WAY_LIMIT_MS = 20000;
+
+/**
+ * Two-way: after each pulse the reels wind one turn forward and one turn back, then stop. The
+ * turns are counted from the reels' own animation, so the direction changes and the reels stop
+ * exactly where a turn ends, whatever the reel style's timing. A pulse during a turn never flips
+ * the direction on the spot; it only adds turns. While spooling the reels change direction at the
+ * end of every turn.
+ */
+function useTwoWayTurns(pulse: string | number | undefined, enabled: boolean, spooling: boolean) {
+  const [spinning, setSpinning] = useState(false);
+  const [rewinding, setRewinding] = useState(false);
+  const back = useRef(false);
+  const remaining = useRef(0);
+  const lastTurn = useRef(0);
+  const last = useRef(pulse);
+  const wind = (value: boolean) => {
+    back.current = value;
+    setRewinding(value);
+  };
+  useEffect(() => {
+    if (last.current === pulse) return;
+    last.current = pulse;
+    if (!enabled) {
+      // The job is no longer two-way: the one-way turns take over, forwards.
+      setSpinning(false);
+      wind(false);
+      return;
+    }
+    remaining.current = 2;
+    setSpinning(true);
+    const timer = window.setTimeout(() => {
+      setSpinning(false);
+      wind(false);
+    }, TWO_WAY_LIMIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [pulse, enabled]);
+
+  const onTurn = (event: AnimationEvent<SVGGElement>) => {
+    if (!enabled || event.timeStamp - lastTurn.current < SAME_TURN_MS) return;
+    lastTurn.current = event.timeStamp;
+    if (spooling) return wind(!back.current);
+    if (!spinning) return;
+    remaining.current -= 1;
+    // Stop only after a turn back, so the reels end where they began.
+    if (remaining.current <= 0 && back.current) {
+      setSpinning(false);
+      wind(false);
+      return;
+    }
+    if (remaining.current <= 0) remaining.current = 1;
+    wind(!back.current);
+  };
+
+  return { spinning: spinning && enabled, rewinding: rewinding && enabled, onTurn };
 }
 
 const describe = (end: UiTapeEnd | null, emptyText: string) => (end ? [end.name, end.path].filter(Boolean).join("/") : emptyText);
@@ -102,6 +167,8 @@ export function UiTapePath({
   active = null,
   sourceTag,
   targetTag,
+  sourceNote,
+  twoWay = false,
   pulse,
   spooling = false,
   sourceLabel = "Quelle",
@@ -109,7 +176,9 @@ export function UiTapePath({
   emptyText = "noch offen",
   wholeText = "ganzer Ort",
 }: UiTapePathProps) {
-  const turning = useTurns(pulse);
+  const oneWayTurning = useTurns(pulse, !twoWay);
+  const twoWayTurns = useTwoWayTurns(pulse, twoWay, spooling);
+  const turning = oneWayTurning || twoWayTurns.spinning;
   const w = Math.min(1, Math.max(0, wound));
   const leftFill = 0.92 - w * 0.7;
   const rightFill = 0.22 + w * 0.7;
@@ -125,21 +194,24 @@ export function UiTapePath({
   const complete = source !== null && target !== null;
   const lamp = spooling ? "fill-accent drop-shadow-[0_0_0.25rem_var(--accent)]" : complete ? "fill-accent" : "fill-ink/20";
   const spinning = turning || spooling;
+  const rewinding = twoWayTurns.rewinding && spinning;
 
   return (
     <div
       role="img"
-      aria-label={`${sourceLabel}: ${describe(source, emptyText)}, ${targetLabel}: ${describe(target, emptyText)}`}
+      aria-label={`${sourceLabel}: ${describe(source, emptyText)}, ${targetLabel}: ${describe(target, emptyText)}${twoWay ? ", in beide Richtungen" : ""}`}
       className="hairline-b bg-well px-5 pt-1.5 pb-2.5"
     >
       <div className="relative flex h-[5.5rem] min-w-0">
         <Socket end={source} label={sourceLabel} lit={active === "source"} emptyText={emptyText} wholeText={wholeText} />
-        <Lead taut={source !== null} tag={sourceTag} thread={endKey(source)} />
-        <svg viewBox={`0 0 ${W} ${H}`} className="h-[4.75rem] w-auto shrink-0 self-start" aria-hidden>
+        <Lead taut={source !== null} tag={sourceTag} note={sourceNote} thread={endKey(source)} />
+        <svg viewBox={`0 0 ${W} ${H}`} className={`h-[4.75rem] w-auto shrink-0 self-start ${rewinding ? "rewind" : ""}`} aria-hidden>
           <TapeLine from={0} to={ROLLERS[0]} taut={source !== null} />
           <TapeLine from={ROLLERS[1]} to={W} taut={target !== null} />
-          <ReelShape cx={LEFT.x} cy={LEFT.y} r={R} ring={ring} fill={leftFill} spinning={spinning} slow={!spooling} />
-          <ReelShape cx={RIGHT.x} cy={RIGHT.y} r={R} ring={ring} fill={rightFill} spinning={spinning} slow={!spooling} />
+          <g onAnimationIteration={twoWayTurns.onTurn}>
+            <ReelShape cx={LEFT.x} cy={LEFT.y} r={R} ring={ring} fill={leftFill} spinning={spinning} slow={!spooling} />
+            <ReelShape cx={RIGHT.x} cy={RIGHT.y} r={R} ring={ring} fill={rightFill} spinning={spinning} slow={!spooling} />
+          </g>
           <path d={feed} fill="none" strokeWidth="2" strokeLinejoin="round" className="stroke-oxide-light" />
           {spooling ? <path d={feed} fill="none" strokeWidth="2" strokeDasharray="0.4 0.8" pathLength={20} className="animate-tape stroke-accent/80" /> : null}
           {ROLLERS.map((x) => (
@@ -174,8 +246,8 @@ function TapeLine({ from, to, taut }: { from: number; to: number; taut: boolean 
 // The tape line runs 4.125rem below the top of the row: TAPE_Y at the deck's drawn height.
 const LINE = "top-[4.125rem]";
 
-/** The tape between a socket and the deck: taut when the end is set, slack when not, maybe with a label above it. */
-function Lead({ taut, tag, thread }: { taut: boolean; tag?: UiTapeTag | null; thread: string }) {
+/** The tape between a socket and the deck: taut when the end is set, slack when not, maybe with a label above it and another one below. */
+function Lead({ taut, tag, note, thread }: { taut: boolean; tag?: UiTapeTag | null; note?: UiTapeTag | null; thread: string }) {
   return (
     <span className="relative min-w-6 flex-1 self-stretch">
       {taut ? (
@@ -183,13 +255,18 @@ function Lead({ taut, tag, thread }: { taut: boolean; tag?: UiTapeTag | null; th
       ) : (
         <span aria-hidden className={`tape-slack absolute inset-x-0 ${LINE} h-[0.125rem] -translate-y-1/2`} />
       )}
-      {tag ? (
-        <span className="absolute inset-x-1 top-[2.625rem] flex justify-center" title={tag.title}>
-          <span className={`h-[1.125rem] max-w-full truncate rounded-[0.25rem] px-1.5 text-[0.6875rem] leading-[1.125rem] font-medium ${toneSoft[tag.tone ?? "neutral"]}`}>
-            {tag.text}
-          </span>
-        </span>
-      ) : null}
+      {tag ? <Tag tag={tag} position="top-[2.625rem]" /> : null}
+      {note ? <Tag tag={note} position="top-[4.375rem]" /> : null}
+    </span>
+  );
+}
+
+function Tag({ tag, position }: { tag: UiTapeTag; position: string }) {
+  return (
+    <span className={`absolute inset-x-1 ${position} flex justify-center`} title={tag.title}>
+      <span className={`h-[1.125rem] max-w-full truncate rounded-[0.25rem] px-1.5 text-[0.6875rem] leading-[1.125rem] font-medium ${toneSoft[tag.tone ?? "neutral"]}`}>
+        {tag.text}
+      </span>
     </span>
   );
 }

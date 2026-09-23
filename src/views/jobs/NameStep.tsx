@@ -6,7 +6,7 @@ import { UiFormGroup } from "../../ui/UiFormGroup";
 import { UiRingPicker } from "../../ui/UiRingPicker";
 import { UiSummaryRow } from "../../ui/UiSummaryRow";
 import { ringBg } from "../../ui/rings";
-import { hasAutomatic, ringName, triggerWords, type Step } from "./draft";
+import { conflictSummary, daysWords, deletesIn, hasAutomatic, ringName, triggerWords, type Step } from "./draft";
 
 interface NameStepProps {
   /** The name as it stands, the suggestion until it is edited. */
@@ -31,8 +31,8 @@ interface NameStepProps {
 export function NameStep({ name, suggestion, suggested, taken, onName, ring, onRing, input, config, onJump, notices }: NameStepProps) {
   const automatic = input ? hasAutomatic(input.triggers) : false;
   return (
-    <div className="flex h-full flex-col gap-3">
-      <div className="grid grid-cols-[21.75rem_minmax(0,1fr)] gap-5">
+    <div className="flex h-full flex-col">
+      <div className="grid grid-cols-[21.75rem_minmax(0,1fr)] gap-3">
         <div className="flex flex-col gap-4">
           <UiField
             label="Name"
@@ -50,6 +50,15 @@ export function NameStep({ name, suggestion, suggested, taken, onName, ring, onR
           <UiFormGroup title="Farbe des Schreibrings">
             <UiRingPicker value={ring} onChange={onRing} label="Farbe des Schreibrings" names={ringName} size="lg" />
           </UiFormGroup>
+          {/* Notices sit under the ring, beside the summary, so a long summary does not push them out of view. */}
+          {notices.map((notice) => (
+            <span key={notice} className="flex items-start gap-2 text-[0.6875rem] leading-snug text-warn">
+              <span className="pt-1">
+                <UiLamp tone="warn" lit />
+              </span>
+              {notice}
+            </span>
+          ))}
         </div>
 
         {input ? (
@@ -69,8 +78,20 @@ export function NameStep({ name, suggestion, suggested, taken, onName, ring, onR
                 detail={input.excludes.length > 0 ? <span className="font-mono">ohne {input.excludes.join("  ")}</span> : "Keine Ausschlüsse"}
               >
                 {modeLabel[input.mode]}
-                {input.mode === "mirror" ? `, Schutzschwelle ${input.maxDeletePercent} %` : ""}
+                {deletesIn(input.mode) ? `, Schutzschwelle ${input.maxDeletePercent} %` : ""}
               </UiSummaryRow>
+              {input.mode === "bidirectional" && input.conflicts ? (
+                <UiSummaryRow label="Konflikte" onPress={() => onJump(2)} pressLabel="Konfliktregel ändern">
+                  {conflictSummary(input.conflicts, input.archive?.enabled ?? true)}
+                </UiSummaryRow>
+              ) : null}
+              {input.archive ? (
+                <UiSummaryRow label="Archiv" onPress={() => onJump(2)} pressLabel="Archiv ändern">
+                  {input.archive.enabled
+                    ? `${daysWords(input.archive.keepDays)}, ${input.mode === "bidirectional" ? "auf beiden Seiten" : "im Ziel"}`
+                    : "Aus"}
+                </UiSummaryRow>
+              ) : null}
               <UiSummaryRow
                 label="Auslöser"
                 onPress={() => onJump(3)}
@@ -83,15 +104,6 @@ export function NameStep({ name, suggestion, suggested, taken, onName, ring, onR
           </section>
         ) : null}
       </div>
-
-      {notices.map((notice) => (
-        <span key={notice} className="flex items-start gap-2 px-1 text-[0.6875rem] leading-snug text-warn">
-          <span className="pt-1">
-            <UiLamp tone="warn" lit />
-          </span>
-          {notice}
-        </span>
-      ))}
     </div>
   );
 }

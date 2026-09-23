@@ -10,9 +10,11 @@ import type { Location, MountedVolume, Reach } from "../../lib/types";
 import { UiBadge, UiButton, UiListRow, UiNotice, UiPanel, UiReel, UiText } from "../../ui";
 import { UiDriveFront, type UiDriveLamp } from "../../ui/UiDriveFront";
 import { UiInlineEdit } from "../../ui/UiInlineEdit";
+import { UiLamp } from "../../ui/UiLamp";
 import type { GlyphLamp } from "../../ui/UiLocationGlyph";
 import { UiSegmentMeter } from "../../ui/UiSegmentMeter";
 import { ringOf } from "../../ui/rings";
+import { FileBrowser } from "../FileBrowser";
 import { checkedInBackground, markChecked, recordOwnCheck, useCheck } from "./checks";
 import { errorText, fileSystemLabel, glyphOf, kindTitle, providerLabel, tidyPath } from "./kinds";
 import { LocationRepair } from "./LocationRepair";
@@ -48,6 +50,8 @@ export function LocationDetail({ state, location, now }: LocationDetailProps) {
   const [confirming, setConfirming] = useState(false);
   // Removing first lets the drive front unload the location: the tape comes out, the lamps go dark.
   const [unloading, setUnloading] = useState(false);
+  // Whether the files of this location have been on screen in this view.
+  const [browsed, setBrowsed] = useState(false);
   const confirmBox = useRef<HTMLDivElement>(null);
 
   // Folders, drives and shares are looked at live: opening the view looks again, and every
@@ -141,6 +145,9 @@ export function LocationDetail({ state, location, now }: LocationDetailProps) {
 
   const words = stateWords(location, reach, check.busy, connect);
   const connected = reach?.state === "connected" && !unloading;
+  useEffect(() => {
+    if (connected) setBrowsed(true);
+  }, [connected]);
   const faulty = reach?.state === "failed" || reach?.state === "missing";
   const lamp: GlyphLamp = check.busy ? "busy" : unloading ? "off" : connected ? "on" : faulty ? "fault" : "off";
   const lamps: UiDriveLamp[] = [
@@ -153,6 +160,9 @@ export function LocationDetail({ state, location, now }: LocationDetailProps) {
   const subtitle = subtitleOf(location, volume);
   const local = kind.type === "folder" || kind.type === "volume";
   const capacity = capacityOf(location, reach);
+  // Servers and clouds are tested every ten minutes. One failed round keeps the file browser, with
+  // its folder, selection and preview, and says so above it; a drive or share that is gone does not.
+  const showFiles = connected || (browsed && (kind.type === "ssh" || kind.type === "cloud") && !unloading && reach?.state !== "missing");
 
   return (
     <div className="flex flex-col gap-4">
@@ -283,6 +293,31 @@ export function LocationDetail({ state, location, now }: LocationDetailProps) {
         )}
       </UiPanel>
 
+      <UiPanel title="Dateien">
+        {showFiles ? (
+          <>
+            {connected ? null : (
+              <UiNotice tone="neutral">
+                Die letzte Prüfung hat {location.name} nicht erreicht. Die Liste zeigt den Stand von vorher; Aktionen können scheitern, bis die Verbindung wieder steht.
+              </UiNotice>
+            )}
+            <FileBrowser key={location.id} location={location} now={now} connected={connected} />
+          </>
+        ) : (
+          <div className="flex items-center gap-4">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              {check.busy ? <UiLamp tone="accent" busy /> : null}
+              <UiText tone="neutral">{filesUnavailable(location, reach, unloading)}</UiText>
+            </div>
+            {unloading || renaming ? null : (
+              <UiButton icon={check.busy ? undefined : connect ? Plug : RefreshCw} disabled={check.busy} onPress={() => void runCheck()}>
+                {check.busy ? (connect ? "Wird verbunden …" : "Wird geprüft …") : connect ? "Verbinden" : local ? "Erneut prüfen" : "Verbindung prüfen"}
+              </UiButton>
+            )}
+          </div>
+        )}
+      </UiPanel>
+
       <UiPanel title="Ort entfernen">
         <div className="flex items-center gap-4">
           <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -318,6 +353,28 @@ export function LocationDetail({ state, location, now }: LocationDetailProps) {
       </UiPanel>
     </div>
   );
+}
+
+/** Why the files cannot be shown right now, in one sentence. */
+function filesUnavailable(location: Location, reach: Reach | undefined, unloading: boolean): string {
+  const kind = location.kind.type;
+  if (unloading) return "Der Ort wird entfernt.";
+  switch (reach?.state) {
+    case "disconnected":
+      return kind === "volume"
+        ? "Die Dateien sind hier zu sehen, sobald das Laufwerk angeschlossen ist."
+        : kind === "smb"
+          ? "Die Dateien sind hier zu sehen, sobald die Freigabe verbunden ist."
+          : "Die Dateien sind hier zu sehen, sobald der Ort wieder erreichbar ist.";
+    case "missing":
+      return "Den Ordner gibt es an dieser Stelle nicht mehr, darum lassen sich keine Dateien zeigen.";
+    case "failed":
+      return "Ohne Verbindung lassen sich die Dateien nicht zeigen.";
+    case "untested":
+      return "Die Dateien sind hier zu sehen, sobald die erste Prüfung gelungen ist.";
+    default:
+      return "Die Dateien sind hier zu sehen, sobald der Zustand des Orts bekannt ist.";
+  }
 }
 
 /** What else goes when the location is removed. */

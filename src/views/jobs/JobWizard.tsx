@@ -19,13 +19,17 @@ import {
   LAST_STEP,
   STEPS,
   clashOf,
+  conflictTag,
   draftFrom,
   drivesOf,
   hasAutomatic,
   isDirty,
+  MERGE_NOTICE,
+  loserSentence,
+  modeProblem,
   nameTaken,
   overlapText,
-  percentOf,
+  preferLabel,
   reachProblem,
   samePlace,
   saveFailure,
@@ -222,11 +226,7 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
       : ((targetLocation ? reachProblem(targetLocation, "target", state) : null) ??
         readProblem(draft.target) ??
         (overlap && draft.source ? overlapText(overlap, "target", placeLabel(draft.source, config)) : null)),
-    2: !draft.mode
-      ? "Es ist noch keine Art gewählt."
-      : draft.mode === "mirror" && percentOf(draft.maxDeletePercent) === null
-        ? "Die Schutzschwelle muss eine Zahl zwischen 0 und 100 sein."
-        : null,
+    2: modeProblem(draft),
     3: triggerProblem({ ...draft.triggers, onMount: draft.triggers.onMount && drives.length > 0 }),
     4: name.trim() ? null : "Der Job braucht einen Namen.",
   };
@@ -249,8 +249,15 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
     return `Im Ziel ${placeLabel(draft.target, config)} liegen bereits ${count === 1 ? "ein Ordner" : `${count} Ordner`}.`;
   })();
   const history = job ? (state.stats[job.id]?.runsTotal ?? 0) > 0 : false;
+  // A two-way job starts by merging both sides, so whatever only the target holds reaches the
+  // source: worth a word for a new job into a place that holds something, and for a job that
+  // becomes two-way now.
+  const switchedToTwoWay = job !== undefined && job.mode !== "bidirectional";
+  const mergeWarning =
+    draft.mode !== "bidirectional" ? null : switchedToTwoWay ? MERGE_NOTICE : mirrorRisk ? `${mirrorRisk} ${MERGE_NOTICE}` : null;
   const nameNotices = [
     ...(draft.mode === "mirror" && mirrorRisk ? [`${mirrorRisk} Ein Spiegel löscht dort alles, was in der Quelle fehlt.`] : []),
+    ...(mergeWarning ? [mergeWarning] : []),
     ...(job && history && newTarget
       ? ["Das Ziel ist neu, deshalb überträgt der nächste Lauf alles."]
       : []),
@@ -372,13 +379,18 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
   const triggers = input?.triggers;
   const automatic = triggers ? hasAutomatic(triggers) : false;
   const sourceTag: UiTapeTag | null = draft.mode ? { text: modeLabel[draft.mode] } : null;
+  // A two-way job carries its conflict rule under the tape, with the whole rule as the title.
+  const twoWay = draft.mode === "bidirectional";
+  const conflictNote: UiTapeTag | null = twoWay
+    ? { text: conflictTag(draft.conflicts), title: `Bei Konflikten: ${preferLabel(draft.conflicts.prefer)}. ${loserSentence(draft.conflicts, draft.archive.enabled)}` }
+    : null;
   const targetTag: UiTapeTag | null =
     reached >= 3 && triggers
       ? automatic && !draft.enabled
         ? { text: "Automatik aus", tone: "warn", title: triggerWords(triggers, config).join(", ") }
         : { text: triggerTag(triggers), title: automatic ? triggerWords(triggers, config).join(", ") : "Startet nur von Hand" }
       : null;
-  const pulse = [step, draft.source?.location, draft.source?.path, draft.target?.location, draft.target?.path, draft.mode].join("|");
+  const pulse = [step, draft.source?.location, draft.source?.path, draft.target?.location, draft.target?.path, draft.mode, draft.conflicts.prefer].join("|");
 
   const steps: UiStepperStep[] = STEPS.map((label, index) => ({
     label,
@@ -394,18 +406,18 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
   }));
 
   // What the footer says: an error of the last save, a problem this step does not show in place,
-  // or, on the last step, the first thing still missing elsewhere.
-  const inPlace = (index: Step) =>
-    (index === 0 && draft.source !== null) || (index === 1 && draft.target !== null) || (index === 2 && draft.mode !== null) || index === 4;
+  // or, on the last step, the first thing still missing elsewhere. The mode step says its problems
+  // in place too, but a wrong number may sit below the fold, so the footer repeats them.
+  const inPlace = (index: Step) => (index === 0 && draft.source !== null) || (index === 1 && draft.target !== null) || index === 4;
   const mirrorWarning = draft.mode === "mirror" && mirrorRisk ? `${mirrorRisk} Ein Spiegel löscht dort alles, was in der Quelle fehlt.` : null;
   const pending: { text: string; jump: Step | null; tone: "danger" | "warn" | "neutral" } | null = failure
     ? { text: [failure.text, failure.advice].filter(Boolean).join(" "), jump: failure.step !== step ? failure.step : null, tone: "danger" }
     : (step === LAST_STEP || (job && problems[step] === null)) && firstProblem !== undefined && firstProblem !== step
       ? { text: `${STEPS[firstProblem]}: ${problems[firstProblem]}`, jump: firstProblem, tone: "neutral" }
       : problems[step] !== null && !inPlace(step)
-        ? { text: problems[step] ?? "", jump: null, tone: step === 3 ? "danger" : "neutral" }
-        : step === 2 && mirrorWarning
-          ? { text: mirrorWarning, jump: null, tone: "warn" }
+        ? { text: problems[step] ?? "", jump: null, tone: step === 3 || (step === 2 && draft.mode !== null) ? "danger" : "neutral" }
+        : step === 2 && (mirrorWarning ?? mergeWarning)
+          ? { text: mirrorWarning ?? mergeWarning ?? "", jump: null, tone: "warn" }
           : null;
 
   // The two footers are keyed apart, so a button focused before saving does not turn into another one.
@@ -479,6 +491,8 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
               active={done ? null : step === 0 ? "source" : step === 1 ? "target" : null}
               sourceTag={sourceTag}
               targetTag={targetTag}
+              sourceNote={conflictNote}
+              twoWay={twoWay}
               pulse={pulse}
               spooling={spooling}
             />
@@ -488,7 +502,7 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
       >
         {/* One height for every step, so the sheet does not jump while moving through them. */}
         <div className="relative -mx-5 -my-4 h-[17.75rem] bg-raised-solid px-5 py-3.5">
-          <div className="h-full overflow-y-auto">
+          <div className="scroll-fade h-full overflow-y-auto">
             {done ? <DoneStep job={done} config={config} /> : null}
             {!done && (step === 0 || step === 1) ? (
               <PlaceStep
@@ -513,7 +527,12 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
                 onExcludes={(excludes) => change({ excludes })}
                 maxDeletePercent={draft.maxDeletePercent}
                 onMaxDeletePercent={(maxDeletePercent) => change({ maxDeletePercent })}
+                archive={draft.archive}
+                onArchive={(archive) => change({ archive })}
+                conflicts={draft.conflicts}
+                onConflicts={(conflicts) => change({ conflicts })}
                 onSubmit={advance}
+                shortcuts={!confirmDiscard}
               />
             ) : null}
             {!done && step === 3 ? (
