@@ -190,12 +190,15 @@ pub async fn make_dir(rclone: &str, config_file: &Path, spec: &str) -> Result<()
 
 /// Number of objects under a remote path, not counting clonq's archive
 /// (for the deletion check and the next run's limit).
-pub async fn count(rclone: &str, config_file: &Path, spec: &str) -> Result<i64> {
-    let output = Command::new(rclone)
-        .args(["size", "--json", spec, "--exclude", &format!("/{ARCHIVE_DIR}/**"), "--config"])
-        .arg(config_file)
-        .output()
-        .await?;
+pub async fn count(rclone: &str, config_file: &Path, spec: &str, excludes: &[String]) -> Result<i64> {
+    // Only what a sync could delete counts: the job's excludes and the archive stay out.
+    let mut command = Command::new(rclone);
+    command.args(["size", "--json", spec, "--exclude", &format!("/{ARCHIVE_DIR}/**")]);
+    for pattern in excludes {
+        let pattern = pattern.strip_suffix('/').map_or(pattern.clone(), |folder| format!("{folder}/**"));
+        command.arg("--exclude").arg(pattern);
+    }
+    let output = command.arg("--config").arg(config_file).output().await?;
     if !output.status.success() {
         // A target that does not exist yet holds nothing.
         return Ok(0);
@@ -258,7 +261,7 @@ mod tests {
         assert_eq!(list_dirs(rclone, &config, &spec).await.unwrap(), vec!["a".to_string()]);
         make_dir(rclone, &config, &format!("{spec}/b")).await.unwrap();
         assert!(dir.join("data/b").is_dir());
-        assert_eq!(count(rclone, &config, &spec).await.unwrap(), 0);
+        assert_eq!(count(rclone, &config, &spec, &[]).await.unwrap(), 0);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

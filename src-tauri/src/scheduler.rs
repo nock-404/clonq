@@ -71,6 +71,10 @@ fn fire(app: &AppHandle, job_id: &str, why: &str) -> bool {
     if !config.job(job_id).is_some_and(|job| job.enabled) {
         return false;
     }
+    // A job stopped by its safety rule waits for a person; it never retries by itself.
+    if state.history.last_real_status(job_id).ok().flatten() == Some(RunStatus::Blocked) {
+        return false;
+    }
     state.engine.start(&config, job_id, why, RunOptions::default()).is_ok()
 }
 

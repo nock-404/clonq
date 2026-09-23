@@ -54,6 +54,7 @@ async fn list_files(root: &Resolved, config: &Config, rclone_config: &Path) -> R
         }
         Resolved::Remote { destination, ssh, .. } => {
             let output = Command::new(&config.rsync_path)
+                .env("LC_ALL", "C")
                 .arg(format!("--rsh={}", crate::engine::shell_join(ssh)))
                 .args(["--list-only", "-r"])
                 .arg(format!("{destination}/"))

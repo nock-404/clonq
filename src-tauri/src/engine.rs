@@ -160,6 +160,7 @@ impl Engine {
             target_entries: 0,
             exit_code: None,
             message: None,
+            plan_key: plan.key(&job),
         };
 
         let (cancel_tx, cancel_rx) = watch::channel(false);
@@ -192,7 +193,10 @@ impl Engine {
             };
             active.insert(job.id.clone(), Active { live, cancel: cancel_tx });
         }
-        self.history.insert(&run)?;
+        if let Err(error) = self.history.insert(&run) {
+            self.active.lock().expect("active lock").remove(&job.id);
+            return Err(error);
+        }
         (self.emit)(EVENT_RUNS_CHANGED, serde_json::Value::Null);
 
         let engine = self.clone();
@@ -205,7 +209,18 @@ impl Engine {
 
     async fn execute(&self, job: Job, plan: Plan, mut run: Run, options: RunOptions, cancel: watch::Receiver<bool>) {
         let mut detail = Detail::default();
-        let outcome = self.execute_inner(&job, &plan, &mut run, &mut detail, options, cancel).await;
+        // The log is opened here and flushed on every way out, early returns included.
+        let outcome = match self.open_log(&run, &plan).await {
+            Ok(mut log) => {
+                let outcome = self.execute_inner(&job, &plan, &mut run, &mut detail, options, cancel, &mut log).await;
+                if let Err(error) = &outcome {
+                    let _ = log.write_all(format!("! {error}\n").as_bytes()).await;
+                }
+                let _ = log.flush().await;
+                outcome
+            }
+            Err(error) => Err(error),
+        };
         if let Err(error) = outcome {
             run.status = RunStatus::Failed;
             run.message = Some(error.to_string());
@@ -232,6 +247,14 @@ impl Engine {
         let _ = self.finished.send(run);
     }
 
+    async fn open_log(&self, run: &Run, plan: &Plan) -> Result<BufWriter<tokio::fs::File>> {
+        tokio::fs::create_dir_all(&self.log_dir).await?;
+        let mut log = BufWriter::new(tokio::fs::File::create(&run.log_path).await?);
+        log.write_all(format!("# {} {}\n", plan.program, plan.base_args.join(" ")).as_bytes()).await?;
+        Ok(log)
+    }
+
+    #[allow(clippy::too_many_arguments)]
     async fn execute_inner(
         &self,
         job: &Job,
@@ -240,30 +263,41 @@ impl Engine {
         detail: &mut Detail,
         options: RunOptions,
         mut cancel: watch::Receiver<bool>,
+        log: &mut BufWriter<tokio::fs::File>,
     ) -> Result<()> {
         plan.check_source()?;
         plan.check_target()?;
-        tokio::fs::create_dir_all(&self.log_dir).await?;
-        let log_file = tokio::fs::File::create(&run.log_path).await?;
-        let mut log = BufWriter::new(log_file);
-        log.write_all(format!("# {} {}\n", plan.program, plan.base_args.join(" ")).as_bytes()).await?;
+        let two_way = matches!(plan.tool, Tool::Bisync { .. });
+        if job.mode == Mode::Mirror && !two_way {
+            self.check_remote_source(plan).await?;
+        }
 
         let mut max_delete = None;
-        let two_way = matches!(plan.tool, Tool::Bisync { .. });
         if job.mode == Mode::Mirror && !two_way && !options.dry_run && !options.force {
-            match self.history.last_target_entries(&job.id)? {
-                Some(entries) => max_delete = Some(job.safety.allowed_deletions(entries)),
-                None => {
-                    // No earlier run to compare with: a dry run measures what would go.
+            let baseline = self.history.last_target_entries(&job.id, &run.plan_key)?;
+            let after_stop = self.history.last_real_status(&job.id)? == Some(RunStatus::Blocked);
+            // With an archive, rclone counts every overwrite against --max-delete,
+            // so for rclone the limit is enforced from a dry run instead.
+            let rclone_archive = matches!(plan.tool, Tool::Rclone { .. }) && job.archive.enabled;
+            match baseline {
+                Some(entries) if !after_stop && !rclone_archive => max_delete = Some(job.safety.allowed_deletions(entries)),
+                _ => {
+                    // No baseline for this exact plan, or the last run was stopped:
+                    // a dry run that changes nothing decides.
                     self.update(&job.id, |live| live.phase = Phase::Checking);
                     self.emit(&job.id);
                     log.write_all(b"# safety check (dry run)\n").await?;
-                    let check = self.rsync(&job.id, plan, &["--dry-run".into()], &mut log, &mut cancel, false).await?;
+                    let check = self.rsync(&job.id, plan, &["--dry-run".into()], log, &mut cancel, false).await?;
                     if check.cancelled {
                         run.status = RunStatus::Cancelled;
                         return Ok(());
                     }
-                    if check.exit_code != Some(0) {
+                    // 23/24: some files could not be read; the listing is still complete enough to count.
+                    let usable = match plan.tool {
+                        Tool::Rsync => matches!(check.exit_code, Some(0 | 23 | 24)),
+                        _ => check.exit_code == Some(0),
+                    };
+                    if !usable {
                         run.status = RunStatus::Failed;
                         run.exit_code = check.exit_code;
                         run.message = Some(check.error_summary());
@@ -272,7 +306,7 @@ impl Engine {
                     let (deleted, before) = match &plan.tool {
                         Tool::Rsync => (check.stats.deleted, check.stats.target_entries_before()),
                         Tool::Rclone { config } | Tool::Bisync { config } => {
-                            (check.deleted_lines, cloud::count(&plan.program, config, &plan.target).await?)
+                            (check.deleted_lines, cloud::count(&plan.program, config, &plan.target, &job.excludes).await?)
                         }
                     };
                     let percent = if before > 0 { deleted as f64 * 100.0 / before as f64 } else { 0.0 };
@@ -305,19 +339,25 @@ impl Engine {
             if options.force {
                 extra.push("--force".into());
             }
+            // bisync only knows a percentage; small folders get the always-allowed floor as a share.
+            if let Some(entries) = self.history.last_target_entries(&job.id, &run.plan_key)?.filter(|n| *n > 0) {
+                let floor = (job.safety.always_allowed_deletions as f64 * 100.0 / entries as f64).ceil();
+                let percent = job.safety.max_delete_percent.max(floor).min(100.0);
+                extra.push("--max-delete".into());
+                extra.push(format!("{}", percent.round() as i64));
+            }
             // Without an earlier two-way run there is nothing to compare with: the
             // first run merges both sides and deletes nothing.
             if !self.history.has_completed(&job.id)? {
                 extra.extend(plan.resync_args(job));
             }
         }
-        let mut result = self.rsync(&job.id, plan, &extra, &mut log, &mut cancel, true).await?;
+        let mut result = self.rsync(&job.id, plan, &extra, log, &mut cancel, true).await?;
         if two_way && !result.cancelled && result.errors.iter().any(|error| rclone_output::needs_resync(error)) {
             log.write_all(b"# no earlier listings, merging both sides first\n").await?;
             extra.extend(plan.resync_args(job));
-            result = self.rsync(&job.id, plan, &extra, &mut log, &mut cancel, true).await?;
+            result = self.rsync(&job.id, plan, &extra, log, &mut cancel, true).await?;
         }
-        log.flush().await?;
 
         run.exit_code = result.exit_code;
         run.files_total = result.stats.files;
@@ -341,7 +381,7 @@ impl Engine {
             (Tool::Rsync, false, _) => result.stats.target_entries_before() + result.stats.created,
             // rclone does not count the target itself; ask it once the run is over.
             (Tool::Rclone { config } | Tool::Bisync { config }, _, _) => {
-                cloud::count(&plan.program, config, &plan.target).await.unwrap_or(0)
+                cloud::count(&plan.program, config, &plan.target, &job.excludes).await.unwrap_or(0)
             }
         };
         run.status = match (&plan.tool, result.cancelled, result.exit_code) {
@@ -355,8 +395,7 @@ impl Engine {
             _ => RunStatus::Failed,
         };
         if !options.dry_run && run.status.completed() && job.archive.enabled {
-            self.prune_archive(plan, job.archive.keep_days, &mut log).await;
-            log.flush().await?;
+            self.prune_archive(plan, job.archive.keep_days, log).await;
         }
         run.message = match run.status {
             RunStatus::Succeeded | RunStatus::Cancelled => None,
@@ -385,6 +424,8 @@ impl Engine {
     ) -> Result<RsyncResult> {
         let mut command = Command::new(&plan.program);
         command
+            // Numbers in rsync's statistics follow the locale; the parser reads the C locale.
+            .env("LC_ALL", "C")
             .args(&plan.base_args)
             .args(extra)
             .arg(&plan.source)
@@ -646,6 +687,27 @@ impl Engine {
         let _ = log.write_all(line.as_bytes()).await;
     }
 
+    /// A mirror from a cloud or server must not run from an empty or missing source.
+    async fn check_remote_source(&self, plan: &Plan) -> Result<()> {
+        if plan.source_path.is_some() {
+            return Ok(());
+        }
+        let Tool::Rclone { config } = &plan.tool else { return Ok(()) };
+        let output = Command::new(&plan.program)
+            .args(["lsf", "--max-depth", "1", &plan.source, "--config"])
+            .arg(config)
+            .env("LC_ALL", "C")
+            .output()
+            .await?;
+        if !output.status.success() {
+            return Err(Error::Job(format!("source {} does not exist", plan.source)));
+        }
+        if output.stdout.iter().all(u8::is_ascii_whitespace) {
+            return Err(Error::Job(format!("source {} is empty, nothing is changed", plan.source)));
+        }
+        Ok(())
+    }
+
     /// Counts one transferred file for the numbers and the live list.
     #[allow(clippy::too_many_arguments)]
     fn count_file(
@@ -885,6 +947,16 @@ impl Plan {
         })
     }
 
+    /// What a measured target size belongs to: the tool, both ends and the mode.
+    fn key(&self, job: &Job) -> String {
+        let tool = match self.tool {
+            Tool::Rsync => "rsync",
+            Tool::Rclone { .. } => "rclone",
+            Tool::Bisync { .. } => "bisync",
+        };
+        format!("{tool}|{:?}|{}|{}", job.mode, self.source, self.target)
+    }
+
     /// Arguments that move deleted and overwritten files into this run's archive folder.
     fn archive_args(&self, stamp: &str) -> Vec<String> {
         match &self.tool {
@@ -975,7 +1047,7 @@ async fn prune_ssh(plan: &Plan, cutoff: &str) -> Result<usize> {
     // syncs an empty folder over it with a filter that only matches old stamps.
     let archive = format!("{}/{ARCHIVE_DIR}/", plan.target.trim_end_matches('/'));
     let rsh: Vec<String> = plan.base_args.iter().filter(|arg| arg.starts_with("--rsh=")).cloned().collect();
-    let listing = Command::new(&plan.program).args(&rsh).arg("--list-only").arg(&archive).output().await?;
+    let listing = Command::new(&plan.program).env("LC_ALL", "C").args(&rsh).arg("--list-only").arg(&archive).output().await?;
     if !listing.status.success() {
         return Ok(0);
     }
@@ -991,7 +1063,7 @@ async fn prune_ssh(plan: &Plan, cutoff: &str) -> Result<usize> {
     let empty = std::env::temp_dir().join(format!("clonq-empty-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&empty)?;
     let mut command = Command::new(&plan.program);
-    command.args(&rsh).args(["-r", "--delete"]);
+    command.env("LC_ALL", "C").args(&rsh).args(["-r", "--delete"]);
     for name in &old {
         command.arg(format!("--include=/{name}/***"));
     }
@@ -1095,7 +1167,6 @@ fn log_entry(change: Change, size: i64, path: &str) -> Option<String> {
 
 /// The first two levels of a path's folder: `GM8/clonq/src/main.rs` → `GM8/clonq`.
 fn folder_of(path: &str) -> String {
-    let path = path.split(" -> ").next().unwrap_or(path);
     let mut parts = path.split('/').filter(|part| !part.is_empty());
     let segments: Vec<&str> = parts.by_ref().take(3).collect();
     match segments.len() {
@@ -1365,7 +1436,7 @@ mod tests {
         assert_eq!(folder_of("GM8/clonq/src/main.rs"), "GM8/clonq");
         assert_eq!(folder_of("GM8/readme.md"), "GM8");
         assert_eq!(folder_of("top.txt"), ".");
-        assert_eq!(folder_of("a/link -> ../b"), "a");
+        assert_eq!(folder_of("a/name -> with arrow.txt"), "a");
     }
 
     #[test]
@@ -1507,21 +1578,92 @@ mod tests {
     #[tokio::test]
     async fn two_way_stops_at_too_many_deletions_unless_forced() {
         let f = Fixture::new();
-        for i in 0..12 {
+        for i in 0..40 {
             f.write(&format!("src/keep{i}.txt"), "k");
         }
         let config = f.config(Mode::Bidirectional, "dst");
         let first = f.run(&config, RunOptions::default()).await;
         assert_eq!(first.status, RunStatus::Succeeded, "{:?}", first.message);
-        for i in 0..10 {
+        // 30 of 40 is above both the 10 % limit and the floor of 10 always-allowed deletions.
+        for i in 0..30 {
             fs::remove_file(f.src().join(format!("keep{i}.txt"))).unwrap();
         }
         let blocked = f.run(&config, RunOptions::default()).await;
         assert_eq!(blocked.status, RunStatus::Blocked, "{:?}", blocked.message);
-        assert_eq!(Fixture::count_files(&f.dst()), 12);
+        assert_eq!(Fixture::count_files(&f.dst()), 40);
         let forced = f.run(&config, RunOptions { dry_run: false, force: true }).await;
         assert_eq!(forced.status, RunStatus::Succeeded, "{:?}", forced.message);
-        assert_eq!(Fixture::count_files(&f.dst()), 2);
+        assert_eq!(Fixture::count_files(&f.dst()), 10);
+    }
+
+    #[tokio::test]
+    async fn two_way_small_folders_may_always_delete_a_few() {
+        let f = Fixture::new();
+        for i in 0..12 {
+            f.write(&format!("src/keep{i}.txt"), "k");
+        }
+        let config = f.config(Mode::Bidirectional, "dst");
+        assert_eq!(f.run(&config, RunOptions::default()).await.status, RunStatus::Succeeded);
+        for i in 0..3 {
+            fs::remove_file(f.src().join(format!("keep{i}.txt"))).unwrap();
+        }
+        let run = f.run(&config, RunOptions::default()).await;
+        assert_eq!(run.status, RunStatus::Succeeded, "{:?}", run.message);
+        assert_eq!(Fixture::count_files(&f.dst()), 9);
+    }
+
+    #[tokio::test]
+    async fn a_stopped_mirror_does_not_keep_deleting() {
+        let f = Fixture::new();
+        for i in 0..40 {
+            f.write(&format!("src/file{i}.txt"), "x");
+        }
+        let config = f.config(Mode::Mirror, "dst");
+        assert_eq!(f.run(&config, RunOptions::default()).await.status, RunStatus::Succeeded);
+        for i in 0..35 {
+            fs::remove_file(f.src().join(format!("file{i}.txt"))).unwrap();
+        }
+        let first = f.run(&config, RunOptions::default()).await;
+        assert_eq!(first.status, RunStatus::Blocked, "{:?}", first.message);
+        let left = Fixture::count_files(&f.dst());
+        for _ in 0..3 {
+            let again = f.run(&config, RunOptions::default()).await;
+            assert_eq!(again.status, RunStatus::Blocked, "{:?}", again.message);
+            assert_eq!(Fixture::count_files(&f.dst()), left, "a stopped job must not delete another batch");
+        }
+        let forced = f.run(&config, RunOptions { dry_run: false, force: true }).await;
+        assert_eq!(forced.status, RunStatus::Succeeded);
+        assert_eq!(Fixture::count_files(&f.dst()), 5);
+    }
+
+    #[tokio::test]
+    async fn a_new_target_is_measured_again() {
+        let f = Fixture::new();
+        f.write("src/a.txt", "a");
+        let config = f.config(Mode::Mirror, "dst");
+        assert_eq!(f.run(&config, RunOptions::default()).await.status, RunStatus::Succeeded);
+        // The job now points at a folder full of other files.
+        for i in 0..30 {
+            f.write(&format!("other/keep{i}.txt"), "mine");
+        }
+        let moved = f.config(Mode::Mirror, "other");
+        let run = f.run(&moved, RunOptions::default()).await;
+        assert_eq!(run.status, RunStatus::Blocked, "{:?}", run.message);
+        assert_eq!(Fixture::count_files(&f.root.join("other")), 30);
+    }
+
+    #[tokio::test]
+    async fn an_empty_cloud_source_is_refused() {
+        let f = Fixture::new();
+        fake_cloud(&f);
+        fs::create_dir_all(f.root.join("cloudroot/empty")).unwrap();
+        f.write("dst/keep.txt", "keep");
+        let mut config = f.config(Mode::Mirror, "dst");
+        config.jobs[0].source = Place { location: "cloud".into(), path: "cloudroot/empty".into() };
+        let run = f.run(&config, RunOptions::default()).await;
+        assert_eq!(run.status, RunStatus::Failed);
+        assert!(run.message.unwrap_or_default().contains("is empty"));
+        assert!(f.dst().join("keep.txt").exists());
     }
 
     #[tokio::test]

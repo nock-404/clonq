@@ -96,6 +96,10 @@ pub struct Run {
     pub exit_code: Option<i32>,
     pub message: Option<String>,
     pub log_path: String,
+    /// What the run actually moved between: resolved source, target and mode.
+    /// A measured target size only counts for runs with the same key.
+    #[serde(skip)]
+    pub plan_key: String,
 }
 
 /// A run with the detail that only the job view needs.
@@ -150,6 +154,7 @@ const MIGRATIONS: &[&str] = &[
          PRIMARY KEY (run_id, folder)
      );",
     "ALTER TABLE runs ADD COLUMN files_conflicted INTEGER NOT NULL DEFAULT 0;",
+    "ALTER TABLE runs ADD COLUMN plan_key TEXT NOT NULL DEFAULT '';",
 ];
 
 impl History {
@@ -169,8 +174,8 @@ impl History {
     pub fn insert(&self, run: &Run) -> Result<()> {
         let connection = self.connection.lock().expect("history lock");
         connection.execute(
-            "INSERT INTO runs (id, job_id, trigger, dry_run, started_at, status, log_path)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO runs (id, job_id, trigger, dry_run, started_at, status, log_path, plan_key)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 run.id,
                 run.job_id,
@@ -179,6 +184,7 @@ impl History {
                 run.started_at.to_rfc3339(),
                 run.status.as_str(),
                 run.log_path,
+                run.plan_key,
             ],
         )?;
         Ok(())
@@ -372,19 +378,33 @@ impl History {
         Ok(started.as_deref().map(parse_time))
     }
 
-    /// Target size from the newest successful real run, if the job ever had one.
-    pub fn last_target_entries(&self, job_id: &str) -> Result<Option<i64>> {
+    /// Target size from the newest successful real run with the same plan, if any.
+    pub fn last_target_entries(&self, job_id: &str, plan_key: &str) -> Result<Option<i64>> {
         let connection = self.connection.lock().expect("history lock");
         let entries = connection
             .query_row(
                 "SELECT target_entries FROM runs
-                 WHERE job_id = ?1 AND dry_run = 0 AND status IN ('succeeded', 'partial')
+                 WHERE job_id = ?1 AND plan_key = ?2 AND dry_run = 0 AND status IN ('succeeded', 'partial')
+                 ORDER BY started_at DESC LIMIT 1",
+                params![job_id, plan_key],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(entries)
+    }
+
+    /// How the newest finished real run of a job ended.
+    pub fn last_real_status(&self, job_id: &str) -> Result<Option<RunStatus>> {
+        let connection = self.connection.lock().expect("history lock");
+        let status: Option<String> = connection
+            .query_row(
+                "SELECT status FROM runs WHERE job_id = ?1 AND dry_run = 0 AND status != 'running'
                  ORDER BY started_at DESC LIMIT 1",
                 [job_id],
                 |row| row.get(0),
             )
             .optional()?;
-        Ok(entries)
+        Ok(status.as_deref().map(RunStatus::parse))
     }
 }
 
@@ -452,6 +472,7 @@ fn row_to_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<Run> {
         exit_code: row.get("exit_code")?,
         message: row.get("message")?,
         log_path: row.get("log_path")?,
+        plan_key: row.get("plan_key")?,
     })
 }
 
