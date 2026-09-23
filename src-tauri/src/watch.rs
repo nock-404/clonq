@@ -1,6 +1,6 @@
 //! Notices drives coming and going, and tells the windows.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::os::unix::fs::MetadataExt;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
@@ -9,6 +9,7 @@ use crate::AppState;
 use crate::cloud;
 use crate::config::LocationKind;
 use crate::locations;
+use crate::scheduler;
 use crate::ssh;
 
 pub const EVENT_VOLUMES_CHANGED: &str = "volumes-changed";
@@ -37,12 +38,21 @@ pub fn volumes(app: AppHandle) {
         .name("clonq-volumes".into())
         .spawn(move || {
             let mut known = mount_points();
+            let mut uuids: HashSet<String> = locations::mounted_volumes().into_iter().map(|v| v.uuid).collect();
             loop {
                 std::thread::sleep(Duration::from_secs(2));
                 let now = mount_points();
-                if now != known {
-                    known = now;
-                    let _ = app.emit(EVENT_VOLUMES_CHANGED, locations::mounted_volumes());
+                if now == known {
+                    continue;
+                }
+                known = now;
+                let volumes = locations::mounted_volumes();
+                let current: HashSet<String> = volumes.iter().map(|v| v.uuid.clone()).collect();
+                let appeared: HashSet<String> = current.difference(&uuids).cloned().collect();
+                uuids = current;
+                let _ = app.emit(EVENT_VOLUMES_CHANGED, volumes);
+                if !appeared.is_empty() {
+                    scheduler::volumes_mounted(&app, &appeared);
                 }
             }
         })

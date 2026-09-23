@@ -93,12 +93,20 @@ pub struct Engine {
     log_dir: PathBuf,
     /// clonq's own rclone config with one remote per cloud location.
     rclone_config: PathBuf,
+    /// Every finished run, for chained jobs and notifications.
+    finished: tokio::sync::broadcast::Sender<Run>,
     active: Arc<Mutex<HashMap<String, Active>>>,
 }
 
 impl Engine {
     pub fn new(emit: Emit, history: Arc<History>, log_dir: PathBuf, rclone_config: PathBuf) -> Self {
-        Self { emit, history, log_dir, rclone_config, active: Arc::default() }
+        let (finished, _) = tokio::sync::broadcast::channel(64);
+        Self { emit, history, log_dir, rclone_config, finished, active: Arc::default() }
+    }
+
+    /// Finished runs, in order, as they end.
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<Run> {
+        self.finished.subscribe()
     }
 
     pub fn live_runs(&self) -> Vec<LiveRun> {
@@ -217,6 +225,7 @@ impl Engine {
         self.emit(&job.id);
         self.active.lock().expect("active lock").remove(&job.id);
         (self.emit)(EVENT_RUNS_CHANGED, serde_json::Value::Null);
+        let _ = self.finished.send(run);
     }
 
     async fn execute_inner(

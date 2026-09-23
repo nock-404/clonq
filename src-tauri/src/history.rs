@@ -340,6 +340,19 @@ impl History {
         Ok(folders)
     }
 
+    /// When the job last started a real run, whatever the trigger or outcome.
+    pub fn last_started(&self, job_id: &str) -> Result<Option<DateTime<Utc>>> {
+        let connection = self.connection.lock().expect("history lock");
+        let started: Option<String> = connection
+            .query_row(
+                "SELECT started_at FROM runs WHERE job_id = ?1 AND dry_run = 0 ORDER BY started_at DESC LIMIT 1",
+                [job_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(started.as_deref().map(parse_time))
+    }
+
     /// Target size from the newest successful real run, if the job ever had one.
     pub fn last_target_entries(&self, job_id: &str) -> Result<Option<i64>> {
         let connection = self.connection.lock().expect("history lock");

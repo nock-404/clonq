@@ -13,6 +13,11 @@ interface HistoryViewProps {
 
 const triggerLabel: Record<string, string> = {
   manual: "Per Knopf",
+  schedule: "Zeitplan",
+  daily: "Täglich",
+  mount: "Angesteckt",
+  change: "Änderung",
+  chain: "Nach Job",
 };
 
 export function HistoryView({ state }: HistoryViewProps) {

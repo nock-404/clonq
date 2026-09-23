@@ -9,6 +9,8 @@ export type Ring = "red" | "yellow" | "blue" | "green" | "white";
 export interface UiSettings {
   accent: Accent;
   lamps: boolean;
+  /** Also announce automatic runs that went well, not only problems. */
+  notifySuccess: boolean;
 }
 
 export interface Place {
@@ -82,6 +84,7 @@ export interface Job {
 export interface Config {
   version: number;
   rsyncPath: string;
+  rclonePath: string;
   ui: UiSettings;
   locations: Location[];
   jobs: Job[];

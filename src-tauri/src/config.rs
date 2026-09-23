@@ -33,11 +33,14 @@ pub struct UiSettings {
     pub accent: Accent,
     /// The row of activity lamps in the job detail.
     pub lamps: bool,
+    /// Also announce automatic runs that went well, not only problems.
+    #[serde(default)]
+    pub notify_success: bool,
 }
 
 impl Default for UiSettings {
     fn default() -> Self {
-        Self { accent: Accent::Amber, lamps: true }
+        Self { accent: Accent::Amber, lamps: true, notify_success: false }
     }
 }
 

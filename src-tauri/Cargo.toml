@@ -19,6 +19,9 @@ cc = "1.4.7"
 tauri = { version = "2.11.6", features = ["tray-icon", "macos-private-api", "image-png"] }
 tauri-plugin-opener = "2.5.5"
 tauri-plugin-dialog = "2.7.3"
+tauri-plugin-notification = "2.4.0"
+tauri-plugin-autostart = "2.5.1"
+notify = "8.2.0"
 plist = "1.10.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]

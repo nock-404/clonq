@@ -49,6 +49,8 @@ export const api = {
   testServer: (server: ServerInput) => invoke<string>("test_server", { server }),
   addServerLocation: (server: ServerInput) => invoke<Location>("add_server_location", { server }),
   testLocation: (id: string) => invoke<LocationStatus>("test_location", { id }),
+  /** Mounts a network share; other kinds just report their status. */
+  connectLocation: (id: string) => invoke<LocationStatus>("connect_location", { id }),
   renameLocation: (id: string, name: string) => invoke<Config>("rename_location", { id, name }),
   removeLocation: (id: string) => invoke<Config>("remove_location", { id }),
   addSmbLocation: (name: string, url: string, user: string, password: string) =>
