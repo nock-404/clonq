@@ -21,7 +21,9 @@ command -v curl >/dev/null 2>&1 || die "Dafür wird curl gebraucht."
 # The download address of the app archive in the newest release. No token and
 # no jq: the public API answers without one, and the address is one line of it.
 api="https://api.github.com/repos/$REPO/releases/latest"
-release=$(curl -fsSL "$api") || die "GitHub antwortet nicht: $api"
+status=$(curl -sSL -o /dev/null -w '%{http_code}' "$api") || die "GitHub ist nicht erreichbar."
+[ "$status" = "404" ] && die "Es gibt noch kein fertiges Release. Ein neues wird gerade gebaut, bitte in ein paar Minuten erneut versuchen."
+release=$(curl -fsSL "$api") || die "GitHub antwortet nicht wie erwartet (HTTP $status)."
 url=$(printf '%s\n' "$release" | grep -o '"browser_download_url": *"[^"]*\.app\.tar\.gz"' | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')
 tag=$(printf '%s\n' "$release" | grep -o '"tag_name": *"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
 [ -n "$url" ] || die "Im neuesten Release liegt keine App."
