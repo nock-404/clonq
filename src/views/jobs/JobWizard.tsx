@@ -501,7 +501,7 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
         footer={footer}
       >
         {/* One height for every step, so the sheet does not jump while moving through them. */}
-        <div className="relative -mx-5 -my-4 h-[17.75rem] bg-raised-solid px-5 py-3.5">
+        <div className="relative -mx-5 -my-4 h-[20.125rem] bg-raised-solid px-5 py-3.5">
           <div className="scroll-fade h-full overflow-y-auto">
             {done ? <DoneStep job={done} config={config} /> : null}
             {!done && (step === 0 || step === 1) ? (

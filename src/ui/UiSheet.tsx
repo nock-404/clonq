@@ -50,7 +50,7 @@ export function UiSheet({ open, title, subtitle, onClose, children, footer, head
             role="dialog"
             aria-modal="true"
             aria-label={title}
-            className={`hairline flex max-h-[calc(100%-5rem)] flex-col overflow-hidden rounded-[0.875rem] bg-raised shadow-2xl ${widths[width]}`}
+            className={`hairline flex max-h-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-[0.875rem] bg-raised shadow-2xl ${widths[width]}`}
             initial={{ opacity: 0, y: -10, scale: 0.985 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.985 }}

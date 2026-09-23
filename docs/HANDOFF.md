@@ -1,4 +1,4 @@
-# Übergabe (Stand 23.09.2026, 13:30)
+# Übergabe (Stand 23.09.2026, 16:10)
 
 ## Auf `main`, getestet (71 Rust-Tests, `cargo test` in src-tauri)
 
@@ -19,6 +19,22 @@
 - Workflow `wf_90b7d5a2-119` fertig: „Ort hinzufügen“ für alle Arten mit Laufwerksfront (`UiDriveFront`), Ortsansicht mit Reparaturwegen, Job-Assistent. Nur in der Vorschau geprüft. Zusammenfassung pro Agent im Journal `subagents/workflows/wf_90b7d5a2-119/journal.jsonl`, Bilder in `~/Downloads/clonq-ablaeufe/`. Als Nächstes: Ergebnis selbst durchsehen, dann Punkte aus „Danach einhängen“.
 - Vorschau-Server: Vite auf Port 1440 (`preview.html?window=main&scene=running&job=work-to-m2mini`, `&sheet=addLocation|jobWizard`, `&location=box`). Weitere alte Vite-Prozesse auf 1430/1441/1442/1443/1452 aufräumen, sobald der Workflow fertig ist.
 - Danach einhängen: `ArchivePanel` und Konfliktregeln ins Job-Detail/Assistenten, `FileBrowser` in `LocationDetail`, Hostschlüssel-Bestätigung (API: `prepareServer(name, host, port)` → `hostKeys`, dann `trustServer(locationId)`) in den Server-Ablauf, `connectLocation` für SMB.
+
+## Stand 23.09.2026 nachmittags (zweite Session)
+
+- Logo „Spule“ gewählt und überall drin: App-Icon (`src-tauri/icons`, aus `~/Downloads/clonq-logo/spule/app-icon-1024.png`), Menüleiste mit drei Drehstufen (`icons/tray*.png`, `tray.rs` dreht ruckartig, solange `engine.busy()`), `UiLogo` (mark/wordmark/icon) in Seitenleiste, Popover-Fußleiste, Einführung, Einstellungen „Über clonq“. Schriftzug zart grau (#a4a4ab), auf die Tinte zugeschnitten.
+- Dock: clonq steht im Dock und in ⌘Tab, solange das Hauptfenster offen ist (`show_main`, Reopen-Ereignis).
+- Workflow `wf_af2245fa-77a` fertig und eingebaut: Fingerabdruck-Prüfung im Server-Ablauf (prepareServer mit Port und Entwurfs-Id, trustServer), Archiv im Job-Detail, Dateibrowser mit Box-Snapshots in der Ort-Ansicht, „Beidseitig“ mit Konfliktregeln und Archiv-Einstellungen im Assistenten. Bilder `~/Downloads/clonq-ablaeufe/{server,panels,modus}-*.png`.
+- Danach selbst: Server als Quelle (rclone über SFTP), neu bestätigte Hostschlüssel ersetzen alte, keyscan- und Archiv-Fehler sauber, deutsche Texte, Fokus bleibt im offenen Blatt (`inert`), Art-Schritt klappt Konflikte/Archiv/Ausschlüsse zu, Assistent eine Zeile höher, Blatt darf bis 1,5 rem an den Fensterrand, beidseitige Namen mit ⇄.
+- Dev-App läuft mit `pnpm tauri dev` (Log im Scratchpad `tauri-dev.log`), Konfiguration ist auf v2 umgestellt und leer, v1 liegt als `config.json.v1.bak` daneben.
+
+### Offen (aus den Workflow-Berichten)
+- Archiv bei „Beidseitig“: Die Engine archiviert auch auf der Quellseite, `archive.rs` liest nur das Ziel (Parameter side fehlt).
+- Wiederherstellen mehrerer ausgewählter Dateien in einem Aufruf; Umbenennen nur der Groß-/Kleinschreibung auf APFS wird abgelehnt.
+- LocationRepair kann neue Fingerabdrücke nach einer Server-Neuinstallation nicht bestätigen.
+- Papierkorb auf SMB-Freigaben ungetestet.
+- Mögliche Race in MainWindow (Seitenleiste markiert „Übersicht“, während ein Job angezeigt wird), nur in der Vorschau gesehen.
+- Nichts davon gegen echte Storage Box, NAS oder Cloud geprüft.
 
 ## Offene Fragen an Matthias
 
