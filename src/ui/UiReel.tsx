@@ -1,27 +1,21 @@
 import type { Ring } from "../lib/types";
-import { ReelShape } from "./ReelShape";
-
-type Size = "xs" | "sm" | "md" | "lg";
+import { UiReel as LichtReel } from "./reels/licht/UiReel";
+import { UiReel as PraezisionReel } from "./reels/praezision/UiReel";
+import { useReelStyle } from "./reels/style";
+import { UiReel as VakuumReel } from "./reels/vakuum/UiReel";
 
 interface UiReelProps {
   ring: Ring;
   fill?: number;
   spinning?: boolean;
-  size?: Size;
+  size?: "xs" | "sm" | "md" | "lg";
   label?: string;
 }
 
-const sizes: Record<Size, string> = {
-  xs: "size-5",
-  sm: "size-7",
-  md: "size-10",
-  lg: "size-16",
-};
-
-export function UiReel({ ring, fill = 0.7, spinning = false, size = "sm", label }: UiReelProps) {
-  return (
-    <svg viewBox="0 0 100 100" className={`shrink-0 ${sizes[size]}`} role={label ? "img" : undefined} aria-label={label} aria-hidden={label ? undefined : true}>
-      <ReelShape cx={50} cy={50} r={48} ring={ring} fill={fill} spinning={spinning} />
-    </svg>
-  );
+/** A single reel as an icon, in the style picked in the settings. */
+export function UiReel(props: UiReelProps) {
+  const style = useReelStyle();
+  if (style === "vakuum") return <VakuumReel {...props} />;
+  if (style === "praezision") return <PraezisionReel {...props} />;
+  return <LichtReel {...props} />;
 }

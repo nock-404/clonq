@@ -12,11 +12,10 @@ import {
   formatRelative,
 } from "../lib/format";
 import { isRunning, jobActions, jobReady, progressLine } from "../lib/jobs";
-import { locationOf, messageLabel, modeLabel, placeLabel, reachLabel, statusLabel } from "../lib/labels";
+import { locationOf, messageLabel, reachLabel, statusLabel } from "../lib/labels";
 import { durationSeconds, ratesOf, savedPercent } from "../lib/runs";
 import type { Job } from "../lib/types";
 import {
-  UiBadge,
   UiBars,
   UiButton,
   UiCounter,
@@ -30,6 +29,7 @@ import {
   UiStat,
 } from "../ui";
 import { ringOf } from "../ui/rings";
+import { JobHeader } from "./jobs/JobHeader";
 
 interface JobDetailProps {
   state: ClonqState;
@@ -69,16 +69,7 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex items-start gap-4">
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <h1 className="truncate text-xl font-semibold tracking-tight">{job.name}</h1>
-            <UiBadge>{modeLabel[job.mode]}</UiBadge>
-          </div>
-          <span className="truncate text-xs text-ink-faint">
-            {placeLabel(job.source, state.config)} → {placeLabel(job.target, state.config)}
-          </span>
-        </div>
+      <JobHeader job={job} config={state.config} running={running}>
         {running ? (
           <UiButton variant="danger" icon={Square} keys={["⌘", "."]} onPress={() => void jobActions.cancel(job.id)}>
             Abbrechen
@@ -89,11 +80,11 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
               Probelauf
             </UiButton>
             <UiButton variant="primary" icon={Play} keys={["↵"]} disabled={remote} onPress={() => void jobActions.run(job.id)}>
-              Jetzt syncen
+              Jetzt starten
             </UiButton>
           </>
         )}
-      </header>
+      </JobHeader>
 
       {remote ? (
         <UiNotice tone="neutral">
@@ -121,7 +112,8 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
       ) : null}
 
       <div className="grid grid-cols-[auto_1fr] gap-4">
-        <section className="hairline flex flex-col items-center gap-3 rounded-[var(--radius-panel)] bg-well px-5 pt-4 pb-3">
+        {/* Fixed width: the three reel styles differ a little in proportion, and switching must not shift the page. */}
+        <section className="flex w-44 flex-col items-center gap-3">
           <div className="h-64">
             <UiReelPair ring={ring} progress={running ? live.percent : latest ? 100 : 0} running={running} label={running ? "Band läuft" : "Band steht"} />
           </div>

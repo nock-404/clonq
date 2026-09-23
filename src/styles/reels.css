@@ -1,0 +1,579 @@
+/* Tape reels and drives in three styles, picked in the settings (ui.reels).
+   Each style keeps its own prefix: licht-, vakuum-, praezision-. */
+
+/* ==========================================================================
+   Variant "licht": smoked-glass reels with big windows, a machined head on a
+   brushed plate, and one amber lamp that flashes per block. Every moving part
+   runs on one clock (--licht-cycle): the capstan writes ten blocks, the loops
+   in the columns follow, and each reel kicks only when its loop has run past
+   a sensor. Everything here is prefixed licht-.
+   ========================================================================== */
+
+:root {
+  --licht-cycle: 5.1s;
+
+  --licht-glint: oklch(1 0 0);
+  --licht-shade: oklch(0 0 0);
+  --licht-metal-hi: oklch(0.97 0.003 250);
+  --licht-metal: oklch(0.76 0.006 250);
+  --licht-metal-lo: oklch(0.47 0.008 250);
+  --licht-alu-hi: oklch(0.55 0.005 255);
+  --licht-alu: oklch(0.46 0.005 255);
+  --licht-alu-lo: oklch(0.37 0.005 255);
+  --licht-anodized-hi: oklch(0.36 0.006 270);
+  --licht-anodized: oklch(0.3 0.006 270);
+  --licht-anodized-lo: oklch(0.19 0.006 270);
+  --licht-glass: oklch(0.12 0.008 270);
+  --licht-cabinet: oklch(0.1 0.005 270);
+  --licht-cabinet-hi: oklch(0.16 0.006 270);
+  --licht-smoke: oklch(0.09 0.004 270);
+  --licht-hub: oklch(0.19 0.005 270);
+  --licht-flange: oklch(0.25 0.005 270);
+  --licht-column: oklch(0.255 0.006 270);
+  --licht-column-hi: oklch(0.32 0.006 270);
+  --licht-rubber: oklch(0.13 0.003 270);
+  --licht-rubber-hi: oklch(0.23 0.004 270);
+
+  /* Tape: the pack in pure oxide, the single strand a step lighter so it reads edge-on. */
+  --licht-pack: color-mix(in oklch, var(--oxide) 72%, var(--oxide-deep));
+  --licht-pack-deep: var(--oxide-deep);
+  --licht-pack-edge: oklch(0.5 0.068 58);
+  --licht-tape: oklch(0.58 0.078 60);
+  --licht-shield: oklch(0.26 0.01 60);
+
+  --licht-lamp-off: oklch(0.3 0.045 65);
+}
+
+/* Gradient stops take their colour from the tokens. */
+.licht-stop-glint { stop-color: var(--licht-glint); }
+.licht-stop-shade { stop-color: var(--licht-shade); }
+.licht-stop-metal-hi { stop-color: var(--licht-metal-hi); }
+.licht-stop-metal { stop-color: var(--licht-metal); }
+.licht-stop-metal-lo { stop-color: var(--licht-metal-lo); }
+.licht-stop-alu-hi { stop-color: var(--licht-alu-hi); }
+.licht-stop-alu { stop-color: var(--licht-alu); }
+.licht-stop-alu-lo { stop-color: var(--licht-alu-lo); }
+.licht-stop-anodized-hi { stop-color: var(--licht-anodized-hi); }
+.licht-stop-anodized { stop-color: var(--licht-anodized); }
+.licht-stop-anodized-lo { stop-color: var(--licht-anodized-lo); }
+.licht-stop-cabinet { stop-color: var(--licht-cabinet); }
+.licht-stop-cabinet-hi { stop-color: var(--licht-cabinet-hi); }
+.licht-stop-smoke { stop-color: var(--licht-smoke); }
+.licht-stop-pack { stop-color: var(--licht-pack); }
+.licht-stop-pack-deep { stop-color: var(--licht-pack-deep); }
+.licht-stop-pack-edge { stop-color: var(--licht-pack-edge); }
+.licht-stop-column { stop-color: var(--licht-column); }
+.licht-stop-column-hi { stop-color: var(--licht-column-hi); }
+.licht-stop-rubber { stop-color: var(--licht-rubber); }
+.licht-stop-rubber-hi { stop-color: var(--licht-rubber-hi); }
+
+.licht-fill-glint { fill: var(--licht-glint); }
+.licht-fill-shade { fill: var(--licht-shade); }
+.licht-fill-metal-lo { fill: var(--licht-metal-lo); }
+.licht-fill-anodized { fill: var(--licht-anodized); }
+.licht-fill-glass { fill: var(--licht-glass); }
+.licht-fill-cabinet { fill: var(--licht-cabinet); }
+.licht-fill-hub { fill: var(--licht-hub); }
+.licht-fill-flange { fill: var(--licht-flange); }
+.licht-fill-pack-bright { fill: var(--licht-pack-edge); }
+.licht-fill-hub-metal { fill: color-mix(in oklch, var(--licht-metal) 70%, var(--licht-metal-lo)); }
+.licht-fill-sensor { fill: color-mix(in oklch, var(--licht-metal-lo) 55%, transparent); }
+.licht-fill-lens { fill: color-mix(in oklch, var(--licht-glass) 60%, var(--licht-metal-lo)); }
+.licht-fill-lamp-off { fill: var(--licht-lamp-off); }
+
+/* A lit lamp: the accent, a touch whiter in its core. The only accent on the drive. */
+.licht-fill-lamp { fill: color-mix(in oklch, var(--accent) 82%, var(--licht-glint)); }
+
+.licht-stroke-glint { stroke: var(--licht-glint); }
+.licht-stroke-glint-soft { stroke: color-mix(in oklch, var(--licht-glint) 30%, transparent); }
+.licht-stroke-shade { stroke: var(--licht-shade); }
+.licht-stroke-glass { stroke: var(--licht-glass); }
+.licht-stroke-metal-lo { stroke: var(--licht-metal-lo); }
+.licht-stroke-smoke { stroke: var(--licht-smoke); }
+.licht-stroke-groove { stroke: color-mix(in oklch, var(--licht-shade) 55%, transparent); }
+.licht-stroke-cut { stroke: color-mix(in oklch, var(--licht-glint) 26%, transparent); }
+.licht-stroke-pack-line { stroke: color-mix(in oklch, var(--licht-pack-deep) 45%, transparent); }
+.licht-stroke-shield { stroke: var(--licht-shield); }
+.licht-stroke-mark { stroke: color-mix(in oklch, var(--licht-metal) 60%, transparent); }
+.licht-stroke-tape { stroke: var(--licht-tape); }
+
+/* --- Motion -------------------------------------------------------------
+   One cycle of --licht-cycle writes ten blocks, at 0 9 17 29 36 47 58 66 77
+   and 88 percent. Each block jerks the capstan 36 degrees and moves both loop
+   bends 1.6 units down: the upper loop gets shorter, the lower one longer.
+   The file reel kicks at 21 51 92 (108 108 144 degrees) and pulls the upper
+   loop back; the machine reel kicks at 12 40 70 95 (72 108 108 72 degrees)
+   and takes the slack out of the lower one. Kicks overshoot and settle.
+   --licht-turn flips the direction without reversing the kick's shape. */
+
+.licht-ccw { --licht-turn: -1; }
+
+.licht-reel-a { animation: licht-reel-a var(--licht-cycle) infinite; }
+.licht-reel-b { animation: licht-reel-b var(--licht-cycle) infinite; }
+.licht-capstan { animation: licht-capstan var(--licht-cycle) infinite; }
+
+@keyframes licht-reel-a {
+  0%, 21% { transform: rotate(calc(var(--licht-turn, 1) * 0deg)); animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }
+  23.5% { transform: rotate(calc(var(--licht-turn, 1) * 114deg)); animation-timing-function: ease-in-out; }
+  25.5%, 51% { transform: rotate(calc(var(--licht-turn, 1) * 108deg)); animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }
+  53.5% { transform: rotate(calc(var(--licht-turn, 1) * 222deg)); animation-timing-function: ease-in-out; }
+  55.5%, 92% { transform: rotate(calc(var(--licht-turn, 1) * 216deg)); animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }
+  94.5% { transform: rotate(calc(var(--licht-turn, 1) * 366deg)); animation-timing-function: ease-in-out; }
+  96.5%, 100% { transform: rotate(calc(var(--licht-turn, 1) * 360deg)); }
+}
+
+@keyframes licht-reel-b {
+  0%, 12% { transform: rotate(calc(var(--licht-turn, 1) * 0deg)); animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }
+  14.5% { transform: rotate(calc(var(--licht-turn, 1) * 77deg)); animation-timing-function: ease-in-out; }
+  16.5%, 40% { transform: rotate(calc(var(--licht-turn, 1) * 72deg)); animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }
+  42.5% { transform: rotate(calc(var(--licht-turn, 1) * 186deg)); animation-timing-function: ease-in-out; }
+  44.5%, 70% { transform: rotate(calc(var(--licht-turn, 1) * 180deg)); animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }
+  72.5% { transform: rotate(calc(var(--licht-turn, 1) * 294deg)); animation-timing-function: ease-in-out; }
+  74.5%, 95% { transform: rotate(calc(var(--licht-turn, 1) * 288deg)); animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }
+  97.5% { transform: rotate(calc(var(--licht-turn, 1) * 365deg)); animation-timing-function: ease-in-out; }
+  99.5%, 100% { transform: rotate(calc(var(--licht-turn, 1) * 360deg)); }
+}
+
+@keyframes licht-capstan {
+  0% { transform: rotate(calc(var(--licht-turn, 1) * 0deg)); animation-timing-function: cubic-bezier(0.5, 0, 0.1, 1); }
+  1.6%, 9% { transform: rotate(calc(var(--licht-turn, 1) * 36deg)); animation-timing-function: cubic-bezier(0.5, 0, 0.1, 1); }
+  10.6%, 17% { transform: rotate(calc(var(--licht-turn, 1) * 72deg)); animation-timing-function: cubic-bezier(0.5, 0, 0.1, 1); }
+  18.6%, 29% { transform: rotate(calc(var(--licht-turn, 1) * 108deg)); animation-timing-function: cubic-bezier(0.5, 0, 0.1, 1); }
+  30.6%, 36% { transform: rotate(calc(var(--licht-turn, 1) * 144deg)); animation-timing-function: cubic-bezier(0.5, 0, 0.1, 1); }
+  37.6%, 47% { transform: rotate(calc(var(--licht-turn, 1) * 180deg)); animation-timing-function: cubic-bezier(0.5, 0, 0.1, 1); }
+  48.6%, 58% { transform: rotate(calc(var(--licht-turn, 1) * 216deg)); animation-timing-function: cubic-bezier(0.5, 0, 0.1, 1); }
+  59.6%, 66% { transform: rotate(calc(var(--licht-turn, 1) * 252deg)); animation-timing-function: cubic-bezier(0.5, 0, 0.1, 1); }
+  67.6%, 77% { transform: rotate(calc(var(--licht-turn, 1) * 288deg)); animation-timing-function: cubic-bezier(0.5, 0, 0.1, 1); }
+  78.6%, 88% { transform: rotate(calc(var(--licht-turn, 1) * 324deg)); animation-timing-function: cubic-bezier(0.5, 0, 0.1, 1); }
+  89.6%, 100% { transform: rotate(calc(var(--licht-turn, 1) * 360deg)); }
+}
+
+/* The loops' percentages refer to their own box, which is 100 viewBox units tall. */
+.licht-loop-a,
+.licht-loop-b {
+  transform-box: fill-box;
+}
+
+.licht-loop-a { animation: licht-loop-a var(--licht-cycle) cubic-bezier(0.3, 0, 0.2, 1) infinite; }
+.licht-loop-b { animation: licht-loop-b var(--licht-cycle) cubic-bezier(0.3, 0, 0.2, 1) infinite; }
+
+@keyframes licht-loop-a {
+  0% { transform: translateY(0%); }
+  1.6%, 9% { transform: translateY(1.6%); }
+  10.6%, 17% { transform: translateY(3.2%); }
+  18.6%, 21% { transform: translateY(4.8%); }
+  23.5% { transform: translateY(-0.9%); animation-timing-function: ease-in-out; }
+  25.5%, 29% { transform: translateY(0%); }
+  30.6%, 36% { transform: translateY(1.6%); }
+  37.6%, 47% { transform: translateY(3.2%); }
+  48.6%, 51% { transform: translateY(4.8%); }
+  53.5% { transform: translateY(-0.9%); animation-timing-function: ease-in-out; }
+  55.5%, 58% { transform: translateY(0%); }
+  59.6%, 66% { transform: translateY(1.6%); }
+  67.6%, 77% { transform: translateY(3.2%); }
+  78.6%, 88% { transform: translateY(4.8%); }
+  89.6%, 92% { transform: translateY(6.4%); }
+  94.5% { transform: translateY(-0.9%); animation-timing-function: ease-in-out; }
+  96.5%, 100% { transform: translateY(0%); }
+}
+
+@keyframes licht-loop-b {
+  0% { transform: translateY(0%); }
+  1.6%, 9% { transform: translateY(1.6%); }
+  10.6%, 12% { transform: translateY(3.2%); }
+  14.5% { transform: translateY(-0.9%); animation-timing-function: ease-in-out; }
+  16.5%, 17% { transform: translateY(0%); }
+  18.6%, 29% { transform: translateY(1.6%); }
+  30.6%, 36% { transform: translateY(3.2%); }
+  37.6%, 40% { transform: translateY(4.8%); }
+  42.5% { transform: translateY(-0.9%); animation-timing-function: ease-in-out; }
+  44.5%, 47% { transform: translateY(0%); }
+  48.6%, 58% { transform: translateY(1.6%); }
+  59.6%, 66% { transform: translateY(3.2%); }
+  67.6%, 70% { transform: translateY(4.8%); }
+  72.5% { transform: translateY(-0.9%); animation-timing-function: ease-in-out; }
+  74.5%, 77% { transform: translateY(0%); }
+  78.6%, 88% { transform: translateY(1.6%); }
+  89.6%, 95% { transform: translateY(3.2%); }
+  97.5% { transform: translateY(-0.9%); animation-timing-function: ease-in-out; }
+  99.5%, 100% { transform: translateY(0%); }
+}
+
+/* The lamp and the glint on the read gap: steady while the drive is ready,
+   a bright flash with each block written, then a quick fade back. */
+.licht-lamp,
+.licht-glint {
+  animation: licht-lamp var(--licht-cycle) infinite;
+}
+
+@keyframes licht-lamp {
+  0%, 9%, 17%, 29%, 36%, 47%, 58%, 66%, 77%, 88% { opacity: 1; animation-timing-function: ease-out; }
+  4%, 8.9%, 13%, 16.9%, 21%, 28.9%, 33%, 35.9%, 40%, 46.9%, 51%, 57.9%, 62%, 65.9%, 70%, 76.9%, 81%, 87.9%, 92%, 100% { opacity: 0.5; }
+}
+
+/* ==== end of variant "licht" ==== */
+
+/* ==========================================================================
+   Variant "vakuum": stacked reels with a real transport between them, on a
+   transport plate: two vacuum columns whose loops follow the reel kicks, one
+   anodised head cover with a status lamp, a rubber capstan and a steel idler.
+   Everything here is prefixed vakuum-.
+   ========================================================================== */
+
+:root {
+  --vakuum-glint: oklch(1 0 0);
+  --vakuum-shade: oklch(0 0 0);
+  --vakuum-steel-hi: oklch(0.9 0.004 250);
+  --vakuum-steel: oklch(0.7 0.006 250);
+  --vakuum-steel-lo: oklch(0.5 0.008 250);
+  --vakuum-steel-dk: oklch(0.32 0.007 250);
+  --vakuum-plate-hi: oklch(0.285 0.005 265);
+  --vakuum-plate: oklch(0.245 0.005 265);
+  --vakuum-alu-hi: oklch(0.47 0.005 260);
+  --vakuum-alu: oklch(0.41 0.005 260);
+  --vakuum-alu-lo: oklch(0.35 0.005 260);
+  --vakuum-channel: oklch(0.22 0.005 265);
+  --vakuum-anod-hi: oklch(0.29 0.005 265);
+  --vakuum-anod: oklch(0.2 0.005 265);
+  --vakuum-slot: oklch(0.11 0.004 265);
+  --vakuum-rubber: oklch(0.16 0.003 285);
+  --vakuum-plastic: oklch(0.17 0.006 275);
+  --vakuum-plastic-lo: oklch(0.12 0.005 275);
+  --vakuum-puck: oklch(0.7 0.008 85);
+  --vakuum-puck-lo: oklch(0.48 0.008 85);
+  /* Tape and pack are one material: the free run is the oxide, lifted a little
+     because it is seen edge-on as a hairline. Mixed in oklab, so the neutral
+     does not drag the hue towards pink. */
+  --vakuum-tape: color-mix(in oklab, var(--oxide) 80%, var(--ink));
+  --vakuum-tape-hi: color-mix(in oklab, var(--oxide) 45%, var(--ink));
+}
+
+/* The ring colour of a reel, set once on the reel and used by its parts. */
+.vakuum-ring-red { --vakuum-ring: var(--ring-red); }
+.vakuum-ring-yellow { --vakuum-ring: var(--ring-yellow); }
+.vakuum-ring-blue { --vakuum-ring: var(--ring-blue); }
+.vakuum-ring-green { --vakuum-ring: var(--ring-green); }
+.vakuum-ring-white { --vakuum-ring: var(--ring-white); }
+
+/* Flange: dark plastic tinted with the ring colour, a saturated rim, and the
+   write-enable ring a step quieter than the rim. Mixed in oklab: in oklch the
+   hue would swing through red on its way from yellow to the bluish neutral. */
+.vakuum-face { fill: color-mix(in oklab, var(--vakuum-ring) 20%, var(--vakuum-plastic)); }
+.vakuum-face-back { fill: color-mix(in oklab, var(--vakuum-ring) 9%, var(--vakuum-plastic-lo)); }
+.vakuum-rim { stroke: var(--vakuum-ring); }
+.vakuum-band { stroke: color-mix(in oklab, var(--vakuum-ring) 70%, var(--vakuum-plastic)); }
+
+/* Gradient stops take their colour from the tokens. */
+.vakuum-stop-glint { stop-color: var(--vakuum-glint); }
+.vakuum-stop-shade { stop-color: var(--vakuum-shade); }
+.vakuum-stop-steel-hi { stop-color: var(--vakuum-steel-hi); }
+.vakuum-stop-steel { stop-color: var(--vakuum-steel); }
+.vakuum-stop-steel-lo { stop-color: var(--vakuum-steel-lo); }
+.vakuum-stop-steel-dk { stop-color: var(--vakuum-steel-dk); }
+.vakuum-stop-plate-hi { stop-color: var(--vakuum-plate-hi); }
+.vakuum-stop-plate { stop-color: var(--vakuum-plate); }
+.vakuum-stop-alu-hi { stop-color: var(--vakuum-alu-hi); }
+.vakuum-stop-alu { stop-color: var(--vakuum-alu); }
+.vakuum-stop-alu-lo { stop-color: var(--vakuum-alu-lo); }
+.vakuum-stop-anod-hi { stop-color: var(--vakuum-anod-hi); }
+.vakuum-stop-anod { stop-color: var(--vakuum-anod); }
+
+/* Reels never spin: they kick 1/8 to 1/2 turn, recoil a hair, hold, and kick
+   again. Two patterns, so the reels never move in step, each in both
+   directions (the file reel unwinds counter-clockwise). */
+.vakuum-kick-a { animation: vakuum-kick-a 2.8s infinite; }
+.vakuum-kick-a-ccw { animation: vakuum-kick-a-ccw 2.8s infinite; }
+.vakuum-kick-b { animation: vakuum-kick-b 3.4s -1.3s infinite; }
+.vakuum-kick-b-ccw { animation: vakuum-kick-b-ccw 3.4s -1.3s infinite; }
+
+/* The loops run on their reel's clock: when the file reel kicks, the loop in
+   the tall column drops at once; the capstan then draws it up again slowly.
+   The machine reel pulls its loop up with each kick. Percentages refer to the
+   loop's own box, 500 viewBox units tall. */
+.vakuum-loop-a { animation: vakuum-loop-a 2.8s infinite; }
+.vakuum-loop-b { animation: vakuum-loop-b 3.4s -1.3s infinite; }
+
+/* The capstan jerks the tape on per block, with one read retry that rocks it
+   back. It sits left of the tape and turns clockwise. The idler is driven by
+   the same tape from the other side: same clock, counter-clockwise, 3/4 of
+   the angle, because the capstan's radius is 3/4 of the idler's. One capstan
+   turn is 270° of idler, a multiple of its four-hole symmetry, so the loop
+   has no seam. */
+.vakuum-capstan { animation: vakuum-capstan 1.15s infinite; }
+.vakuum-idler { animation: vakuum-idler 1.15s infinite; }
+
+/* The head lamp flickers with each block the capstan moves past the head. Its
+   resting state is lit, so it still says "running" with reduced motion. */
+.vakuum-lamp { animation: vakuum-lamp 1.15s steps(1, end) infinite; }
+
+@keyframes vakuum-lamp {
+  0% { opacity: 1; }
+  5% { opacity: 0.6; }
+  17% { opacity: 1; }
+  22% { opacity: 0.6; }
+  33% { opacity: 0.85; }
+  37% { opacity: 0.6; }
+  43% { opacity: 1; }
+  48% { opacity: 0.6; }
+  59% { opacity: 1; }
+  64% { opacity: 0.6; }
+  77% { opacity: 1; }
+  83% { opacity: 0.6; }
+}
+
+@keyframes vakuum-kick-a {
+  0% { transform: rotate(0deg); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  4% { transform: rotate(66deg); animation-timing-function: ease-out; }
+  6% { transform: rotate(57deg); animation-timing-function: ease-in-out; }
+  7.5%, 19% { transform: rotate(59deg); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  23% { transform: rotate(158deg); animation-timing-function: ease-out; }
+  25.5% { transform: rotate(149deg); animation-timing-function: ease-in-out; }
+  27%, 36% { transform: rotate(151deg); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  38.5% { transform: rotate(199deg); animation-timing-function: ease-out; }
+  40.5% { transform: rotate(193deg); animation-timing-function: ease-in-out; }
+  41.5%, 58% { transform: rotate(194deg); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  63% { transform: rotate(318deg); animation-timing-function: ease-out; }
+  65.5% { transform: rotate(309deg); animation-timing-function: ease-in-out; }
+  67%, 83% { transform: rotate(311deg); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  86% { transform: rotate(364deg); animation-timing-function: ease-out; }
+  88% { transform: rotate(358deg); animation-timing-function: ease-in-out; }
+  89.5%, 100% { transform: rotate(360deg); }
+}
+
+@keyframes vakuum-kick-a-ccw {
+  0% { transform: rotate(0deg); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  4% { transform: rotate(-66deg); animation-timing-function: ease-out; }
+  6% { transform: rotate(-57deg); animation-timing-function: ease-in-out; }
+  7.5%, 19% { transform: rotate(-59deg); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  23% { transform: rotate(-158deg); animation-timing-function: ease-out; }
+  25.5% { transform: rotate(-149deg); animation-timing-function: ease-in-out; }
+  27%, 36% { transform: rotate(-151deg); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  38.5% { transform: rotate(-199deg); animation-timing-function: ease-out; }
+  40.5% { transform: rotate(-193deg); animation-timing-function: ease-in-out; }
+  41.5%, 58% { transform: rotate(-194deg); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  63% { transform: rotate(-318deg); animation-timing-function: ease-out; }
+  65.5% { transform: rotate(-309deg); animation-timing-function: ease-in-out; }
+  67%, 83% { transform: rotate(-311deg); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  86% { transform: rotate(-364deg); animation-timing-function: ease-out; }
+  88% { transform: rotate(-358deg); animation-timing-function: ease-in-out; }
+  89.5%, 100% { transform: rotate(-360deg); }
+}
+
+@keyframes vakuum-kick-b {
+  0% { transform: rotate(0deg); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  3% { transform: rotate(42deg); animation-timing-function: ease-out; }
+  5% { transform: rotate(36deg); animation-timing-function: ease-in-out; }
+  6%, 27% { transform: rotate(38deg); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  32% { transform: rotate(184deg); animation-timing-function: ease-out; }
+  34.5% { transform: rotate(175deg); animation-timing-function: ease-in-out; }
+  36%, 47% { transform: rotate(178deg); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  50% { transform: rotate(254deg); animation-timing-function: ease-out; }
+  52% { transform: rotate(248deg); animation-timing-function: ease-in-out; }
+  53%, 71% { transform: rotate(250deg); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  75.5% { transform: rotate(366deg); animation-timing-function: ease-out; }
+  78% { transform: rotate(357deg); animation-timing-function: ease-in-out; }
+  79.5%, 100% { transform: rotate(360deg); }
+}
+
+@keyframes vakuum-kick-b-ccw {
+  0% { transform: rotate(0deg); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  3% { transform: rotate(-42deg); animation-timing-function: ease-out; }
+  5% { transform: rotate(-36deg); animation-timing-function: ease-in-out; }
+  6%, 27% { transform: rotate(-38deg); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  32% { transform: rotate(-184deg); animation-timing-function: ease-out; }
+  34.5% { transform: rotate(-175deg); animation-timing-function: ease-in-out; }
+  36%, 47% { transform: rotate(-178deg); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  50% { transform: rotate(-254deg); animation-timing-function: ease-out; }
+  52% { transform: rotate(-248deg); animation-timing-function: ease-in-out; }
+  53%, 71% { transform: rotate(-250deg); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  75.5% { transform: rotate(-366deg); animation-timing-function: ease-out; }
+  78% { transform: rotate(-357deg); animation-timing-function: ease-in-out; }
+  79.5%, 100% { transform: rotate(-360deg); }
+}
+
+@keyframes vakuum-loop-a {
+  0% { transform: translateY(-0.84%); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  4% { transform: translateY(0.295%); animation-timing-function: ease-out; }
+  6% { transform: translateY(-0.062%); animation-timing-function: ease-in-out; }
+  7.5% { transform: translateY(-0.136%); animation-timing-function: linear; }
+  19% { transform: translateY(-1.047%); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  23% { transform: translateY(0.814%); animation-timing-function: ease-out; }
+  25.5% { transform: translateY(0.418%); animation-timing-function: ease-in-out; }
+  27% { transform: translateY(0.343%); animation-timing-function: linear; }
+  36% { transform: translateY(-0.37%); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  38.5% { transform: translateY(0.488%); animation-timing-function: ease-out; }
+  40.5% { transform: translateY(0.198%); animation-timing-function: ease-in-out; }
+  41.5% { transform: translateY(0.141%); animation-timing-function: linear; }
+  58% { transform: translateY(-1.166%); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  63% { transform: translateY(1.166%); animation-timing-function: ease-out; }
+  65.5% { transform: translateY(0.77%); animation-timing-function: ease-in-out; }
+  67% { transform: translateY(0.695%); animation-timing-function: linear; }
+  83% { transform: translateY(-0.572%); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  86% { transform: translateY(0.356%); animation-timing-function: ease-out; }
+  88% { transform: translateY(0.066%); animation-timing-function: ease-in-out; }
+  89.5% { transform: translateY(-0.009%); animation-timing-function: linear; }
+  100% { transform: translateY(-0.84%); }
+}
+
+@keyframes vakuum-loop-b {
+  0% { transform: translateY(0.385%); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  3% { transform: translateY(-0.301%); animation-timing-function: ease-out; }
+  5% { transform: translateY(-0.011%); animation-timing-function: ease-in-out; }
+  6% { transform: translateY(0.024%); animation-timing-function: linear; }
+  27% { transform: translateY(1.687%); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  32% { transform: translateY(-1.129%); animation-timing-function: ease-out; }
+  34.5% { transform: translateY(-0.733%); animation-timing-function: ease-in-out; }
+  36% { transform: translateY(-0.68%); animation-timing-function: linear; }
+  47% { transform: translateY(0.191%); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  50% { transform: translateY(-1.243%); animation-timing-function: ease-out; }
+  52% { transform: translateY(-0.953%); animation-timing-function: ease-in-out; }
+  53% { transform: translateY(-0.917%); animation-timing-function: linear; }
+  71% { transform: translateY(0.508%); animation-timing-function: cubic-bezier(0.6, 0, 0.3, 1); }
+  75.5% { transform: translateY(-1.687%); animation-timing-function: ease-out; }
+  78% { transform: translateY(-1.291%); animation-timing-function: ease-in-out; }
+  79.5% { transform: translateY(-1.239%); animation-timing-function: linear; }
+  100% { transform: translateY(0.385%); }
+}
+
+@keyframes vakuum-capstan {
+  0% { transform: rotate(0deg); animation-timing-function: cubic-bezier(0.7, 0, 0.3, 1); }
+  5%, 17% { transform: rotate(42deg); animation-timing-function: cubic-bezier(0.7, 0, 0.3, 1); }
+  22%, 33% { transform: rotate(96deg); animation-timing-function: cubic-bezier(0.7, 0, 0.3, 1); }
+  37%, 43% { transform: rotate(78deg); animation-timing-function: cubic-bezier(0.7, 0, 0.3, 1); }
+  48%, 59% { transform: rotate(172deg); animation-timing-function: cubic-bezier(0.7, 0, 0.3, 1); }
+  64%, 77% { transform: rotate(262deg); animation-timing-function: cubic-bezier(0.7, 0, 0.3, 1); }
+  83%, 100% { transform: rotate(360deg); }
+}
+
+@keyframes vakuum-idler {
+  0% { transform: rotate(0deg); animation-timing-function: cubic-bezier(0.7, 0, 0.3, 1); }
+  5%, 17% { transform: rotate(-31.5deg); animation-timing-function: cubic-bezier(0.7, 0, 0.3, 1); }
+  22%, 33% { transform: rotate(-72deg); animation-timing-function: cubic-bezier(0.7, 0, 0.3, 1); }
+  37%, 43% { transform: rotate(-58.5deg); animation-timing-function: cubic-bezier(0.7, 0, 0.3, 1); }
+  48%, 59% { transform: rotate(-129deg); animation-timing-function: cubic-bezier(0.7, 0, 0.3, 1); }
+  64%, 77% { transform: rotate(-196.5deg); animation-timing-function: cubic-bezier(0.7, 0, 0.3, 1); }
+  83%, 100% { transform: rotate(-270deg); }
+}
+
+/* ==== end of variant "vakuum" ==== */
+
+/* ==========================================================================
+   Variant "praezision": a flat, exact product drawing. Smoked reels with
+   three round windows and a knurled drive hub, a transport plate with steel
+   tension arms, a photocell block and a D-shaped anodised head cover whose
+   polished face touches the tape. The reel pair is driven from script (one
+   clock for reels, arms and capstan); only the single reel icon turns by CSS.
+   Prefixed praezision-.
+   ========================================================================== */
+
+:root {
+  /* Tape and pack */
+  --praezision-tape: oklch(0.6 0.085 58);
+  --praezision-tape-edge: oklch(0.25 0.035 50);
+  --praezision-oxide-hi: oklch(0.52 0.075 58);
+  --praezision-pack-edge: oklch(0.66 0.08 62);
+  --praezision-oxide-glyph: oklch(0.56 0.085 58);
+  --praezision-sheen: oklch(0.86 0.06 66);
+
+  /* Reel plastic and drive hub */
+  --praezision-frost: oklch(0.97 0.004 250);
+  --praezision-reel-hub: oklch(0.25 0.004 285);
+  --praezision-knob: oklch(0.33 0.005 260);
+  --praezision-knob-face: oklch(0.4 0.005 260);
+  --praezision-knob-hi: oklch(0.54 0.005 260);
+  --praezision-knob-lo: oklch(0.22 0.005 260);
+  --praezision-bore: oklch(0.1 0.003 285);
+
+  /* Transport plate, anodised parts, steel, chrome, rubber */
+  --praezision-deck-top: oklch(0.42 0.004 285);
+  --praezision-deck: oklch(0.36 0.004 285);
+  --praezision-deck-hi: oklch(0.5 0.004 285);
+  --praezision-deck-lo: oklch(0.26 0.004 285);
+  --praezision-head: oklch(0.19 0.004 285);
+  --praezision-head-top: oklch(0.3 0.005 285);
+  --praezision-head-hi: oklch(0.5 0.005 285);
+  --praezision-ceramic: oklch(0.8 0.008 85);
+  --praezision-head-edge: oklch(0.09 0.003 285);
+  --praezision-steel-hi: oklch(0.8 0.005 260);
+  --praezision-steel: oklch(0.6 0.006 260);
+  --praezision-steel-lo: oklch(0.38 0.006 260);
+  --praezision-chrome-hi: oklch(0.97 0.003 250);
+  --praezision-chrome: oklch(0.68 0.005 250);
+  --praezision-chrome-lo: oklch(0.34 0.006 250);
+  --praezision-rubber: oklch(0.12 0.003 285);
+  --praezision-lamp-off: oklch(0.3 0.012 70);
+}
+
+/* Fills */
+.praezision-fill-back-flange { fill: color-mix(in oklch, var(--praezision-frost) 4%, transparent); }
+.praezision-fill-frost { fill: color-mix(in oklch, var(--praezision-frost) 11%, transparent); }
+.praezision-fill-frost-glyph { fill: color-mix(in oklch, var(--praezision-frost) 15%, transparent); }
+.praezision-fill-oxide-glyph { fill: var(--praezision-oxide-glyph); }
+.praezision-fill-sheen { fill: color-mix(in oklch, var(--praezision-sheen) 6%, transparent); }
+.praezision-fill-reel-hub { fill: var(--praezision-reel-hub); }
+.praezision-fill-knob { fill: var(--praezision-knob); }
+.praezision-fill-knob-face { fill: var(--praezision-knob-face); }
+.praezision-fill-bore { fill: var(--praezision-bore); }
+.praezision-fill-deck-lo { fill: var(--praezision-deck-lo); }
+.praezision-fill-ceramic { fill: var(--praezision-ceramic); }
+.praezision-fill-steel-hi { fill: var(--praezision-steel-hi); }
+.praezision-fill-steel { fill: var(--praezision-steel); }
+.praezision-fill-steel-lo { fill: var(--praezision-steel-lo); }
+.praezision-fill-rubber { fill: var(--praezision-rubber); }
+.praezision-fill-lamp { fill: var(--accent); }
+.praezision-fill-lamp-off { fill: var(--praezision-lamp-off); }
+
+/* Strokes */
+.praezision-stroke-tape { stroke: var(--praezision-tape); }
+.praezision-stroke-tape-edge { stroke: var(--praezision-tape-edge); }
+.praezision-stroke-pack-edge { stroke: var(--praezision-pack-edge); }
+.praezision-stroke-knob-hi { stroke: var(--praezision-knob-hi); }
+.praezision-stroke-knob-lo { stroke: var(--praezision-knob-lo); }
+.praezision-stroke-bore { stroke: var(--praezision-bore); }
+.praezision-stroke-deck-hi { stroke: var(--praezision-deck-hi); }
+.praezision-stroke-deck-lo { stroke: var(--praezision-deck-lo); }
+.praezision-stroke-head { stroke: var(--praezision-head); }
+.praezision-stroke-head-hi { stroke: var(--praezision-head-hi); }
+.praezision-stroke-head-edge { stroke: var(--praezision-head-edge); }
+.praezision-stroke-steel-hi { stroke: var(--praezision-steel-hi); }
+.praezision-stroke-steel { stroke: var(--praezision-steel); }
+.praezision-stroke-steel-lo { stroke: var(--praezision-steel-lo); }
+
+/* Gradient stops take their colour from the tokens. */
+.praezision-stop-oxide-deep { stop-color: var(--oxide-deep); }
+.praezision-stop-oxide { stop-color: var(--oxide); }
+.praezision-stop-oxide-hi { stop-color: var(--praezision-oxide-hi); }
+.praezision-stop-chrome-hi { stop-color: var(--praezision-chrome-hi); }
+.praezision-stop-chrome { stop-color: var(--praezision-chrome); }
+.praezision-stop-chrome-lo { stop-color: var(--praezision-chrome-lo); }
+.praezision-stop-head { stop-color: var(--praezision-head); }
+.praezision-stop-deck { stop-color: var(--praezision-deck); }
+.praezision-stop-deck-top { stop-color: var(--praezision-deck-top); }
+.praezision-stop-head-top { stop-color: var(--praezision-head-top); }
+
+/* The icon reel: a kick of 1/8 to 3/8 turn, a small overshoot that settles,
+   a hold, and again. Never a constant spin. Each icon starts at its own
+   phase, so a list of turning reels never ticks in step. */
+.praezision-kick {
+  animation: praezision-kick 3.1s var(--praezision-phase, 0s) infinite;
+}
+
+.praezision-phase-0 { --praezision-phase: 0s; }
+.praezision-phase-1 { --praezision-phase: -0.7s; }
+.praezision-phase-2 { --praezision-phase: -1.45s; }
+.praezision-phase-3 { --praezision-phase: -2.05s; }
+.praezision-phase-4 { --praezision-phase: -2.6s; }
+
+@keyframes praezision-kick {
+  0% { transform: rotate(0deg); animation-timing-function: cubic-bezier(0.55, 0, 0.25, 1); }
+  5% { transform: rotate(98deg); animation-timing-function: ease-in-out; }
+  8%, 31% { transform: rotate(90deg); animation-timing-function: cubic-bezier(0.55, 0, 0.25, 1); }
+  34.5% { transform: rotate(139deg); animation-timing-function: ease-in-out; }
+  37%, 51% { transform: rotate(135deg); animation-timing-function: cubic-bezier(0.55, 0, 0.25, 1); }
+  56.5% { transform: rotate(281deg); animation-timing-function: ease-in-out; }
+  60%, 79% { transform: rotate(270deg); animation-timing-function: cubic-bezier(0.55, 0, 0.25, 1); }
+  84% { transform: rotate(368deg); animation-timing-function: ease-in-out; }
+  87.5%, 100% { transform: rotate(360deg); }
+}
+
+/* ==== end of variant "praezision" ==== */

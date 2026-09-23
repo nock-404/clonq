@@ -36,12 +36,27 @@ pub struct UiSettings {
     /// Also announce automatic runs that went well, not only problems.
     #[serde(default)]
     pub notify_success: bool,
+    #[serde(default)]
+    pub reels: Reels,
 }
 
 impl Default for UiSettings {
     fn default() -> Self {
-        Self { accent: Accent::Amber, lamps: true, notify_success: false }
+        Self { accent: Accent::Amber, lamps: true, notify_success: false, reels: Reels::default() }
     }
+}
+
+/// How the tape reels and the drive are drawn.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Reels {
+    /// Smoked-glass flanges, a polished head block on a brushed plate.
+    #[default]
+    Licht,
+    /// Stacked reels with vacuum columns and a D-shaped head cover.
+    Vakuum,
+    /// A flat product drawing with tension arms and a photocell.
+    Praezision,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

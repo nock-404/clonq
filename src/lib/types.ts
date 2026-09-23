@@ -6,11 +6,15 @@ export type Accent = "ring" | "amber" | "blue";
 
 export type Ring = "red" | "yellow" | "blue" | "green" | "white";
 
+/** How the tape reels and the drive are drawn. */
+export type Reels = "licht" | "vakuum" | "praezision";
+
 export interface UiSettings {
   accent: Accent;
   lamps: boolean;
   /** Also announce automatic runs that went well, not only problems. */
   notifySuccess: boolean;
+  reels: Reels;
 }
 
 export interface Place {

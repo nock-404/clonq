@@ -1,0 +1,34 @@
+/* Lab pages only: a colourful desktop behind each variant and a freeze switch for stills.
+   The reels themselves are styled in src/styles/reels.css. */
+
+/* A colourful desktop behind the lab, so the translucent window shows. */
+.licht-desktop {
+  background:
+    radial-gradient(circle at 15% 12%, oklch(0.72 0.16 25), transparent 42%),
+    radial-gradient(circle at 85% 20%, oklch(0.68 0.17 255), transparent 48%),
+    radial-gradient(circle at 55% 95%, oklch(0.76 0.15 150), transparent 52%),
+    oklch(0.5 0.06 265);
+}
+
+/* A colourful desktop behind the lab, so the translucent window shows. */
+.vakuum-desktop {
+  background:
+    radial-gradient(circle at 12% 18%, oklch(0.74 0.16 28), transparent 44%),
+    radial-gradient(circle at 88% 16%, oklch(0.7 0.16 250), transparent 50%),
+    radial-gradient(circle at 60% 100%, oklch(0.78 0.14 152), transparent 52%),
+    oklch(0.52 0.055 262);
+}
+
+/* A colourful desktop behind the lab, so the translucent window shows. */
+.praezision-desktop {
+  background:
+    radial-gradient(circle at 18% 14%, oklch(0.74 0.16 28), transparent 44%),
+    radial-gradient(circle at 86% 22%, oklch(0.69 0.16 252), transparent 50%),
+    radial-gradient(circle at 52% 98%, oklch(0.77 0.14 150), transparent 52%),
+    oklch(0.52 0.055 262);
+}
+
+/* Lab only: ?freeze=1 holds every animation on its first frame, for stills. */
+.licht-freeze * {
+  animation-play-state: paused;
+}

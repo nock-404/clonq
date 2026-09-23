@@ -3,8 +3,11 @@ import { useEffect, useState } from "react";
 import type { ClonqState } from "../hooks/useClonq";
 import { reportError } from "../hooks/useClonq";
 import { api } from "../lib/api";
-import type { Accent, UiSettings } from "../lib/types";
+import type { Accent, Reels, UiSettings } from "../lib/types";
 import { UiPanel, UiSegmented, UiSwitch, type UiSegment } from "../ui";
+import { UiReel as LichtReel } from "../ui/reels/licht/UiReel";
+import { UiReel as PraezisionReel } from "../ui/reels/praezision/UiReel";
+import { UiReel as VakuumReel } from "../ui/reels/vakuum/UiReel";
 
 interface SettingsViewProps {
   state: ClonqState;
@@ -14,6 +17,13 @@ const accents: UiSegment<Accent>[] = [
   { value: "ring", label: "Schreibring-Rot", leading: <span className="size-2.5 rounded-full bg-ring-red" /> },
   { value: "amber", label: "Band-Bernstein", leading: <span className="size-2.5 rounded-full bg-tape-amber" /> },
   { value: "blue", label: "IBM-Blau", leading: <span className="size-2.5 rounded-full bg-ring-blue" /> },
+];
+
+// Each choice shows its own reel, whatever style is active right now.
+const reelStyles: UiSegment<Reels>[] = [
+  { value: "licht", label: "Licht", leading: <LichtReel ring="blue" size="xs" /> },
+  { value: "vakuum", label: "Vakuum", leading: <VakuumReel ring="blue" size="xs" /> },
+  { value: "praezision", label: "Präzision", leading: <PraezisionReel ring="blue" size="xs" /> },
 ];
 
 export function SettingsView({ state }: SettingsViewProps) {
@@ -34,6 +44,9 @@ export function SettingsView({ state }: SettingsViewProps) {
       <h1 className="text-xl font-semibold tracking-tight">Einstellungen</h1>
       <UiPanel title="Akzentfarbe">
         <UiSegmented label="Akzentfarbe" segments={accents} value={ui.accent} onChange={(accent) => save({ accent })} />
+      </UiPanel>
+      <UiPanel title="Spulen">
+        <UiSegmented label="Spulen" segments={reelStyles} value={ui.reels} onChange={(reels) => save({ reels })} />
       </UiPanel>
       <UiPanel title="Lämpchen im Job-Detail">
         <div className="flex items-center justify-between gap-4">

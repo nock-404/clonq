@@ -3,6 +3,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { api } from "../lib/api";
 import type { Config, JobStats, LiveRun, LocationStatus, MountedVolume, Overview, Run } from "../lib/types";
+import { setReelStyle } from "../ui/reels/style";
 
 export interface ClonqState {
   config: Config | null;
@@ -50,6 +51,7 @@ function byJob<T extends { jobId: string }>(items: T[]): Record<string, T> {
 
 function applyConfig(config: Config) {
   document.documentElement.dataset.accent = config.ui.accent;
+  setReelStyle(config.ui.reels);
   set({ config });
   void refreshLocations();
 }

@@ -1,6 +1,6 @@
 // Dev-only: made-up data that exercises every state of the UI. The app itself only shows real numbers.
 
-import type { CloudProviderInfo, Config, DayChange, JobStats, LiveRun, LocationStatus, MountedVolume, Overview, Run, RunDetail, Sample } from "../src/lib/types";
+import type { CloudProviderInfo, Config, DayChange, JobStats, LiveRun, LocationStatus, MountedVolume, Overview, Reels, Run, RunDetail, Sample } from "../src/lib/types";
 
 export type SceneName = "idle" | "running" | "blocked" | "failed" | "fresh" | "empty";
 
@@ -19,11 +19,18 @@ const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).
 
 const triggers = { onMount: false, onChangeAfterSeconds: null, everyMinutes: null, dailyAt: null, afterJob: null };
 const safety = { maxDeletePercent: 10, alwaysAllowedDeletions: 10 };
+const archive = { enabled: true, keepDays: 30 };
+const conflicts = { prefer: "newer" as const, loser: "keep" as const };
+
+// ?reels=vakuum|praezision shows the other reel styles; licht is the default.
+const reelParam = new URLSearchParams(location.search).get("reels");
+const reels: Reels = reelParam === "vakuum" || reelParam === "praezision" ? reelParam : "licht";
 
 const config: Config = {
   version: 2,
   rsyncPath: "/opt/homebrew/bin/rsync",
-  ui: { accent: "amber", lamps: true },
+  rclonePath: "/opt/homebrew/bin/rclone",
+  ui: { accent: "amber", lamps: true, notifySuccess: false, reels },
   locations: [
     { id: "desktop", name: "Schreibtisch", kind: { type: "folder", path: "/Users/matthias/Desktop" } },
     { id: "m2mini", name: "M2mini", kind: { type: "volume", volumeUuid: "53955C00-5DD6-4953-8E31-335F53043B30", volumeName: "M2mini" } },
@@ -43,6 +50,8 @@ const config: Config = {
       mode: "mirror",
       excludes: ["node_modules/"],
       safety,
+      archive,
+      conflicts,
       ring: "blue",
       triggers: { ...triggers, onMount: true, onChangeAfterSeconds: 60 },
     },
@@ -55,6 +64,8 @@ const config: Config = {
       mode: "mirror",
       excludes: ["node_modules/"],
       safety,
+      archive,
+      conflicts,
       ring: "green",
       triggers: { ...triggers, everyMinutes: 60 },
     },
@@ -67,6 +78,8 @@ const config: Config = {
       mode: "mirror",
       excludes: ["node_modules/", "/WORK/"],
       safety,
+      archive,
+      conflicts,
       ring: "red",
       triggers: { ...triggers, dailyAt: "02:00" },
     },
@@ -108,6 +121,7 @@ function run(partial: Partial<Run> & Pick<Run, "id" | "jobId" | "status">): Run 
     filesNew: 902,
     filesChanged: 312,
     filesDeleted: 41,
+    filesConflicted: 0,
     bytesTransferred: 1_480_000_000,
     bytesNew: 1_120_000_000,
     bytesChanged: 360_000_000,
@@ -199,6 +213,7 @@ const running: LiveRun = {
   filesDeleted: 3,
   filesNew: 812,
   filesChanged: 204,
+  filesConflicted: 0,
   filesPerSecond: 2_340,
   throughput: Array.from({ length: 42 }, (_, i) => 120_000_000 + Math.sin(i / 3) * 60_000_000 + i * 900_000),
   recentPaths: [
@@ -240,3 +255,85 @@ export const cloudProviders: CloudProviderInfo[] = [
   { id: "dropbox", label: "Dropbox", browserLogin: true, fields: [] },
   { id: "webdav", label: "WebDAV", browserLogin: false, fields: [key("URL"), key("Benutzer"), { ...key("Passwort"), secret: true }] },
 ];
+
+// --- Orte (AddLocationSheet, LocationDetail) -------------------------------------------------
+// Data for the Orte previews. preview.tsx adds it to a scene only when asked (?orteExtra=1,
+// ?orteDrives=1|2), so the other previews keep their sidebar as it is.
+
+import type { Location } from "../src/lib/types";
+
+const orteField = (key: string, label: string, secret: boolean, required: boolean, placeholder: string) => ({
+  key,
+  label,
+  secret,
+  required,
+  placeholder,
+  hint: null as string | null,
+});
+
+/** The providers exactly as src-tauri/src/cloud.rs describes them, English labels included. */
+export const orteCloudProviders: CloudProviderInfo[] = [
+  {
+    id: "s3",
+    label: "Amazon S3 und kompatible",
+    browserLogin: false,
+    fields: [
+      { ...orteField("endpoint", "Endpoint", false, false, "https://…"), hint: "Leer lassen für Amazon S3; sonst die Adresse des Anbieters, z. B. fsn1.your-objectstorage.com" },
+      orteField("region", "Region", false, false, "eu-central-1"),
+      orteField("access_key_id", "Access Key ID", false, true, ""),
+      orteField("secret_access_key", "Secret Access Key", true, true, ""),
+    ],
+  },
+  { id: "b2", label: "Backblaze B2", browserLogin: false, fields: [orteField("account", "Key ID", false, true, ""), orteField("key", "Application Key", true, true, "")] },
+  { id: "drive", label: "Google Drive", browserLogin: true, fields: [] },
+  { id: "onedrive", label: "Microsoft OneDrive", browserLogin: true, fields: [] },
+  { id: "dropbox", label: "Dropbox", browserLogin: true, fields: [] },
+  {
+    id: "webdav",
+    label: "WebDAV",
+    browserLogin: false,
+    fields: [
+      orteField("url", "Adresse", false, true, "https://…"),
+      orteField("user", "Benutzer", false, true, ""),
+      orteField("pass", "Passwort", true, true, ""),
+    ],
+  },
+];
+
+/** One location of every kind the base scene lacks, none of them used by a job. */
+export const orteExtraLocations: Location[] = [
+  { id: "fotoarchiv", name: "Fotoarchiv", kind: { type: "folder", path: "/Users/demo/Pictures/Fotoarchiv" } },
+  { id: "nas", name: "NAS Fotos", kind: { type: "smb", url: "smb://nas.local/Fotos", user: "demo" } },
+  { id: "gdrive", name: "Google Drive", kind: { type: "cloud", provider: "drive", remote: "clonq-google-drive-7a1e", root: "Backups/clonq" } },
+  { id: "nextcloud", name: "Nextcloud", kind: { type: "cloud", provider: "webdav", remote: "clonq-nextcloud-3c9d", root: "clonq" } },
+];
+
+export const orteExtraStatuses: LocationStatus[] = [
+  { id: "fotoarchiv", reach: { state: "connected", path: "/Users/demo/Pictures/Fotoarchiv", freeBytes: 812_000_000_000, totalBytes: 994_000_000_000 }, usedBy: [] },
+  { id: "nas", reach: { state: "disconnected" }, usedBy: [] },
+  { id: "gdrive", reach: { state: "connected", path: null, freeBytes: null, totalBytes: null }, usedBy: [] },
+  { id: "nextcloud", reach: { state: "untested" }, usedBy: [] },
+];
+
+/** Drives that are plugged in but not yet a location. */
+export const orteNewDrives: MountedVolume[] = [
+  {
+    uuid: "7C1D2E3F-0A4B-4C5D-8E6F-9A0B1C2D3E4F",
+    name: "Samsung T7",
+    mountPoint: "/Volumes/Samsung T7",
+    totalBytes: 2_000_000_000_000,
+    freeBytes: 1_310_000_000_000,
+    fileSystem: "apfs",
+    internal: false,
+  },
+  {
+    uuid: "0F1E2D3C-4B5A-4968-8776-A5B4C3D2E1F0",
+    name: "Archiv 2019",
+    mountPoint: "/Volumes/Archiv 2019",
+    totalBytes: 4_000_000_000_000,
+    freeBytes: 380_000_000_000,
+    fileSystem: "exfat",
+    internal: false,
+  },
+];
+// --- end Orte --------------------------------------------------------------------------------
