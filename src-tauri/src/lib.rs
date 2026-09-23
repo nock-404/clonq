@@ -21,7 +21,7 @@ mod watch;
 
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
-use tauri::{Emitter, Manager, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 
 use crate::config::Config;
 use crate::engine::Engine;
@@ -84,10 +84,7 @@ pub fn run() {
                 // While developing, the window comes up right away instead of
                 // waiting for a click on the menu bar icon.
                 #[cfg(debug_assertions)]
-                {
-                    main.show()?;
-                    main.set_focus()?;
-                }
+                show_main(app.handle())?;
             }
             tray::create(app.handle())?;
             Ok(())
@@ -97,10 +94,13 @@ pub fn run() {
             WindowEvent::Focused(false) if window.label() == POPOVER => {
                 let _ = window.hide();
             }
-            // Closing the main window hides it; clonq keeps running in the menu bar.
+            // Closing the main window hides it; clonq keeps running in the menu bar
+            // and leaves the Dock until the window comes back.
             WindowEvent::CloseRequested { api, .. } if window.label() == MAIN => {
                 api.prevent_close();
                 let _ = window.hide();
+                #[cfg(target_os = "macos")]
+                let _ = window.app_handle().set_activation_policy(tauri::ActivationPolicy::Accessory);
             }
             _ => {}
         })
@@ -148,6 +148,21 @@ pub fn run() {
             setup::set_job_enabled,
             setup::job_defaults,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running clonq");
+        .build(tauri::generate_context!())
+        .expect("error while building clonq")
+        .run(|app, event| {
+            // A click on the Dock icon brings the window back, e.g. after it was minimised.
+            if let tauri::RunEvent::Reopen { .. } = event {
+                let _ = show_main(app);
+            }
+        });
+}
+
+/// Shows the main window. While it is open, clonq also sits in the Dock and in ⌘Tab.
+pub fn show_main(app: &AppHandle) -> tauri::Result<()> {
+    let Some(main) = app.get_webview_window(MAIN) else { return Ok(()) };
+    #[cfg(target_os = "macos")]
+    app.set_activation_policy(tauri::ActivationPolicy::Regular)?;
+    main.show()?;
+    main.set_focus()
 }

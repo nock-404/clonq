@@ -77,11 +77,7 @@ pub fn open_main_window(app: AppHandle, job_id: Option<String>) -> Result<()> {
     if let Some(popover) = app.get_webview_window(POPOVER) {
         popover.hide()?;
     }
-    let main = app
-        .get_webview_window(MAIN)
-        .ok_or_else(|| Error::Job("main window missing".into()))?;
-    main.show()?;
-    main.set_focus()?;
+    crate::show_main(&app)?;
     if let Some(job_id) = job_id {
         app.emit_to(MAIN, EVENT_SHOW_JOB, job_id)?;
     }
