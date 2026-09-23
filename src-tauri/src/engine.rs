@@ -336,6 +336,16 @@ impl Engine {
             extra.push(format!("--max-delete={limit}"));
         }
         if two_way {
+            // Only one run per job exists (the engine's active map), so a lock file
+            // here is left over from an interrupted run and would block every run.
+            let workdir = self.rclone_config.with_file_name("bisync").join(&job.id);
+            if let Ok(entries) = std::fs::read_dir(&workdir) {
+                for entry in entries.flatten() {
+                    if entry.path().extension().is_some_and(|ext| ext == "lck") {
+                        let _ = std::fs::remove_file(entry.path());
+                    }
+                }
+            }
             if options.force {
                 extra.push("--force".into());
             }
@@ -433,29 +443,39 @@ impl Engine {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .kill_on_drop(true);
+            .kill_on_drop(true)
+            // Its own process group, so a cancel also reaches the ssh child rsync starts.
+            .process_group(0);
         let mut child = command
             .spawn()
             .map_err(|error| Error::Job(format!("could not start {}: {error}", plan.program)))?;
         let stdout = child.stdout.take().expect("piped stdout");
         let stderr = child.stderr.take().expect("piped stderr");
+        let group = child.id().and_then(|pid| i32::try_from(pid).ok());
 
         // The child lives in its own task, so waiting and killing never compete for it.
         // Besides waiting for the exit signal it asks the kernel directly every
         // quarter second, so a missed wake-up cannot leave a run hanging.
+        // A cancel first interrupts the whole group, so rsync and bisync can clean
+        // up (bisync removes its lock); only if that does not end it in ten
+        // seconds is the group killed.
         let (kill_tx, mut kill_rx) = tokio::sync::oneshot::channel::<()>();
         let mut waiter = tauri::async_runtime::spawn(async move {
-            let mut killed = false;
+            let mut interrupted_at: Option<Instant> = None;
             loop {
                 tokio::select! {
                     status = child.wait() => return status,
-                    _ = &mut kill_rx, if !killed => {
-                        killed = true;
-                        let _ = child.start_kill();
+                    _ = &mut kill_rx, if interrupted_at.is_none() => {
+                        interrupted_at = Some(Instant::now());
+                        signal_group(group, libc::SIGINT);
                     }
                     _ = tokio::time::sleep(Duration::from_millis(250)) => {
                         if let Some(status) = child.try_wait()? {
                             return Ok(status);
+                        }
+                        if interrupted_at.is_some_and(|at| at.elapsed() > Duration::from_secs(10)) {
+                            signal_group(group, libc::SIGKILL);
+                            let _ = child.start_kill();
                         }
                     }
                 }
@@ -477,6 +497,8 @@ impl Engine {
         let mut throughput: VecDeque<f64> = VecDeque::with_capacity(LIVE_SAMPLES);
         let mut recent: VecDeque<String> = VecDeque::with_capacity(RECENT_PATHS);
         let mut moved_aside: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut server_copies: HashMap<String, i64> = HashMap::new();
+        let mut open_conflicts: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut exit = None;
         let mut streams_open = true;
         let mut cancel_open = true;
@@ -517,12 +539,24 @@ impl Engine {
                                 Event::MovedAside(path) => {
                                     moved_aside.insert(path);
                                 }
+                                Event::ServerCopy { size, path } => {
+                                    server_copies.insert(path, size);
+                                }
                                 Event::Conflict(path) => {
-                                    result.conflicts += 1;
-                                    log.write_all(format!("? {path}\n").as_bytes()).await?;
-                                    if report {
-                                        let conflicts = result.conflicts;
-                                        self.update(job_id, |live| live.files_conflicted = conflicts);
+                                    // Counted once bisync resolves it; files that turn out equal are not conflicts.
+                                    open_conflicts.insert(path);
+                                }
+                                Event::ConflictWinner(path) | Event::ConflictRenamed(path) => {
+                                    let name = path.rsplit('/').next().unwrap_or(&path).to_string();
+                                    let matched = open_conflicts.iter().find(|open| open.rsplit('/').next() == Some(name.as_str())).cloned();
+                                    if let Some(open) = matched {
+                                        open_conflicts.remove(&open);
+                                        result.conflicts += 1;
+                                        log.write_all(format!("? {open}\n").as_bytes()).await?;
+                                        if report {
+                                            let conflicts = result.conflicts;
+                                            self.update(job_id, |live| live.files_conflicted = conflicts);
+                                        }
                                     }
                                 }
                                 Event::File { change, size, path } => {
@@ -533,6 +567,11 @@ impl Engine {
                                         log.write_all(line.as_bytes()).await?;
                                     }
                                     self.count_file(job_id, &mut result, &mut recent, change, size, &path, report);
+                                }
+                                Event::Deleted(path) if server_copies.remove(&path).is_some() => {
+                                    // Copied aside, then deleted: the backend has no move, so this is the
+                                    // archive step. A copy of the same path afterwards means it changed.
+                                    moved_aside.insert(path);
                                 }
                                 Event::Deleted(path) => {
                                     moved_aside.remove(&path);
@@ -632,6 +671,10 @@ impl Engine {
                         last_emit = Instant::now();
                     }
                 }
+                // After a cancel the pipes may be held by a straggler; do not wait for them forever.
+                _ = tokio::time::sleep(Duration::from_secs(5)), if exit.is_some() && result.cancelled => {
+                    break;
+                }
                 joined = &mut waiter, if exit.is_none() => {
                     let status = joined
                         .map_err(|error| Error::Job(format!("rsync task failed: {error}")))??;
@@ -650,6 +693,22 @@ impl Engine {
             }
             if exit.is_some() && !streams_open {
                 break;
+            }
+        }
+        // Server-side copies with no deletion after them were real copies; a path
+        // that was moved aside first was replaced, so it changed.
+        for (path, size) in server_copies {
+            let change = if moved_aside.remove(&path) { Change::ChangedFile } else { Change::NewFile };
+            if report && let Some(line) = log_entry(change, size, &path) {
+                log.write_all(line.as_bytes()).await?;
+            }
+            self.count_file(job_id, &mut result, &mut recent, change, size, &path, report);
+        }
+        // Moved into the archive and never replaced: those were deletions.
+        for path in moved_aside {
+            result.deleted_lines += 1;
+            if report {
+                log.write_all(format!("- {path}\n").as_bytes()).await?;
             }
         }
         result.exit_code = exit.and_then(|status| status.code());
@@ -814,9 +873,11 @@ impl Plan {
                 .to_vec(),
             // A server keeps its own owners and cannot take macOS metadata.
             Resolved::Remote { ssh, .. } => {
-                let mut remote: Vec<String> = ["--archive", "--hard-links", "--no-owner", "--no-group", "--mkpath", "--secluded-args"]
-                    .map(String::from)
-                    .to_vec();
+                // --timeout ends a transfer that has stalled for five minutes.
+                let mut remote: Vec<String> =
+                    ["--archive", "--hard-links", "--no-owner", "--no-group", "--mkpath", "--secluded-args", "--timeout=300"]
+                        .map(String::from)
+                        .to_vec();
                 remote.push(format!("--rsh={}", shell_join(ssh)));
                 remote
             }
@@ -891,6 +952,8 @@ impl Plan {
             "NOTICE".into(),
             "--resilient".into(),
             "--recover".into(),
+            "--max-lock".into(),
+            "2m".into(),
             "--conflict-resolve".into(),
             prefer.into(),
             "--conflict-loser".into(),
@@ -1148,6 +1211,16 @@ struct RsyncResult {
 struct Detail {
     samples: Vec<Sample>,
     folders: Vec<FolderChange>,
+}
+
+fn signal_group(group: Option<i32>, signal: i32) {
+    if let Some(group) = group.filter(|group| *group > 0) {
+        // SAFETY: killpg only sends a signal; the group id is the child's own pid,
+        // which leads the process group created with process_group(0).
+        unsafe {
+            libc::killpg(group, signal);
+        }
+    }
 }
 
 /// Archive folder names sort by time: `2026-09-23_14-05-09`.
@@ -1570,6 +1643,7 @@ mod tests {
         let second = f.run(&config, RunOptions::default()).await;
         assert_eq!(second.status, RunStatus::Succeeded, "{:?}", second.message);
         assert_eq!(second.files_conflicted, 1);
+        assert_eq!(second.files_deleted, 1, "only-source.txt; the conflict loser is renamed, not deleted");
         assert_eq!(fs::read_to_string(f.src().join("same.txt")).unwrap(), "from target, newer");
         assert!(f.src().join("same.txt.conflict1").exists(), "the loser is kept");
         assert!(!f.dst().join("only-source.txt").exists(), "deletions travel across");
@@ -1664,6 +1738,30 @@ mod tests {
         assert_eq!(run.status, RunStatus::Failed);
         assert!(run.message.unwrap_or_default().contains("is empty"));
         assert!(f.dst().join("keep.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_two_way_run_leaves_no_lock_behind() {
+        let f = Fixture::new();
+        for i in 0..400 {
+            f.write(&format!("src/dir{}/file{i}.bin", i % 20), &"x".repeat(4096));
+        }
+        let config = f.config(Mode::Bidirectional, "dst");
+        let run_id = f.engine.start(&config, "test", "manual", RunOptions::default()).unwrap();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        f.engine.cancel("test");
+        for _ in 0..800 {
+            if f.engine.live_runs().is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        assert!(f.engine.live_runs().is_empty(), "the cancel must end the run");
+        let cancelled = f.history.recent(10).unwrap().into_iter().find(|run| run.id == run_id).unwrap();
+        assert!(matches!(cancelled.status, RunStatus::Cancelled | RunStatus::Succeeded), "{:?}", cancelled.status);
+        // The next run starts cleanly instead of failing on a stale lock.
+        let next = f.run(&config, RunOptions::default()).await;
+        assert_eq!(next.status, RunStatus::Succeeded, "{:?}", next.message);
     }
 
     #[tokio::test]

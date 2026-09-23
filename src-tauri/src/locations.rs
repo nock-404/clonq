@@ -253,6 +253,15 @@ pub fn ssh_command(port: u16, identity_file: &str) -> Vec<String> {
         "StrictHostKeyChecking=accept-new".into(),
         "-o".into(),
         "ConnectTimeout=10".into(),
+        // A dead connection is noticed within a minute instead of hanging.
+        "-o".into(),
+        "ServerAliveInterval=15".into(),
+        "-o".into(),
+        "ServerAliveCountMax=4".into(),
+        "-o".into(),
+        "ForwardAgent=no".into(),
+        "-o".into(),
+        "ClearAllForwardings=yes".into(),
     ]
 }
 

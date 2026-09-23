@@ -12,8 +12,15 @@ pub enum Event {
     Deleted(String),
     /// Moved aside into the archive; a copy of the same path right after means it was changed.
     MovedAside(String),
+    /// A copy made on the remote itself: either a real copy (local-to-local
+    /// two-way sync) or, when a deletion of the same path follows, a move into the archive.
+    ServerCopy { size: i64, path: String },
     /// Two-way sync: the file changed on both sides.
     Conflict(String),
+    /// Two-way sync picked a winner for this path.
+    ConflictWinner(String),
+    /// Two-way sync renamed a conflicting copy (a name like `x.txt.conflict1`).
+    ConflictRenamed(String),
     /// A stats block: progress for the live view and the counters so far.
     Stats { progress: Progress, totals: Totals },
     Error(String),
@@ -98,9 +105,17 @@ pub fn parse(text: &str) -> Event {
         let name = line.msg.rsplit(" - ").next().unwrap_or_default().trim().to_string();
         return Event::Conflict(name);
     }
+    if line.msg.starts_with("The winner is") {
+        return Event::ConflictWinner(line.object.unwrap_or_default());
+    }
+    if line.msg.contains("Renaming Path1 copy") {
+        let renamed = line.msg.rsplit(" - ").next().unwrap_or_default().trim();
+        return Event::ConflictRenamed(original_name(renamed));
+    }
     let path = line.object.unwrap_or_default();
     match (line.msg.as_str(), line.skipped.as_deref()) {
-        ("Copied (new)", _) | ("Copied (server-side copy)", _) => Event::File { change: Change::NewFile, size: line.size.unwrap_or(0), path },
+        ("Copied (new)", _) => Event::File { change: Change::NewFile, size: line.size.unwrap_or(0), path },
+        ("Copied (server-side copy)", _) => Event::ServerCopy { size: line.size.unwrap_or(0), path },
         ("Copied (replaced existing)", _) => Event::File { change: Change::ChangedFile, size: line.size.unwrap_or(0), path },
         ("Deleted", _) | ("Moved into backup dir", _) => Event::Deleted(path),
         ("Moved (server-side)", _) => Event::MovedAside(path),
@@ -109,6 +124,15 @@ pub fn parse(text: &str) -> Event {
         (_, Some("delete")) => Event::Deleted(path),
         _ if line.level == "error" => Event::Error(if path.is_empty() { line.msg } else { format!("{path}: {}", line.msg) }),
         _ => Event::Other,
+    }
+}
+
+/// `a/same.txt.conflict1` → `same.txt`: the file name before bisync's suffix.
+fn original_name(renamed: &str) -> String {
+    let name = renamed.rsplit('/').next().unwrap_or(renamed);
+    match name.rsplit_once(".conflict") {
+        Some((base, number)) if number.chars().all(|c| c.is_ascii_digit()) => base.to_string(),
+        _ => name.to_string(),
     }
 }
 
@@ -160,6 +184,16 @@ mod tests {
         assert_eq!(progress.percent, 100.0);
         assert_eq!(progress.total_files, Some(30));
         assert_eq!(totals, Totals { bytes: 6_000_000, total_bytes: 6_000_000, transfers: 30, deletes: 2, errors: 2, listed: 35 });
+    }
+
+    #[test]
+    fn server_copies_and_conflict_resolution() {
+        let copy = r#"{"level":"info","msg":"Copied (server-side copy)","size":7,"object":"same.txt"}"#;
+        assert_eq!(parse(copy), Event::ServerCopy { size: 7, path: "same.txt".into() });
+        let winner = r#"{"level":"info","msg":"The winner is: Path2","object":"same.txt"}"#;
+        assert_eq!(parse(winner), Event::ConflictWinner("same.txt".into()));
+        let renamed = r#"{"level":"notice","msg":"- Path1             Renaming Path1 copy                         - a/same.txt.conflict1"}"#;
+        assert_eq!(parse(renamed), Event::ConflictRenamed("same.txt".into()));
     }
 
     #[test]

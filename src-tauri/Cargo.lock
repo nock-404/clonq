@@ -497,6 +497,7 @@ dependencies = [
  "base64 0.23.1",
  "cc",
  "chrono",
+ "libc",
  "notify",
  "plist",
  "regex",
