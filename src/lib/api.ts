@@ -4,6 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   ArchivedFile,
+  BrowseEntry,
+  FilePreview,
   Snapshot,
   EntryKind,
   RunEntryPage,
@@ -42,6 +44,12 @@ export const api = {
   /** Copies into a new folder in Downloads; returns that folder. */
   restoreArchive: (jobId: string, stamp: string, path?: string) =>
     invoke<string>("restore_archive", { jobId, stamp, path: path ?? null }),
+  browseList: (location: string, path: string) => invoke<BrowseEntry[]>("browse_list", { location, path }),
+  browsePreview: (location: string, path: string) => invoke<FilePreview>("browse_preview", { location, path }),
+  /** Copies into Downloads/clonq-dateien; returns the copy. */
+  browseDownload: (location: string, path: string) => invoke<string>("browse_download", { location, path }),
+  browseRename: (location: string, path: string, newName: string) => invoke<void>("browse_rename", { location, path, newName }),
+  browseDelete: (location: string, path: string) => invoke<void>("browse_delete", { location, path }),
   jobStats: (jobId: string) => invoke<JobStats>("job_stats", { jobId }),
   overview: () => invoke<Overview>("overview"),
   setUiSettings: (settings: UiSettings) => invoke<Config>("set_ui_settings", { settings }),

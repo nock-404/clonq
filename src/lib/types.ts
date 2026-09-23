@@ -296,3 +296,16 @@ export interface ArchivedFile {
   path: string;
   size: number;
 }
+
+export interface BrowseEntry {
+  name: string;
+  dir: boolean;
+  size: number;
+  modified: string | null;
+}
+
+export interface FilePreview {
+  mime: string;
+  text: string | null;
+  base64: string | null;
+}

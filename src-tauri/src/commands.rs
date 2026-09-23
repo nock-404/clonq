@@ -137,3 +137,41 @@ pub async fn restore_archive(app: AppHandle, state: State<'_, AppState>, job_id:
     let folder = crate::archive::restore(&job, &config, &state.config_dir.join("rclone.conf"), &downloads, &stamp, path.as_deref()).await?;
     Ok(folder.to_string_lossy().into_owned())
 }
+
+fn browse_context(state: &AppState) -> (crate::config::Config, std::path::PathBuf) {
+    (state.config.read().expect("config lock").clone(), state.config_dir.join("rclone.conf"))
+}
+
+#[tauri::command]
+pub async fn browse_list(state: State<'_, AppState>, location: String, path: String) -> Result<Vec<crate::browse::BrowseEntry>> {
+    let (config, rclone) = browse_context(&state);
+    crate::browse::list(&crate::config::Place { location, path }, &config, &rclone).await
+}
+
+#[tauri::command]
+pub async fn browse_preview(state: State<'_, AppState>, location: String, path: String) -> Result<crate::browse::Preview> {
+    let (config, rclone) = browse_context(&state);
+    crate::browse::preview(&crate::config::Place { location, path }, &config, &rclone).await
+}
+
+/// Copies into Downloads/clonq-dateien and returns the copy's path.
+#[tauri::command]
+pub async fn browse_download(app: AppHandle, state: State<'_, AppState>, location: String, path: String) -> Result<String> {
+    let (config, rclone) = browse_context(&state);
+    let name = config.location(&location).map(|l| l.name.clone()).unwrap_or_else(|| location.clone());
+    let downloads = app.path().download_dir()?;
+    let copy = crate::browse::download(&crate::config::Place { location, path }, &config, &rclone, &downloads, &name).await?;
+    Ok(copy.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub async fn browse_rename(state: State<'_, AppState>, location: String, path: String, new_name: String) -> Result<()> {
+    let (config, rclone) = browse_context(&state);
+    crate::browse::rename(&crate::config::Place { location, path }, new_name.trim(), &config, &rclone).await
+}
+
+#[tauri::command]
+pub async fn browse_delete(state: State<'_, AppState>, location: String, path: String) -> Result<()> {
+    let (config, rclone) = browse_context(&state);
+    crate::browse::delete(&crate::config::Place { location, path }, &config, &rclone).await
+}

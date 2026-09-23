@@ -1,4 +1,5 @@
 mod archive;
+mod browse;
 mod cloud;
 mod commands;
 mod config;
@@ -115,6 +116,11 @@ pub fn run() {
             commands::archive_snapshots,
             commands::archive_files,
             commands::restore_archive,
+            commands::browse_list,
+            commands::browse_preview,
+            commands::browse_download,
+            commands::browse_rename,
+            commands::browse_delete,
             setup::mounted_volumes,
             setup::location_statuses,
             setup::add_folder_location,
