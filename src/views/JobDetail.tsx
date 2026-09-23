@@ -11,8 +11,8 @@ import {
   formatReels,
   formatRelative,
 } from "../lib/format";
-import { isRemote, isRunning, jobActions, progressLine } from "../lib/jobs";
-import { endpointLabel, messageLabel, modeLabel, statusLabel } from "../lib/labels";
+import { isRunning, jobActions, jobReady, progressLine } from "../lib/jobs";
+import { locationOf, messageLabel, modeLabel, placeLabel, reachLabel, statusLabel } from "../lib/labels";
 import { durationSeconds, ratesOf, savedPercent } from "../lib/runs";
 import type { Job } from "../lib/types";
 import {
@@ -44,7 +44,10 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
   const stats = state.stats[job.id];
   const last = stats?.last ?? null;
   const running = isRunning(live);
-  const remote = isRemote(job);
+  const readiness = jobReady(job, state.locations);
+  const remote = !readiness.ready;
+  const blockerName = readiness.blocker ? locationOf({ location: readiness.blocker, path: "" }, state.config)?.name : undefined;
+  const blockerReach = readiness.blocker ? reachLabel(state.locations[readiness.blocker]?.reach).text : "";
   const blocked = !running && latest?.status === "blocked";
   const ring = ringOf(job.ring, index);
 
@@ -73,7 +76,7 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
             <UiBadge>{modeLabel[job.mode]}</UiBadge>
           </div>
           <span className="truncate text-xs text-ink-faint">
-            {endpointLabel(job.source)} → {endpointLabel(job.target)}
+            {placeLabel(job.source, state.config)} → {placeLabel(job.target, state.config)}
           </span>
         </div>
         {running ? (
@@ -92,7 +95,11 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
         )}
       </header>
 
-      {remote ? <UiNotice tone="neutral">Die Storage Box ist noch nicht verbunden. Sobald die Zugangsdaten da sind, läuft dieser Job.</UiNotice> : null}
+      {remote ? (
+        <UiNotice tone="neutral">
+          {blockerName ?? "Ein Ort"} ist gerade {blockerReach}. Sobald er erreichbar ist, kann dieser Job laufen.
+        </UiNotice>
+      ) : null}
       {!running && latest?.message && latest.status !== "succeeded" ? (
         <UiNotice
           tone={latest.status === "failed" ? "danger" : "warn"}

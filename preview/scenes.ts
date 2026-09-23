@@ -1,8 +1,8 @@
 // Dev-only: made-up data that exercises every state of the UI. The app itself only shows real numbers.
 
-import type { Config, DayChange, JobStats, LiveRun, Overview, Run, RunDetail, Sample } from "../src/lib/types";
+import type { CloudProviderInfo, Config, DayChange, JobStats, LiveRun, LocationStatus, MountedVolume, Overview, Run, RunDetail, Sample } from "../src/lib/types";
 
-export type SceneName = "idle" | "running" | "blocked" | "failed" | "fresh";
+export type SceneName = "idle" | "running" | "blocked" | "failed" | "fresh" | "empty";
 
 interface Scene {
   config: Config;
@@ -11,51 +11,91 @@ interface Scene {
   recent: Run[];
   stats: Record<string, JobStats>;
   overview: Overview;
+  locations: LocationStatus[];
+  volumes: MountedVolume[];
 }
 
 const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
 
+const triggers = { onMount: false, onChangeAfterSeconds: null, everyMinutes: null, dailyAt: null, afterJob: null };
+const safety = { maxDeletePercent: 10, alwaysAllowedDeletions: 10 };
+
 const config: Config = {
-  version: 1,
+  version: 2,
   rsyncPath: "/opt/homebrew/bin/rsync",
   ui: { accent: "amber", lamps: true },
-  hosts: [],
+  locations: [
+    { id: "desktop", name: "Schreibtisch", kind: { type: "folder", path: "/Users/matthias/Desktop" } },
+    { id: "m2mini", name: "M2mini", kind: { type: "volume", volumeUuid: "53955C00-5DD6-4953-8E31-335F53043B30", volumeName: "M2mini" } },
+    {
+      id: "box",
+      name: "Storage Box",
+      kind: { type: "ssh", host: "u123456.your-storagebox.de", port: 23, user: "u123456", identityFile: "/k", basePath: "" },
+    },
+  ],
   jobs: [
     {
       id: "work-to-m2mini",
       name: "WORK → M2mini",
-      enabled: false,
-      source: { kind: "local", path: "/Users/matthias/Desktop/WORK" },
-      target: { kind: "local", path: "/Volumes/M2mini/WORK" },
+      enabled: true,
+      source: { location: "desktop", path: "WORK" },
+      target: { location: "m2mini", path: "WORK" },
       mode: "mirror",
       excludes: ["node_modules/"],
-      safety: { maxDeletePercent: 10, alwaysAllowedDeletions: 10 },
+      safety,
       ring: "blue",
+      triggers: { ...triggers, onMount: true, onChangeAfterSeconds: 60 },
     },
     {
       id: "work-to-storagebox",
       name: "WORK → Storage Box",
-      enabled: false,
-      source: { kind: "local", path: "/Users/matthias/Desktop/WORK" },
-      target: { kind: "remote", host: "storagebox", path: "M2mini/WORK" },
+      enabled: true,
+      source: { location: "desktop", path: "WORK" },
+      target: { location: "box", path: "M2mini/WORK" },
       mode: "mirror",
       excludes: ["node_modules/"],
-      safety: { maxDeletePercent: 10, alwaysAllowedDeletions: 10 },
+      safety,
       ring: "green",
+      triggers: { ...triggers, everyMinutes: 60 },
     },
     {
       id: "m2mini-to-storagebox",
       name: "M2mini → Storage Box",
       enabled: false,
-      source: { kind: "local", path: "/Volumes/M2mini" },
-      target: { kind: "remote", host: "storagebox", path: "M2mini" },
+      source: { location: "m2mini", path: "" },
+      target: { location: "box", path: "M2mini" },
       mode: "mirror",
       excludes: ["node_modules/", "/WORK/"],
-      safety: { maxDeletePercent: 10, alwaysAllowedDeletions: 10 },
+      safety,
       ring: "red",
+      triggers: { ...triggers, dailyAt: "02:00" },
     },
   ],
 };
+
+const connected = (id: string, path: string | null, free: number | null, total: number | null, usedBy: string[]): LocationStatus => ({
+  id,
+  reach: { state: "connected", path, freeBytes: free, totalBytes: total },
+  usedBy,
+});
+
+const locationStatuses: LocationStatus[] = [
+  connected("desktop", "/Users/matthias/Desktop", 812_000_000_000, 994_000_000_000, ["WORK → M2mini", "WORK → Storage Box"]),
+  connected("m2mini", "/Volumes/M2mini", 228_900_000_000, 1_000_200_000_000, ["WORK → M2mini", "M2mini → Storage Box"]),
+  { id: "box", reach: { state: "untested" }, usedBy: ["WORK → Storage Box", "M2mini → Storage Box"] },
+];
+
+const volumes: MountedVolume[] = [
+  {
+    uuid: "53955C00-5DD6-4953-8E31-335F53043B30",
+    name: "M2mini",
+    mountPoint: "/Volumes/M2mini",
+    totalBytes: 1_000_200_000_000,
+    freeBytes: 228_900_000_000,
+    fileSystem: "apfs",
+    internal: false,
+  },
+];
 
 function run(partial: Partial<Run> & Pick<Run, "id" | "jobId" | "status">): Run {
   return {
@@ -179,10 +219,24 @@ const overview = (withRuns: boolean): Overview =>
     ? { totals: statsFor("x", true).totals, todayBytes: 3_420_000_000, todayFiles: 4_210, todayRuns: 3 }
     : { totals: { runs: 0, files: 0, bytes: 0, wireBytes: 0, deleted: 0 }, todayBytes: 0, todayFiles: 0, todayRuns: 0 };
 
+const base = { locations: locationStatuses, volumes };
+const emptyConfig: Config = { ...config, locations: [], jobs: [] };
+
 export const scenes: Record<SceneName, Scene> = {
-  fresh: { config, live: [], latest: [], recent: [], stats: allStats(false), overview: overview(false) },
-  idle: { config, live: [], latest: [succeeded], recent: [succeeded, failed], stats: allStats(true), overview: overview(true) },
-  running: { config, live: [running], latest: [succeeded], recent: [succeeded], stats: allStats(true), overview: overview(true) },
-  blocked: { config, live: [], latest: [blocked], recent: [blocked, succeeded], stats: allStats(true), overview: overview(true) },
-  failed: { config, live: [], latest: [failed], recent: [failed, blocked, succeeded], stats: allStats(true), overview: overview(true) },
+  empty: { config: emptyConfig, live: [], latest: [], recent: [], stats: {}, overview: overview(false), locations: [], volumes },
+  fresh: { ...base, config, live: [], latest: [], recent: [], stats: allStats(false), overview: overview(false) },
+  idle: { ...base, config, live: [], latest: [succeeded], recent: [succeeded, failed], stats: allStats(true), overview: overview(true) },
+  running: { ...base, config, live: [running], latest: [succeeded], recent: [succeeded], stats: allStats(true), overview: overview(true) },
+  blocked: { ...base, config, live: [], latest: [blocked], recent: [blocked, succeeded], stats: allStats(true), overview: overview(true) },
+  failed: { ...base, config, live: [], latest: [failed], recent: [failed, blocked, succeeded], stats: allStats(true), overview: overview(true) },
 };
+
+const key = (label: string) => ({ key: label.toLowerCase().replace(/\W+/g, "_"), label, secret: false, required: true, placeholder: "", hint: null });
+export const cloudProviders: CloudProviderInfo[] = [
+  { id: "s3", label: "Amazon S3 und kompatible", browserLogin: false, fields: [key("Endpoint"), key("Access Key ID"), { ...key("Secret Access Key"), secret: true }, key("Bucket")] },
+  { id: "b2", label: "Backblaze B2", browserLogin: false, fields: [key("Account ID"), { ...key("Application Key"), secret: true }, key("Bucket")] },
+  { id: "drive", label: "Google Drive", browserLogin: true, fields: [] },
+  { id: "onedrive", label: "Microsoft OneDrive", browserLogin: true, fields: [] },
+  { id: "dropbox", label: "Dropbox", browserLogin: true, fields: [] },
+  { id: "webdav", label: "WebDAV", browserLogin: false, fields: [key("URL"), key("Benutzer"), { ...key("Passwort"), secret: true }] },
+];

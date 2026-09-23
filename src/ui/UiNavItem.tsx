@@ -9,9 +9,11 @@ interface UiNavItemProps {
   active: boolean;
   onPress: () => void;
   count?: number;
+  /** Shown at the end of the row, e.g. a status dot. */
+  trailing?: ReactNode;
 }
 
-export function UiNavItem({ icon, leading, label, active, onPress, count }: UiNavItemProps) {
+export function UiNavItem({ icon, leading, label, active, onPress, count, trailing }: UiNavItemProps) {
   const Icon = icon;
   return (
     <button
@@ -27,6 +29,7 @@ export function UiNavItem({ icon, leading, label, active, onPress, count }: UiNa
       {leading ?? (Icon ? <Icon className={`size-4 ${active ? "text-accent" : ""}`} strokeWidth={2.1} /> : null)}
       <span className="flex-1 truncate">{label}</span>
       {count !== undefined ? <span className="tabular text-xs text-ink-faint">{count}</span> : null}
+      {trailing}
     </button>
   );
 }

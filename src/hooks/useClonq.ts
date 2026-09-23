@@ -2,7 +2,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import { api } from "../lib/api";
-import type { Config, JobStats, LiveRun, Overview, Run } from "../lib/types";
+import type { Config, JobStats, LiveRun, LocationStatus, MountedVolume, Overview, Run } from "../lib/types";
 
 export interface ClonqState {
   config: Config | null;
@@ -14,6 +14,10 @@ export interface ClonqState {
   /** Stats of every job, by job id; refreshed whenever a run ends. */
   stats: Record<string, JobStats>;
   overview: Overview | null;
+  /** Reachability of every location, by location id. */
+  locations: Record<string, LocationStatus>;
+  /** Drives mounted right now. */
+  volumes: MountedVolume[];
   error: string | null;
 }
 
@@ -21,7 +25,17 @@ export interface ClonqState {
 const FINISHED_LINGER_MS = 4000;
 const RECENT_LIMIT = 200;
 
-let state: ClonqState = { config: null, live: {}, latest: {}, recent: [], stats: {}, overview: null, error: null };
+let state: ClonqState = {
+  config: null,
+  live: {},
+  latest: {},
+  recent: [],
+  stats: {},
+  overview: null,
+  locations: {},
+  volumes: [],
+  error: null,
+};
 const listeners = new Set<() => void>();
 let started = false;
 
@@ -37,6 +51,17 @@ function byJob<T extends { jobId: string }>(items: T[]): Record<string, T> {
 function applyConfig(config: Config) {
   document.documentElement.dataset.accent = config.ui.accent;
   set({ config });
+  void refreshLocations();
+}
+
+/** Re-reads where every location is; cheap enough to call on any hint of change. */
+export async function refreshLocations() {
+  try {
+    const [statuses, volumes] = await Promise.all([api.locationStatuses(), api.mountedVolumes()]);
+    set({ locations: Object.fromEntries(statuses.map((status) => [status.id, status])), volumes });
+  } catch (error) {
+    set({ error: String(error) });
+  }
 }
 
 async function refreshRuns() {
@@ -70,7 +95,13 @@ async function start() {
     }
   });
   await api.onRunsChanged(() => void refreshRuns());
-  await api.onConfigChanged(applyConfig);
+  await api.onConfigChanged((config) => {
+    applyConfig(config);
+    void refreshRuns();
+  });
+  await api.onVolumesChanged(() => void refreshLocations());
+  await api.onServersChecked(() => void refreshLocations());
+  window.addEventListener("focus", () => void refreshLocations());
   try {
     const [config, live] = await Promise.all([api.getConfig(), api.liveRuns()]);
     applyConfig(config);

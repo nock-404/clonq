@@ -4,9 +4,13 @@ mod engine;
 mod error;
 mod glass;
 mod history;
+mod locations;
 mod rsync_output;
+mod setup;
+mod ssh;
 mod stats;
 mod tray;
+mod watch;
 
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -27,27 +31,36 @@ pub struct AppState {
     pub config_dir: PathBuf,
     pub history: Arc<History>,
     pub engine: Engine,
+    pub server_checks: locations::ServerChecks,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
             let data_dir = app.path().app_data_dir()?;
-            let home = app.path().home_dir()?;
             std::fs::create_dir_all(&data_dir)?;
-            let config = Config::load_or_init(&data_dir, &home)?;
+            let config = Config::load_or_init(&data_dir)?;
             let history = Arc::new(History::open(&data_dir.join("history.sqlite"))?);
             let handle = app.handle().clone();
             let emit: engine::Emit = Arc::new(move |event, payload| {
                 let _ = handle.emit(event, payload);
             });
             let engine = Engine::new(emit, history.clone(), data_dir.join("logs"));
-            app.manage(AppState { config: RwLock::new(config), config_dir: data_dir, history, engine });
+            app.manage(AppState {
+                config: RwLock::new(config),
+                config_dir: data_dir,
+                history,
+                engine,
+                server_checks: locations::ServerChecks::default(),
+            });
+            watch::volumes(app.handle().clone());
+            watch::servers(app.handle().clone());
 
             if let Some(popover) = app.get_webview_window(POPOVER) {
                 glass::apply(&popover, POPOVER_RADIUS)?;
@@ -89,6 +102,23 @@ pub fn run() {
             commands::cancel_job,
             commands::open_main_window,
             commands::quit,
+            setup::mounted_volumes,
+            setup::location_statuses,
+            setup::add_folder_location,
+            setup::add_volume_location,
+            setup::prepare_server,
+            setup::install_server_key,
+            setup::test_server,
+            setup::add_server_location,
+            setup::test_location,
+            setup::rename_location,
+            setup::remove_location,
+            setup::list_folders,
+            setup::create_folder,
+            setup::save_job,
+            setup::delete_job,
+            setup::set_job_enabled,
+            setup::job_defaults,
         ])
         .run(tauri::generate_context!())
         .expect("error while running clonq");

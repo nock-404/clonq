@@ -4,8 +4,8 @@ import { clearError, useClonq, useNow } from "../hooks/useClonq";
 import { useHotkeys } from "../hooks/useHotkeys";
 import { api } from "../lib/api";
 import { formatBytes } from "../lib/format";
-import { endpointLabel, messageLabel } from "../lib/labels";
-import { isRemote, isRunning, jobActions, jobLine } from "../lib/jobs";
+import { messageLabel, placeLabel } from "../lib/labels";
+import { isRunning, jobActions, jobLine, jobReady } from "../lib/jobs";
 import { UiActionBar, UiActionPanel, UiButton, UiEmpty, UiKbd, UiListRow, UiNotice, UiReel, UiSearchField } from "../ui";
 import { ringOf } from "../ui/rings";
 import { toneText } from "../ui/tone";
@@ -25,7 +25,9 @@ export function Popover() {
     const all = (state.config?.jobs ?? []).map((job, index) => ({ job, index }));
     const needle = query.trim().toLowerCase();
     if (!needle) return all;
-    return all.filter(({ job }) => `${job.name} ${endpointLabel(job.source)} ${endpointLabel(job.target)}`.toLowerCase().includes(needle));
+    return all.filter(({ job }) =>
+      `${job.name} ${placeLabel(job.source, state.config)} ${placeLabel(job.target, state.config)}`.toLowerCase().includes(needle),
+    );
   }, [state.config, query]);
 
   const current = jobs[Math.min(selected, Math.max(jobs.length - 1, 0))];
@@ -33,6 +35,7 @@ export function Popover() {
   const live = job ? state.live[job.id] : undefined;
   const latest = job ? state.latest[job.id] : undefined;
   const running = isRunning(live);
+  const ready = job ? jobReady(job, state.locations).ready : false;
 
   // Every time the popover comes up, it starts clean with the cursor in the search.
   useEffect(() => {
@@ -53,7 +56,7 @@ export function Popover() {
   useHotkeys(
     {
       "mod+k": () => setActionsOpen((open) => !open),
-      "mod+Enter": () => job && !running && !isRemote(job) && void jobActions.dryRun(job.id),
+      "mod+Enter": () => job && !running && ready && void jobActions.dryRun(job.id),
       "mod+.": () => job && running && void jobActions.cancel(job.id),
       "mod+o": () => job && void api.openMainWindow(job.id),
     },
@@ -69,7 +72,7 @@ export function Popover() {
       setSelected((index) => Math.max(index - 1, 0));
     } else if (event.key === "Enter" && !event.metaKey) {
       event.preventDefault();
-      if (job && !running && !isRemote(job)) void jobActions.run(job.id);
+      if (job && !running && ready) void jobActions.run(job.id);
     } else if (event.key === "Escape") {
       event.preventDefault();
       if (query) setQuery("");
@@ -101,7 +104,8 @@ export function Popover() {
           jobs.map(({ job: rowJob, index }, position) => {
             const rowLive = state.live[rowJob.id];
             const rowRunning = isRunning(rowLive);
-            const line = jobLine(rowJob, rowLive, state.latest[rowJob.id], now);
+            const rowReady = jobReady(rowJob, state.locations).ready;
+            const line = jobLine(rowJob, rowLive, state.latest[rowJob.id], now, state.locations);
             const isSelected = position === selected;
             return (
               <UiListRow
@@ -109,15 +113,15 @@ export function Popover() {
                 selected={isSelected}
                 onPress={() => setSelected(position)}
                 onHover={() => setSelected(position)}
-                dimmed={isRemote(rowJob)}
+                dimmed={!rowReady}
                 leading={<UiReel ring={ringOf(rowJob.ring, index)} spinning={rowRunning} fill={rowRunning ? 0.35 + (rowLive.percent / 100) * 0.55 : 0.8} />}
                 title={rowJob.name}
-                subtitle={`${endpointLabel(rowJob.source)} → ${endpointLabel(rowJob.target)}`}
+                subtitle={`${placeLabel(rowJob.source, state.config)} → ${placeLabel(rowJob.target, state.config)}`}
                 progress={rowRunning ? (rowLive.phase === "checking" ? null : rowLive.percent) : undefined}
                 accessory={
                   <>
                     <span className={toneText[line.tone]}>{line.text}</span>
-                    {isSelected && !rowRunning && !isRemote(rowJob) ? <UiKbd keys={["↵"]} /> : null}
+                    {isSelected && !rowRunning && rowReady ? <UiKbd keys={["↵"]} /> : null}
                   </>
                 }
               />
@@ -129,7 +133,7 @@ export function Popover() {
             <UiNotice
               tone={latest.status === "failed" ? "danger" : "warn"}
               actions={
-                latest.status === "blocked" && !isRemote(job) ? (
+                latest.status === "blocked" && ready ? (
                   <UiButton variant="danger" icon={ShieldAlert} onPress={() => void jobActions.force(job.id)}>
                     Trotzdem ausführen
                   </UiButton>
@@ -156,7 +160,7 @@ export function Popover() {
           job
             ? running
               ? { label: "Abbrechen", keys: ["⌘", "."], onPress: () => void jobActions.cancel(job.id) }
-              : { label: "Jetzt syncen", keys: ["↵"], onPress: () => void jobActions.run(job.id), disabled: isRemote(job) }
+              : { label: "Jetzt syncen", keys: ["↵"], onPress: () => void jobActions.run(job.id), disabled: !ready }
             : undefined
         }
         secondary={{ label: "Aktionen", keys: ["⌘", "K"], onPress: () => setActionsOpen(true), disabled: !job }}
@@ -166,7 +170,7 @@ export function Popover() {
         <UiActionPanel
           open={actionsOpen}
           title={job.name}
-          actions={actionsFor(job, live, latest, true)}
+          actions={actionsFor(job, live, latest, ready, true)}
           onClose={() => {
             setActionsOpen(false);
             search.current?.focus();

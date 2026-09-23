@@ -11,9 +11,55 @@ export interface UiSettings {
   lamps: boolean;
 }
 
-export type Endpoint =
-  | { kind: "local"; path: string }
-  | { kind: "remote"; host: string; path: string };
+export interface Place {
+  location: string;
+  /** Path inside the location; "" is the location itself. */
+  path: string;
+}
+
+export type CloudProvider = "s3" | "b2" | "drive" | "onedrive" | "dropbox" | "webdav";
+
+export type LocationKind =
+  | { type: "folder"; path: string }
+  | { type: "volume"; volumeUuid: string; volumeName: string }
+  | { type: "ssh"; host: string; port: number; user: string; identityFile: string; basePath: string }
+  /** A network share; the password lives in the macOS keychain. */
+  | { type: "smb"; url: string; user: string }
+  /** Cloud storage through rclone; the remote lives in clonq's own rclone config. */
+  | { type: "cloud"; provider: CloudProvider; remote: string; root: string };
+
+/** One input a cloud provider needs, e.g. an access key. */
+export interface CloudField {
+  key: string;
+  label: string;
+  secret: boolean;
+  required: boolean;
+  placeholder: string;
+  hint: string | null;
+}
+
+export interface CloudProviderInfo {
+  id: CloudProvider;
+  label: string;
+  /** True when the account is connected by signing in through the browser. */
+  browserLogin: boolean;
+  fields: CloudField[];
+}
+
+export interface Location {
+  id: string;
+  name: string;
+  kind: LocationKind;
+}
+
+export interface Triggers {
+  onMount: boolean;
+  onChangeAfterSeconds: number | null;
+  everyMinutes: number | null;
+  /** Local time "HH:MM". */
+  dailyAt: string | null;
+  afterJob: string | null;
+}
 
 export interface Safety {
   maxDeletePercent: number;
@@ -24,29 +70,77 @@ export interface Job {
   id: string;
   name: string;
   enabled: boolean;
-  source: Endpoint;
-  target: Endpoint;
+  source: Place;
+  target: Place;
   mode: Mode;
   excludes: string[];
   safety: Safety;
   ring: Ring | null;
-}
-
-export interface Host {
-  id: string;
-  name: string;
-  hostname: string;
-  port: number;
-  user: string;
-  identityFile: string | null;
+  triggers: Triggers;
 }
 
 export interface Config {
   version: number;
   rsyncPath: string;
   ui: UiSettings;
-  hosts: Host[];
+  locations: Location[];
   jobs: Job[];
+}
+
+export type Reach =
+  | { state: "connected"; path: string | null; freeBytes: number | null; totalBytes: number | null }
+  | { state: "disconnected" }
+  | { state: "missing" }
+  | { state: "untested" }
+  | { state: "failed"; message: string };
+
+export interface LocationStatus {
+  id: string;
+  reach: Reach;
+  usedBy: string[];
+}
+
+export interface MountedVolume {
+  uuid: string;
+  name: string;
+  mountPoint: string;
+  totalBytes: number;
+  freeBytes: number;
+  fileSystem: string;
+  internal: boolean;
+}
+
+export interface ServerDraft {
+  locationId: string;
+  publicKey: string;
+  storageBox: boolean;
+}
+
+export interface ServerInput {
+  locationId: string;
+  name: string;
+  host: string;
+  port: number;
+  user: string;
+  basePath: string;
+}
+
+export interface FolderEntry {
+  name: string;
+  hidden: boolean;
+}
+
+export interface JobInput {
+  id: string | null;
+  name: string;
+  source: Place;
+  target: Place;
+  mode: Mode;
+  excludes: string[];
+  maxDeletePercent: number;
+  ring: Ring | null;
+  triggers: Triggers;
+  enabled: boolean;
 }
 
 export type RunStatus = "running" | "succeeded" | "partial" | "blocked" | "failed" | "cancelled";

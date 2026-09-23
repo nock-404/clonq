@@ -1,29 +1,35 @@
-import { Clock, LayoutGrid, Settings2 } from "lucide-react";
+import { Clock, LayoutGrid, Plus, Settings2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { clearError, useClonq, useNow } from "../hooks/useClonq";
 import { api } from "../lib/api";
 import { isRunning } from "../lib/jobs";
-import { UiNavItem, UiNotice, UiReel } from "../ui";
+import { closeSheet, navigate, openSheet, useNav } from "../lib/nav";
+import { reachLabel } from "../lib/labels";
+import { UiIconButton, UiNavItem, UiNotice, UiReel } from "../ui";
+import { UiLocationGlyph } from "../ui/UiLocationGlyph";
 import { ringOf } from "../ui/rings";
 import { toneText } from "../ui/tone";
 import { HistoryView } from "./HistoryView";
 import { JobDetail } from "./JobDetail";
+import { JobWizard } from "./jobs/JobWizard";
+import { AddLocationSheet } from "./locations/AddLocationSheet";
+import { LocationDetail } from "./locations/LocationDetail";
+import { Onboarding } from "./Onboarding";
 import { OverviewView } from "./OverviewView";
 import { SettingsView } from "./SettingsView";
 import { overallSummary } from "./summary";
 
-type Section = { kind: "overview" } | { kind: "job"; jobId: string } | { kind: "history" } | { kind: "settings" };
-
 export function MainWindow() {
   const state = useClonq();
   const now = useNow();
-  const [section, setSection] = useState<Section>({ kind: "overview" });
+  const { section, sheet } = useNav();
   const jobs = state.config?.jobs ?? [];
+  const locations = state.config?.locations ?? [];
   const summary = overallSummary(state);
 
   useEffect(() => {
-    const unlisten = api.onShowJob((jobId) => setSection({ kind: "job", jobId }));
+    const unlisten = api.onShowJob((jobId) => navigate({ kind: "job", jobId }));
     return () => {
       void unlisten.then((stop) => stop());
     };
@@ -31,26 +37,48 @@ export function MainWindow() {
 
   const jobIndex = section.kind === "job" ? jobs.findIndex((job) => job.id === section.jobId) : -1;
   const job = jobIndex >= 0 ? jobs[jobIndex] : undefined;
-  const key = section.kind === "job" ? `job-${section.jobId}` : section.kind;
+  const location = section.kind === "location" ? locations.find((item) => item.id === section.locationId) : undefined;
+  const key = section.kind === "job" ? `job-${section.jobId}` : section.kind === "location" ? `location-${section.locationId}` : section.kind;
+  const editing = sheet?.kind === "jobWizard" && sheet.jobId ? jobs.find((item) => item.id === sheet.jobId) : undefined;
+  const nothingYet = jobs.length === 0;
 
   return (
-    <div className="flex h-full bg-canvas text-ink">
-      <aside className="hairline-r flex w-60 shrink-0 flex-col gap-0.5 bg-well px-2.5 pt-12 pb-3" data-tauri-drag-region>
-        <UiNavItem icon={LayoutGrid} label="Übersicht" active={section.kind === "overview"} onPress={() => setSection({ kind: "overview" })} />
-        <div className="px-2 pt-4 pb-1.5 text-[0.6875rem] font-medium text-ink-faint">Jobs</div>
+    <div className="relative flex h-full bg-canvas text-ink">
+      <aside className="hairline-r flex w-60 shrink-0 flex-col gap-0.5 overflow-y-auto bg-well px-2.5 pt-12 pb-3" data-tauri-drag-region>
+        <UiNavItem icon={LayoutGrid} label="Übersicht" active={section.kind === "overview"} onPress={() => navigate({ kind: "overview" })} />
+
+        <SidebarHeading label="Jobs" onAdd={locations.length > 0 ? () => openSheet({ kind: "jobWizard" }) : undefined} addLabel="Job anlegen" />
         {jobs.map((item, index) => (
           <UiNavItem
             key={item.id}
             leading={<UiReel size="xs" ring={ringOf(item.ring, index)} spinning={isRunning(state.live[item.id])} />}
             label={item.name}
             active={section.kind === "job" && section.jobId === item.id}
-            onPress={() => setSection({ kind: "job", jobId: item.id })}
+            onPress={() => navigate({ kind: "job", jobId: item.id })}
           />
         ))}
+        {jobs.length === 0 ? <span className="px-2 py-1 text-[0.6875rem] text-ink-faint">noch keine</span> : null}
+
+        <SidebarHeading label="Orte" onAdd={() => openSheet({ kind: "addLocation" })} addLabel="Ort hinzufügen" />
+        {locations.map((item) => {
+          const reach = state.locations[item.id]?.reach;
+          return (
+            <UiNavItem
+              key={item.id}
+              leading={<UiLocationGlyph kind={item.kind.type} size="xs" connected={reach?.state === "connected"} />}
+              label={item.name}
+              active={section.kind === "location" && section.locationId === item.id}
+              onPress={() => navigate({ kind: "location", locationId: item.id })}
+              trailing={<span className={`size-1.5 rounded-full bg-current ${toneText[reachLabel(reach).tone]}`} />}
+            />
+          );
+        })}
+        {locations.length === 0 ? <span className="px-2 py-1 text-[0.6875rem] text-ink-faint">noch keine</span> : null}
+
         <div className="pt-4" />
-        <UiNavItem icon={Clock} label="Verlauf" active={section.kind === "history"} onPress={() => setSection({ kind: "history" })} count={state.recent.length} />
-        <UiNavItem icon={Settings2} label="Einstellungen" active={section.kind === "settings"} onPress={() => setSection({ kind: "settings" })} />
-        <div className="mt-auto flex items-center gap-2 px-2 text-xs text-ink-soft">
+        <UiNavItem icon={Clock} label="Verlauf" active={section.kind === "history"} onPress={() => navigate({ kind: "history" })} count={state.recent.length} />
+        <UiNavItem icon={Settings2} label="Einstellungen" active={section.kind === "settings"} onPress={() => navigate({ kind: "settings" })} />
+        <div className="mt-auto flex items-center gap-2 px-2 pt-3 text-xs text-ink-soft">
           <span className={`size-1.5 rounded-full bg-current ${toneText[summary.tone]}`} />
           {summary.text}
         </div>
@@ -76,15 +104,49 @@ export function MainWindow() {
               className="mx-auto max-w-5xl"
             >
               {section.kind === "overview" ? (
-                <OverviewView state={state} now={now} onOpenJob={(jobId) => setSection({ kind: "job", jobId })} />
+                nothingYet ? (
+                  <Onboarding state={state} />
+                ) : (
+                  <OverviewView state={state} now={now} onOpenJob={(jobId) => navigate({ kind: "job", jobId })} />
+                )
               ) : null}
               {section.kind === "job" && job ? <JobDetail state={state} job={job} index={jobIndex} now={now} /> : null}
+              {section.kind === "location" && location ? <LocationDetail state={state} location={location} now={now} /> : null}
               {section.kind === "history" ? <HistoryView state={state} /> : null}
               {section.kind === "settings" ? <SettingsView state={state} /> : null}
             </motion.div>
           </AnimatePresence>
         </div>
       </main>
+
+      <AddLocationSheet
+        open={sheet?.kind === "addLocation"}
+        preset={sheet?.kind === "addLocation" ? sheet.preset : undefined}
+        onClose={closeSheet}
+        onAdded={(added) => {
+          closeSheet();
+          navigate({ kind: "location", locationId: added.id });
+        }}
+      />
+      <JobWizard
+        open={sheet?.kind === "jobWizard"}
+        state={state}
+        job={editing}
+        onClose={closeSheet}
+        onSaved={(saved) => {
+          closeSheet();
+          navigate({ kind: "job", jobId: saved.id });
+        }}
+      />
+    </div>
+  );
+}
+
+function SidebarHeading({ label, onAdd, addLabel }: { label: string; onAdd?: () => void; addLabel: string }) {
+  return (
+    <div className="flex items-center justify-between px-2 pt-4 pb-1">
+      <span className="text-[0.6875rem] font-medium text-ink-faint">{label}</span>
+      {onAdd ? <UiIconButton icon={Plus} label={addLabel} onPress={onAdd} /> : null}
     </div>
   );
 }

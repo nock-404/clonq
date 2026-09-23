@@ -5,7 +5,7 @@ import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
 import { MotionGlobalConfig } from "motion/react";
 import "./preview.css";
-import { scenes, type SceneName } from "./scenes";
+import { cloudProviders, scenes, type SceneName } from "./scenes";
 
 const params = new URLSearchParams(location.search);
 const windowLabel = params.get("window") === "main" ? "main" : "popover";
@@ -31,6 +31,29 @@ mockIPC(
         return scene.stats[String((args as { jobId?: string } | undefined)?.jobId)];
       case "overview":
         return scene.overview;
+      case "location_statuses":
+        return scene.locations;
+      case "mounted_volumes":
+        return scene.volumes;
+      case "list_folders":
+        return [
+          { name: "WORK", hidden: false },
+          { name: "Fotos", hidden: false },
+          { name: "Projekte", hidden: false },
+          { name: ".Trash", hidden: true },
+        ];
+      case "job_defaults":
+        return ["node_modules/"];
+      case "prepare_server":
+        return {
+          locationId: "box-a1b2c3",
+          publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFq0Yl1vDk3n7c0r2Yp0 clonq box-a1b2c3",
+          storageBox: true,
+        };
+      case "test_server":
+        return "/home";
+      case "cloud_providers":
+        return cloudProviders;
       default:
         return null;
     }
@@ -66,3 +89,11 @@ await import("../src/main");
 // ?job=<id> opens that job in the main window, as the popover would.
 const jobParam = params.get("job");
 if (jobParam) setTimeout(() => void emit("show-job", jobParam), 300);
+
+// ?sheet=addLocation|jobWizard opens a sheet, ?location=<id> shows a location.
+const nav = await import("../src/lib/nav");
+const sheetParam = params.get("sheet");
+if (sheetParam === "addLocation") nav.openSheet({ kind: "addLocation" });
+if (sheetParam === "jobWizard") nav.openSheet({ kind: "jobWizard", jobId: params.get("edit") ?? undefined });
+const locationParam = params.get("location");
+if (locationParam) nav.navigate({ kind: "location", locationId: locationParam });

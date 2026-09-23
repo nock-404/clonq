@@ -1,11 +1,18 @@
 import { api } from "./api";
 import { formatBytes, formatDuration, formatRate, formatRelative } from "./format";
 import { statusLabel, statusTone, type Tone } from "./labels";
-import type { Job, LiveRun, Run } from "./types";
+import type { Job, LiveRun, LocationStatus, Run } from "./types";
 import { reportError } from "../hooks/useClonq";
 
-export function isRemote(job: Job): boolean {
-  return job.source.kind === "remote" || job.target.kind === "remote";
+/** Whether both places of a job can be reached now, and if not, which one blocks it. */
+export function jobReady(job: Job, locations: Record<string, LocationStatus>): { ready: boolean; blocker: string | null } {
+  for (const place of [job.source, job.target]) {
+    const reach = locations[place.location]?.reach;
+    if (reach?.state !== "connected") {
+      return { ready: false, blocker: place.location };
+    }
+  }
+  return { ready: true, blocker: null };
 }
 
 export function isRunning(live: LiveRun | undefined): live is LiveRun {
@@ -18,14 +25,20 @@ export interface JobLine {
 }
 
 /** The short status a job shows next to its name. */
-export function jobLine(job: Job, live: LiveRun | undefined, latest: Run | undefined, now: number): JobLine {
+export function jobLine(
+  job: Job,
+  live: LiveRun | undefined,
+  latest: Run | undefined,
+  now: number,
+  locations: Record<string, LocationStatus>,
+): JobLine {
   if (isRunning(live)) {
     if (live.phase === "checking") return { text: "prüft …", tone: "accent" };
     const parts = [`${Math.round(live.percent)} %`];
     if (live.bytesPerSecond > 0) parts.push(formatRate(live.bytesPerSecond));
     return { text: parts.join(" · "), tone: "accent" };
   }
-  if (isRemote(job)) return { text: "Box nicht verbunden", tone: "neutral" };
+  if (!jobReady(job, locations).ready) return { text: "Ort nicht erreichbar", tone: "neutral" };
   if (!latest) return { text: "noch nie", tone: "neutral" };
   if (latest.status === "succeeded") return { text: formatRelative(latest.finishedAt ?? latest.startedAt, now), tone: "neutral" };
   return { text: statusLabel[latest.status], tone: statusTone[latest.status] };

@@ -1,13 +1,13 @@
-import { Ban, FlaskConical, PanelRight, Play, ShieldAlert, Square } from "lucide-react";
+import { FlaskConical, PanelRight, Play, ShieldAlert, Square } from "lucide-react";
 import { api } from "../lib/api";
-import { isRemote, isRunning, jobActions } from "../lib/jobs";
+import { isRunning, jobActions } from "../lib/jobs";
 import type { Job, LiveRun, Run } from "../lib/types";
 import type { UiAction } from "../ui";
 
 /** Everything one can do with a job, in the order the ⌘K panel lists it. */
-export function actionsFor(job: Job, live: LiveRun | undefined, latest: Run | undefined, withDetails: boolean): UiAction[] {
+export function actionsFor(job: Job, live: LiveRun | undefined, latest: Run | undefined, ready: boolean, withDetails: boolean): UiAction[] {
   const running = isRunning(live);
-  const remote = isRemote(job);
+  const remote = !ready;
   const blocked = !running && latest?.status === "blocked";
   const actions: UiAction[] = [
     { id: "run", title: "Jetzt syncen", icon: Play, keys: ["↵"], disabled: running || remote, run: () => void jobActions.run(job.id) },
@@ -24,9 +24,6 @@ export function actionsFor(job: Job, live: LiveRun | undefined, latest: Run | un
   ];
   if (withDetails) {
     actions.push({ id: "details", title: "Details öffnen", icon: PanelRight, keys: ["⌘", "O"], run: () => void api.openMainWindow(job.id) });
-  }
-  if (remote) {
-    actions.push({ id: "remote", title: "Storage Box verbinden (kommt)", icon: Ban, disabled: true, run: () => {} });
   }
   return actions;
 }

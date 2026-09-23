@@ -12,7 +12,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, BufWriter};
 use tokio::process::Command;
 use tokio::sync::watch;
 
-use crate::config::{Config, Endpoint, Job, Mode};
+use crate::config::{Config, Job, Mode};
+use crate::locations::{self, Resolved};
 use crate::error::{Error, Result};
 use crate::history::{FolderChange, History, Run, RunStatus, Sample};
 use crate::rsync_output::{self, Change, Line, Stats};
@@ -115,7 +116,10 @@ impl Engine {
             .job(job_id)
             .ok_or_else(|| Error::Job(format!("no job with id {job_id}")))?
             .clone();
-        let plan = Plan::for_job(&job, &config.rsync_path)?;
+        let volumes = locations::mounted_volumes();
+        let source = locations::resolve(&job.source, config, &volumes)?;
+        let target = locations::resolve(&job.target, config, &volumes)?;
+        let plan = Plan::new(&job, &config.rsync_path, &source, &target)?;
 
         let run_id = uuid::Uuid::new_v4().to_string();
         let run = Run {
@@ -543,29 +547,32 @@ struct Plan {
     source: String,
     target: String,
     source_path: PathBuf,
-    target_path: PathBuf,
+    /// Only set when the target is on this Mac.
+    target_path: Option<PathBuf>,
 }
 
 impl Plan {
-    fn for_job(job: &Job, rsync: &str) -> Result<Self> {
-        let (Endpoint::Local { path: source }, Endpoint::Local { path: target }) = (&job.source, &job.target) else {
-            return Err(Error::Job("remote endpoints arrive with the Storage Box connection (step 2)".into()));
+    fn new(job: &Job, rsync: &str, source: &Resolved, target: &Resolved) -> Result<Self> {
+        let Resolved::Local(source_path) = source else {
+            return Err(Error::Job("a server as the source is not built yet".into()));
         };
-        let mut args: Vec<String> = [
-            "--archive",
-            "--hard-links",
-            "--acls",
-            "--xattrs",
-            "--crtimes",
-            "--8-bit-output",
-            "--no-inc-recursive",
-            "--mkpath",
-            "--info=progress2,stats2",
-            "--out-format=%i %l %n%L",
-            "--outbuf=L",
-        ]
-        .map(String::from)
-        .to_vec();
+        let mut args: Vec<String> = match target {
+            Resolved::Local(_) => ["--archive", "--hard-links", "--acls", "--xattrs", "--crtimes", "--mkpath"]
+                .map(String::from)
+                .to_vec(),
+            // A server keeps its own owners and cannot take macOS metadata.
+            Resolved::Remote { ssh, .. } => {
+                let mut remote: Vec<String> = ["--archive", "--hard-links", "--no-owner", "--no-group", "--mkpath", "--secluded-args"]
+                    .map(String::from)
+                    .to_vec();
+                remote.push(format!("--rsh={}", shell_join(ssh)));
+                remote
+            }
+        };
+        args.extend(
+            ["--8-bit-output", "--no-inc-recursive", "--info=progress2,stats2", "--out-format=%i %l %n%L", "--outbuf=L"]
+                .map(String::from),
+        );
         match job.mode {
             Mode::Mirror => args.push("--delete".into()),
             Mode::Backup => {}
@@ -574,14 +581,18 @@ impl Plan {
             }
         }
         args.extend(job.excludes.iter().map(|pattern| format!("--exclude={pattern}")));
+        let (target_arg, target_path) = match target {
+            Resolved::Local(path) => (path.to_string_lossy().trim_end_matches('/').to_string(), Some(path.clone())),
+            Resolved::Remote { destination, .. } => (destination.trim_end_matches('/').to_string(), None),
+        };
         Ok(Self {
             program: rsync.to_string(),
             base_args: args,
             // The trailing slash copies the folder's contents, not the folder itself.
-            source: format!("{}/", source.trim_end_matches('/')),
-            target: target.trim_end_matches('/').to_string(),
-            source_path: PathBuf::from(source),
-            target_path: PathBuf::from(target),
+            source: format!("{}/", source_path.to_string_lossy().trim_end_matches('/')),
+            target: target_arg,
+            source_path: source_path.clone(),
+            target_path,
         })
     }
 
@@ -601,10 +612,10 @@ impl Plan {
         Ok(())
     }
 
-    /// The target folder may be missing, but its parent and its volume must exist,
-    /// or rsync would create the path on the system disk.
+    /// A local target folder may be missing, but its parent and its volume must
+    /// exist, or rsync would create the path on the system disk.
     fn check_target(&self) -> Result<()> {
-        let path = &self.target_path;
+        let Some(path) = &self.target_path else { return Ok(()) };
         let parent = path
             .parent()
             .ok_or_else(|| Error::Job(format!("target {} has no parent folder", path.display())))?;
@@ -613,6 +624,23 @@ impl Plan {
         }
         check_volume_mounted(path)
     }
+}
+
+/// rsync splits `--rsh` on spaces and honours single quotes (see rsync(1), -e).
+fn shell_join(parts: &[String]) -> String {
+    parts
+        .iter()
+        .map(|part| {
+            if part.chars().all(|c| c.is_ascii_alphanumeric() || "-_=./:@".contains(c)) {
+                part.clone()
+            } else if part.contains('\'') {
+                format!("\"{part}\"")
+            } else {
+                format!("'{part}'")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// For paths under /Volumes/<name>, the volume has to be mounted, not just a folder.
@@ -764,7 +792,7 @@ impl Rate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{Host, Safety};
+    use crate::config::{Location, LocationKind, Place, Safety, Triggers};
     use std::fs;
 
     const RSYNC: &str = "/opt/homebrew/bin/rsync";
@@ -803,24 +831,34 @@ mod tests {
             fs::write(path, content).unwrap();
         }
 
-        fn config(&self, mode: Mode, target: PathBuf) -> Config {
-            Config {
-                version: 1,
-                rsync_path: RSYNC.into(),
-                ui: crate::config::UiSettings::default(),
-                hosts: Vec::<Host>::new(),
-                jobs: vec![Job {
-                    id: "test".into(),
-                    name: "Test".into(),
-                    enabled: false,
-                    source: Endpoint::Local { path: self.src().to_string_lossy().into_owned() },
-                    target: Endpoint::Local { path: target.to_string_lossy().into_owned() },
-                    mode,
-                    excludes: vec!["node_modules/".into()],
-                    safety: Safety::default(),
-                    ring: None,
-                }],
-            }
+        /// One folder location at the fixture root; the job copies `src` to `target`.
+        fn config(&self, mode: Mode, target: &str) -> Config {
+            let mut config: Config =
+                serde_json::from_str(&format!(r#"{{"version":2,"rsyncPath":"{RSYNC}"}}"#)).unwrap();
+            config.locations.push(Location {
+                id: "root".into(),
+                name: "Root".into(),
+                kind: LocationKind::Folder { path: self.root.to_string_lossy().into_owned() },
+            });
+            config.locations.push(Location {
+                id: "gone".into(),
+                name: "Gone".into(),
+                kind: LocationKind::Volume { volume_uuid: "no-such-volume".into(), volume_name: "clonq-missing".into() },
+            });
+            let (location, path) = target.split_once(':').unwrap_or(("root", target));
+            config.jobs.push(Job {
+                id: "test".into(),
+                name: "Test".into(),
+                enabled: false,
+                source: Place { location: "root".into(), path: "src".into() },
+                target: Place { location: location.into(), path: path.into() },
+                mode,
+                excludes: vec!["node_modules/".into()],
+                safety: Safety::default(),
+                ring: None,
+                triggers: Triggers::default(),
+            });
+            config
         }
 
         /// Starts a run and waits until the engine has let go of it.
@@ -853,7 +891,7 @@ mod tests {
         f.write("src/a.txt", "a");
         f.write("src/b/c.txt", "c");
         f.write("src/node_modules/x.js", "x");
-        let run = f.run(&f.config(Mode::Mirror, f.dst()), RunOptions::default()).await;
+        let run = f.run(&f.config(Mode::Mirror, "dst"), RunOptions::default()).await;
         assert_eq!(run.status, RunStatus::Succeeded, "{:?}", run.message);
         assert!(f.dst().join("a.txt").exists());
         assert!(f.dst().join("b/c.txt").exists());
@@ -869,7 +907,7 @@ mod tests {
         f.write("src/GM8/clonq/a.txt", "12345");
         f.write("src/GM8/clonq/b.txt", "1234567890");
         f.write("src/top.txt", "x");
-        let config = f.config(Mode::Mirror, f.dst());
+        let config = f.config(Mode::Mirror, "dst");
         let first = f.run(&config, RunOptions::default()).await;
         assert_eq!(first.status, RunStatus::Succeeded, "{:?}", first.message);
         assert_eq!(first.files_new, 3);
@@ -918,7 +956,7 @@ mod tests {
         let f = Fixture::new();
         f.write("src/a.txt", "a");
         f.write("dst/stale.txt", "old");
-        let run = f.run(&f.config(Mode::Mirror, f.dst()), RunOptions { dry_run: true, force: false }).await;
+        let run = f.run(&f.config(Mode::Mirror, "dst"), RunOptions { dry_run: true, force: false }).await;
         assert_eq!(run.status, RunStatus::Succeeded, "{:?}", run.message);
         assert!(run.dry_run);
         assert_eq!(run.files_transferred, 1);
@@ -931,7 +969,7 @@ mod tests {
     async fn empty_source_is_refused() {
         let f = Fixture::new();
         f.write("dst/keep.txt", "keep");
-        let run = f.run(&f.config(Mode::Mirror, f.dst()), RunOptions::default()).await;
+        let run = f.run(&f.config(Mode::Mirror, "dst"), RunOptions::default()).await;
         assert_eq!(run.status, RunStatus::Failed);
         assert!(run.message.unwrap().contains("is empty"));
         assert!(f.dst().join("keep.txt").exists());
@@ -941,12 +979,9 @@ mod tests {
     async fn missing_volume_is_refused() {
         let f = Fixture::new();
         f.write("src/a.txt", "a");
-        let target = PathBuf::from("/Volumes/clonq-missing-volume/WORK");
-        let run = f.run(&f.config(Mode::Mirror, target), RunOptions::default()).await;
-        assert_eq!(run.status, RunStatus::Failed);
-        let message = run.message.unwrap();
-        assert!(message.contains("does not exist") || message.contains("not connected"), "{message}");
-        assert!(!Path::new("/Volumes/clonq-missing-volume").exists());
+        let error = f.engine.start(&f.config(Mode::Mirror, "gone:WORK"), "test", "manual", RunOptions::default()).unwrap_err();
+        assert!(error.to_string().contains("not connected"), "{error}");
+        assert!(!Path::new("/Volumes/clonq-missing").exists());
     }
 
     #[tokio::test]
@@ -956,7 +991,7 @@ mod tests {
         for i in 0..30 {
             f.write(&format!("dst/stale{i}.txt"), "old");
         }
-        let config = f.config(Mode::Mirror, f.dst());
+        let config = f.config(Mode::Mirror, "dst");
         let run = f.run(&config, RunOptions::default()).await;
         assert_eq!(run.status, RunStatus::Blocked, "{:?}", run.message);
         assert_eq!(Fixture::count_files(&f.dst()), 30, "nothing may change while blocked");
@@ -972,7 +1007,7 @@ mod tests {
         for i in 0..40 {
             f.write(&format!("src/file{i}.txt"), "x");
         }
-        let config = f.config(Mode::Mirror, f.dst());
+        let config = f.config(Mode::Mirror, "dst");
         let first = f.run(&config, RunOptions::default()).await;
         assert_eq!(first.status, RunStatus::Succeeded, "{:?}", first.message);
 
@@ -990,9 +1025,20 @@ mod tests {
         let f = Fixture::new();
         f.write("src/a.txt", "a");
         f.write("dst/stale.txt", "old");
-        let run = f.run(&f.config(Mode::Backup, f.dst()), RunOptions::default()).await;
+        let run = f.run(&f.config(Mode::Backup, "dst"), RunOptions::default()).await;
         assert_eq!(run.status, RunStatus::Succeeded, "{:?}", run.message);
         assert!(f.dst().join("a.txt").exists());
         assert!(f.dst().join("stale.txt").exists());
+    }
+}
+
+#[cfg(test)]
+mod plan_tests {
+    use super::*;
+
+    #[test]
+    fn rsh_quotes_paths_with_spaces() {
+        let joined = shell_join(&["/usr/bin/ssh".into(), "-i".into(), "/Users/m/Library/Application Support/k".into()]);
+        assert_eq!(joined, "/usr/bin/ssh -i '/Users/m/Library/Application Support/k'");
     }
 }
