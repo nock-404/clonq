@@ -1,0 +1,55 @@
+# A tag like v0.2.0 builds clonq for Apple silicon, signs the update with the
+# updater key and publishes a release with latest.json, which the app polls.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  macos:
+    permissions:
+      contents: write
+    # macOS 26 on arm64: the SDK has NSGlassEffectView, which native/glass.m uses.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: clonq ${{ github.ref_name }}
+          releaseBody: |
+            Installieren oder aktualisieren:
+
+                curl -fsSL https://raw.githubusercontent.com/nock-404/clonq/main/install.sh | sh
+
+            Eine installierte clonq meldet das Update auch selbst.
+          releaseDraft: false
+          prerelease: false
+          uploadUpdaterJson: true
+          args: --target aarch64-apple-darwin

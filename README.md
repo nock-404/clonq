@@ -1,10 +1,35 @@
 # clonq
 
-Sync and backup for macOS. clonq lives in the menu bar, runs rsync jobs between
-folders, external drives and SSH hosts such as a Hetzner Storage Box, and keeps
+Sync and backup for macOS. clonq lives in the menu bar, runs rsync and rclone jobs between
+folders, external drives, SSH hosts such as a Hetzner Storage Box, network shares and clouds, and keeps
 a history with real numbers for every run.
 
 Built with Tauri 2, Rust and React.
+
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nock-404/clonq/main/install.sh | sh
+```
+
+For Macs with Apple silicon, macOS 13 or newer. The same command updates an
+installed clonq; the app also finds new releases by itself and installs them
+on request. clonq copies with rsync 3 and rclone from Homebrew; the script
+offers to install them when they are missing.
+
+## Release
+
+Set the new version in `package.json`, `src-tauri/Cargo.toml` and
+`src-tauri/tauri.conf.json`, commit, then tag and push:
+
+```sh
+git tag v0.2.0 && git push origin main v0.2.0
+```
+
+The `release` workflow builds the app on macOS 26, signs the update with the
+key in the repository secrets `TAURI_SIGNING_PRIVATE_KEY` and
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, and publishes the release with
+`latest.json` for the updater.
 
 ## Develop
 

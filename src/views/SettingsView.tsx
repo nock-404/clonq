@@ -7,6 +7,7 @@ import { api } from "../lib/api";
 import type { Accent, Reels, UiSettings } from "../lib/types";
 import { UiPanel, UiSegmented, UiSwitch, type UiSegment } from "../ui";
 import { UiLogo } from "../ui/UiLogo";
+import { UpdateCheck } from "./UpdateBand";
 import { UiReel as LichtReel } from "../ui/reels/licht/UiReel";
 import { UiReel as PraezisionReel } from "../ui/reels/praezision/UiReel";
 import { UiReel as VakuumReel } from "../ui/reels/vakuum/UiReel";
@@ -79,6 +80,9 @@ export function SettingsView({ state }: SettingsViewProps) {
             <UiLogo variant="wordmark" size="sm" label="clonq" />
             {version ? <span className="font-mono text-xs text-ink-faint">Version {version}</span> : null}
           </div>
+        </div>
+        <div className="pt-4">
+          <UpdateCheck />
         </div>
       </UiPanel>
       <UiPanel title="Werkzeuge">

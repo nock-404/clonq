@@ -8,6 +8,8 @@ import { messageLabel, placeLabel } from "../lib/labels";
 import { isRunning, jobActions, jobLine, jobReady } from "../lib/jobs";
 import { UiActionBar, UiActionPanel, UiButton, UiEmpty, UiKbd, UiListRow, UiNotice, UiReel, UiSearchField } from "../ui";
 import { UiLogo } from "../ui/UiLogo";
+import { UpdateBand } from "./UpdateBand";
+import { useUpdate } from "../lib/update";
 import { ringOf } from "../ui/rings";
 import { toneText } from "../ui/tone";
 import { actionsFor } from "./jobActions";
@@ -96,6 +98,7 @@ export function Popover() {
           </UiNotice>
         </div>
       ) : null}
+      <UpdateSlot />
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2" role="listbox" aria-label="Jobs">
         <div className="px-2.5 pt-1 pb-1.5 text-[0.6875rem] font-medium text-ink-faint">Jobs</div>
@@ -192,4 +195,15 @@ export function Popover() {
       ) : null}
     </div>
   );
+}
+
+/** The update band with its margin, only while there is an update to show. */
+function UpdateSlot() {
+  const update = useUpdate();
+  const shown = update.phase === "available" || update.phase === "downloading" || update.phase === "restarting";
+  return shown ? (
+    <div className="px-2 pt-2">
+      <UpdateBand />
+    </div>
+  ) : null;
 }

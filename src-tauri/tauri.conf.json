@@ -36,7 +36,10 @@
         "transparent": true,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "trafficLightPosition": { "x": 20, "y": 24 }
+        "trafficLightPosition": {
+          "x": 20,
+          "y": 24
+        }
       }
     ],
     "security": {
@@ -52,6 +55,19 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "createUpdaterArtifacts": true,
+    "macOS": {
+      "signingIdentity": "-",
+      "minimumSystemVersion": "13.0"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYwMkQ4NDQxQTAyQ0RGRkEKUldUNjN5eWdRWVF0OE83S05OYnREMy9BUTJwaDI1Y3BTSWRKUE5OZHRuMFMrRmhzY0NqRnVlbVEK",
+      "endpoints": [
+        "https://github.com/nock-404/clonq/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

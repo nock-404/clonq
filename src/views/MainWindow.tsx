@@ -8,6 +8,7 @@ import { closeSheet, navigate, openSheet, useNav } from "../lib/nav";
 import { reachLabel } from "../lib/labels";
 import { UiIconButton, UiNavItem, UiNotice, UiReel } from "../ui";
 import { UiLogo } from "../ui/UiLogo";
+import { UpdateBand } from "./UpdateBand";
 import { UiLocationGlyph } from "../ui/UiLocationGlyph";
 import { ringOf } from "../ui/rings";
 import { toneText } from "../ui/tone";
@@ -85,7 +86,10 @@ export function MainWindow() {
         <div className="pt-4" />
         <UiNavItem icon={Clock} label="Verlauf" active={section.kind === "history"} onPress={() => navigate({ kind: "history" })} count={state.recent.length} />
         <UiNavItem icon={Settings2} label="Einstellungen" active={section.kind === "settings"} onPress={() => navigate({ kind: "settings" })} />
-        <div className="mt-auto flex items-center gap-2 px-2 pt-3 text-xs text-ink-soft">
+        <div className="mt-auto pt-3">
+          <UpdateBand />
+        </div>
+        <div className="flex items-center gap-2 px-2 pt-3 text-xs text-ink-soft">
           <span className={`size-1.5 rounded-full bg-current ${toneText[summary.tone]}`} />
           {summary.text}
         </div>
