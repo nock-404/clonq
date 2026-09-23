@@ -4,6 +4,7 @@ import { formatBytes, formatCount, formatDateTime, formatDuration } from "../lib
 import { messageLabel, statusLabel, statusTone } from "../lib/labels";
 import { durationSeconds } from "../lib/runs";
 import type { Run } from "../lib/types";
+import { openSheet } from "../lib/nav";
 import { UiBadge, UiEmpty, UiTable, type UiColumn } from "../ui";
 import { ringBg, ringOf } from "../ui/rings";
 
@@ -108,6 +109,7 @@ export function HistoryView({ state }: HistoryViewProps) {
         columns={columns}
         rows={state.recent}
         rowKey={(run) => run.id}
+        onRowPress={(run) => openSheet({ kind: "run", runId: run.id })}
         empty={<UiEmpty icon={Clock} title="Noch keine Läufe" detail="Jeder Lauf erscheint hier, auch Probeläufe." />}
       />
     </div>

@@ -340,6 +340,11 @@ impl History {
         Ok(folders)
     }
 
+    pub fn log_path(&self, run_id: &str) -> Result<Option<String>> {
+        let connection = self.connection.lock().expect("history lock");
+        Ok(connection.query_row("SELECT log_path FROM runs WHERE id = ?1", [run_id], |row| row.get(0)).optional()?)
+    }
+
     /// When the job last started a real run, whatever the trigger or outcome.
     pub fn last_started(&self, job_id: &str) -> Result<Option<DateTime<Utc>>> {
         let connection = self.connection.lock().expect("history lock");

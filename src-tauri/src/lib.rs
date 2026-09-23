@@ -8,6 +8,7 @@ mod history;
 mod locations;
 mod rclone_output;
 mod rsync_output;
+mod runlog;
 mod scheduler;
 mod setup;
 mod smb;
@@ -109,6 +110,7 @@ pub fn run() {
             commands::cancel_job,
             commands::open_main_window,
             commands::quit,
+            commands::run_entries,
             setup::mounted_volumes,
             setup::location_statuses,
             setup::add_folder_location,

@@ -248,3 +248,16 @@ export interface Overview {
   todayFiles: number;
   todayRuns: number;
 }
+
+export type EntryKind = "new" | "changed" | "deleted" | "error";
+
+export interface RunEntry {
+  kind: EntryKind;
+  size: number | null;
+  path: string;
+}
+
+export interface RunEntryPage {
+  entries: RunEntry[];
+  total: number;
+}

@@ -92,3 +92,21 @@ pub fn open_main_window(app: AppHandle, job_id: Option<String>) -> Result<()> {
 pub fn quit(app: AppHandle) {
     app.exit(0);
 }
+
+/// One page of a run's file list, for the run sheet in the history.
+#[tauri::command]
+pub fn run_entries(
+    state: State<'_, AppState>,
+    run_id: String,
+    kind: Option<crate::runlog::EntryKind>,
+    query: String,
+    offset: usize,
+    limit: usize,
+) -> Result<crate::runlog::Page> {
+    let path = state.history.log_path(&run_id)?.ok_or_else(|| Error::Job(format!("run {run_id} does not exist")))?;
+    let path = std::path::PathBuf::from(path);
+    if !path.exists() {
+        return Ok(crate::runlog::Page { entries: vec![], total: 0 });
+    }
+    crate::runlog::read(&path, kind, &query, offset, limit.clamp(1, 2000))
+}

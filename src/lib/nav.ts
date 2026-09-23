@@ -13,6 +13,7 @@ export type Section =
 export type Sheet =
   | { kind: "addLocation"; preset?: LocationKind["type"] }
   | { kind: "jobWizard"; jobId?: string }
+  | { kind: "run"; runId: string }
   | null;
 
 interface Nav {

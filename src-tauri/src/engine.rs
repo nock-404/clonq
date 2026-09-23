@@ -242,7 +242,7 @@ impl Engine {
         tokio::fs::create_dir_all(&self.log_dir).await?;
         let log_file = tokio::fs::File::create(&run.log_path).await?;
         let mut log = BufWriter::new(log_file);
-        log.write_all(format!("{} {}\n", plan.program, plan.base_args.join(" ")).as_bytes()).await?;
+        log.write_all(format!("# {} {}\n", plan.program, plan.base_args.join(" ")).as_bytes()).await?;
 
         let mut max_delete = None;
         if job.mode == Mode::Mirror && !options.dry_run && !options.force {
@@ -439,12 +439,17 @@ impl Engine {
                                     }
                                 }
                                 Event::File { change, size, path } => {
-                                    log.write_all(format!("{change:?} {size} {path}\n").as_bytes()).await?;
+                                    // The safety check's would-be changes stay out of the log.
+                                    if report && let Some(line) = log_entry(change, size, &path) {
+                                        log.write_all(line.as_bytes()).await?;
+                                    }
                                     self.count_file(job_id, &mut result, &mut recent, change, size, &path, report);
                                 }
                                 Event::Deleted(path) => {
                                     result.deleted_lines += 1;
-                                    log.write_all(format!("*deleting {path}\n").as_bytes()).await?;
+                                    if report {
+                                        log.write_all(format!("- {path}\n").as_bytes()).await?;
+                                    }
                                     if report {
                                         let deleted = result.deleted_lines;
                                         self.update(job_id, |live| live.files_deleted = deleted);
@@ -483,23 +488,27 @@ impl Engine {
                                 }
                                 Line::Deleted(path) => {
                                     result.deleted_lines += 1;
-                                    log.write_all(format!("*deleting {path}\n").as_bytes()).await?;
+                                    if report {
+                                        log.write_all(format!("- {path}\n").as_bytes()).await?;
+                                    }
                                     if report {
                                         let deleted = result.deleted_lines;
                                         self.update(job_id, |live| live.files_deleted = deleted);
                                     }
                                 }
                                 Line::Changed { code, size, path } => {
-                                    log.write_all(format!("{code} {size} {path}\n").as_bytes()).await?;
+                                    if report && let Some(line) = log_entry(Change::of(code), size, path) {
+                                        log.write_all(line.as_bytes()).await?;
+                                    }
                                     self.count_file(job_id, &mut result, &mut recent, Change::of(code), size, path, report);
                                 }
                                 Line::Stat(stat) => {
                                     result.stats.apply(stat);
-                                    log.write_all(format!("{text}\n").as_bytes()).await?;
+                                    log.write_all(format!("# {text}\n").as_bytes()).await?;
                                 }
                                 Line::Other(other) => {
                                     if !other.trim().is_empty() {
-                                        log.write_all(format!("{other}\n").as_bytes()).await?;
+                                        log.write_all(format!("# {other}\n").as_bytes()).await?;
                                     }
                                 }
                             }
@@ -826,6 +835,16 @@ struct Detail {
     folders: Vec<FolderChange>,
 }
 
+/// One line of the run log: `+ size path` new, `~ size path` changed.
+/// Deletions are `- path`, errors `! text`, everything else `# text`.
+fn log_entry(change: Change, size: i64, path: &str) -> Option<String> {
+    match change {
+        Change::NewFile => Some(format!("+ {size} {path}\n")),
+        Change::ChangedFile => Some(format!("~ {size} {path}\n")),
+        Change::NewOther | Change::Metadata => None,
+    }
+}
+
 /// The first two levels of a path's folder: `GM8/clonq/src/main.rs` → `GM8/clonq`.
 fn folder_of(path: &str) -> String {
     let path = path.split(" -> ").next().unwrap_or(path);
@@ -1073,6 +1092,14 @@ mod tests {
         let detail = f.history.last_completed("test").unwrap().unwrap();
         assert_eq!(detail.run.id, second.id);
         assert_eq!(detail.folders, vec![FolderChange { folder: "GM8/clonq".into(), files: 1, bytes: 8 }]);
+
+        // The first run went through the safety check; its would-be list must not repeat in the log.
+        let first_log = crate::runlog::read(Path::new(&first.log_path), None, "", 0, 100).unwrap();
+        assert_eq!(first_log.total, 3, "{:?}", first_log.entries);
+        let second_log = crate::runlog::read(Path::new(&second.log_path), None, "", 0, 100).unwrap();
+        assert_eq!(second_log.entries.len(), 1);
+        assert_eq!(second_log.entries[0].kind, crate::runlog::EntryKind::Changed);
+        assert_eq!(second_log.entries[0].path, "GM8/clonq/a.txt");
 
         let totals = f.history.totals(Some("test")).unwrap();
         assert_eq!(totals.runs, 2);

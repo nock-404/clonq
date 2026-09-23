@@ -3,6 +3,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  EntryKind,
+  RunEntryPage,
   CloudProvider,
   CloudProviderInfo,
   Config,
@@ -31,6 +33,8 @@ export const api = {
   liveRuns: () => invoke<LiveRun[]>("live_runs"),
   latestRuns: () => invoke<Run[]>("latest_runs"),
   recentRuns: (limit: number) => invoke<Run[]>("recent_runs", { limit }),
+  runEntries: (runId: string, kind: EntryKind | null, query: string, offset: number, limit: number) =>
+    invoke<RunEntryPage>("run_entries", { runId, kind, query, offset, limit }),
   jobStats: (jobId: string) => invoke<JobStats>("job_stats", { jobId }),
   overview: () => invoke<Overview>("overview"),
   setUiSettings: (settings: UiSettings) => invoke<Config>("set_ui_settings", { settings }),

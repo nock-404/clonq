@@ -14,9 +14,11 @@ interface UiTableProps<T> {
   rows: T[];
   rowKey: (row: T) => string;
   empty?: ReactNode;
+  /** Makes rows clickable. */
+  onRowPress?: (row: T) => void;
 }
 
-export function UiTable<T>({ columns, rows, rowKey, empty }: UiTableProps<T>) {
+export function UiTable<T>({ columns, rows, rowKey, empty, onRowPress }: UiTableProps<T>) {
   if (rows.length === 0 && empty) return <>{empty}</>;
   return (
     <div className="hairline overflow-hidden rounded-[var(--radius-panel)] bg-well">
@@ -39,7 +41,11 @@ export function UiTable<T>({ columns, rows, rowKey, empty }: UiTableProps<T>) {
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={rowKey(row)} className="hairline-b last:border-b-0 hover:bg-hover">
+            <tr
+              key={rowKey(row)}
+              className={`hairline-b last:border-b-0 hover:bg-hover ${onRowPress ? "cursor-pointer" : ""}`}
+              onClick={onRowPress ? () => onRowPress(row) : undefined}
+            >
               {columns.map((column) => (
                 <td
                   key={column.key}

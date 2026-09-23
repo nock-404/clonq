@@ -17,6 +17,7 @@ import { AddLocationSheet } from "./locations/AddLocationSheet";
 import { LocationDetail } from "./locations/LocationDetail";
 import { Onboarding } from "./Onboarding";
 import { OverviewView } from "./OverviewView";
+import { RunSheet } from "./RunSheet";
 import { SettingsView } from "./SettingsView";
 import { overallSummary } from "./summary";
 
@@ -128,6 +129,7 @@ export function MainWindow() {
           navigate({ kind: "location", locationId: added.id });
         }}
       />
+      <RunSheet open={sheet?.kind === "run"} runId={sheet?.kind === "run" ? sheet.runId : null} state={state} onClose={closeSheet} />
       <JobWizard
         open={sheet?.kind === "jobWizard"}
         state={state}
