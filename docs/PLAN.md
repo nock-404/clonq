@@ -48,14 +48,21 @@ gezeigt, geprüft und auf ein Okay gewartet.
 | Nr. | Inhalt | Stand |
 |---|---|---|
 | 1 | Grundgerüst: Menüleiste, Hauptfenster (Raycast-Stil mit Datenspulen), rsync-Engine für Spiegel und Backup (lokal) mit Live-Fortschritt, Probelauf, Schutzschwelle, Kennzahlen und Statistik, Läufe in SQLite | fertig, Spulen-Feinschliff läuft |
-| 2 | Storage Box: SSH-Host anlegen, Schlüssel, Verbindungstest, Remote-Jobs | offen |
-| 3 | Auslöser: Anstecken, Zeitplan, Änderungen, Ketten; Autostart; Mitteilungen | in Arbeit |
+| 2 | Orte: Ordner, Laufwerk (UUID), SSH-Server (eigener Schlüssel, einmalige Passwort-Hinterlegung), Netzlaufwerk (SMB, Schlüsselbund), Cloud und WebDAV (rclone als zweite Engine); Job-Assistent | Rust fertig, Oberfläche in Arbeit |
+| 3 | Auslöser: Anstecken, Zeitplan, täglich, Änderungen (FSEvents), Ketten; Autostart; Mitteilungen | Rust fertig, Einstellungen fertig |
 | 4 | Verlauf-Ansicht mit Log pro Lauf, Probelauf-Vorschau Datei für Datei | offen |
 | 5 | Job-Editor: Modus, Quelle/Ziel, Ausschlüsse, Schwelle, Archiv | offen |
 | 6 | Archiv für Gelöschtes und Überschriebenes, Wiederherstellen | offen |
 | 7 | Bidirektional mit Konfliktregeln pro Job und Pfad | offen |
 | 8 | Remote-Dateibrowser inkl. Box-Snapshots, falls erreichbar | offen |
 | 9 | Installation per Terminal-Befehl wie bei plxr (`curl … \| sh` aus GitHub-Releases), Auto-Update über tauri-plugin-updater mit signierten Releases | offen |
+
+## Noch nicht gegen echte Gegenstellen geprüft
+
+- Storage Box: `install-ssh-key`, `--mkpath` auf der Box (braucht rsync ≥ 3.2.3 dort), Ordnerliste per `ls -1ap`.
+- SMB: Einhängen per `mount volume` mit Schlüsselbund-Passwort (kein SMB-Server zum Testen da).
+- Cloud mit echten Anbietern (S3, B2, Google Drive, OneDrive, Dropbox, WebDAV); getestet ist rclone mit einem lokalen Remote.
+- Mitteilungen im Entwicklungsmodus (brauchen evtl. ein gebündeltes, signiertes App-Paket).
 
 ## Offene Punkte
 

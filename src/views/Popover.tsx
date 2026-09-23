@@ -99,7 +99,18 @@ export function Popover() {
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2" role="listbox" aria-label="Jobs">
         <div className="px-2.5 pt-1 pb-1.5 text-[0.6875rem] font-medium text-ink-faint">Jobs</div>
         {jobs.length === 0 ? (
-          <UiEmpty icon={Disc3} title={query ? "Kein Job passt" : "Noch keine Jobs"} />
+          <div className="flex flex-col items-center gap-3">
+            <UiEmpty
+              icon={Disc3}
+              title={query ? "Kein Job passt" : "Noch keine Jobs"}
+              detail={query ? undefined : "Orte und Jobs werden im Hauptfenster eingerichtet."}
+            />
+            {query ? null : (
+              <UiButton variant="primary" onPress={() => void api.openMainWindow()}>
+                In clonq einrichten
+              </UiButton>
+            )}
+          </div>
         ) : (
           jobs.map(({ job: rowJob, index }, position) => {
             const rowLive = state.live[rowJob.id];
