@@ -348,6 +348,7 @@ mod tests {
             safety: Safety::default(),
             ring: None,
             triggers: Triggers::default(),
+            archive: crate::config::Archive::default(),
         });
         let status = status_of(&config.locations[0], &config, &[], &ServerChecks::default());
         assert_eq!(status.used_by, vec!["Tmp → Tmp".to_string()]);

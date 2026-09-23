@@ -128,7 +128,28 @@ pub struct Job {
     pub ring: Option<Ring>,
     #[serde(default)]
     pub triggers: Triggers,
+    #[serde(default)]
+    pub archive: Archive,
 }
+
+/// Files a run deletes or overwrites on the target are moved into
+/// `.clonq-archiv/<time>/` on the target instead of being lost.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Archive {
+    pub enabled: bool,
+    /// Archive folders older than this are removed after a successful run.
+    pub keep_days: u32,
+}
+
+impl Default for Archive {
+    fn default() -> Self {
+        Self { enabled: true, keep_days: 30 }
+    }
+}
+
+/// Name of the archive folder at the top of every target.
+pub const ARCHIVE_DIR: &str = ".clonq-archiv";
 
 /// When a job starts by itself (only while it is enabled).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]

@@ -10,6 +10,8 @@ pub enum Event {
     /// A file was copied (or, in a dry run, would be).
     File { change: Change, size: i64, path: String },
     Deleted(String),
+    /// Moved aside into the archive; a copy of the same path right after means it was changed.
+    MovedAside(String),
     /// A stats block: progress for the live view and the counters so far.
     Stats { progress: Progress, totals: Totals },
     Error(String),
@@ -93,7 +95,8 @@ pub fn parse(text: &str) -> Event {
     match (line.msg.as_str(), line.skipped.as_deref()) {
         ("Copied (new)", _) | ("Copied (server-side copy)", _) => Event::File { change: Change::NewFile, size: line.size.unwrap_or(0), path },
         ("Copied (replaced existing)", _) => Event::File { change: Change::ChangedFile, size: line.size.unwrap_or(0), path },
-        ("Deleted", _) => Event::Deleted(path),
+        ("Deleted", _) | ("Moved into backup dir", _) => Event::Deleted(path),
+        ("Moved (server-side)", _) => Event::MovedAside(path),
         // In a dry run rclone does not tell new from changed; both count as a transfer.
         (_, Some("copy")) => Event::File { change: Change::NewFile, size: line.size.unwrap_or(0), path },
         (_, Some("delete")) => Event::Deleted(path),
@@ -121,6 +124,10 @@ mod tests {
         assert_eq!(parse(replaced), Event::File { change: Change::ChangedFile, size: 1000, path: "a/f1.bin".into() });
         let deleted = r#"{"level":"info","msg":"Deleted","object":"extra.txt","objectType":"*local.Object","source":"operations/operations.go:581"}"#;
         assert_eq!(parse(deleted), Event::Deleted("extra.txt".into()));
+        let archived = r#"{"level":"info","msg":"Moved into backup dir","object":"old.txt","objectType":"*local.Object"}"#;
+        assert_eq!(parse(archived), Event::Deleted("old.txt".into()));
+        let aside = r#"{"level":"info","msg":"Moved (server-side)","object":"f.txt","objectType":"*local.Object"}"#;
+        assert_eq!(parse(aside), Event::MovedAside("f.txt".into()));
     }
 
     #[test]

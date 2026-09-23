@@ -12,7 +12,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, BufWriter};
 use tokio::process::Command;
 use tokio::sync::watch;
 
-use crate::config::{Config, Job, Mode};
+use crate::config::{ARCHIVE_DIR, Config, Job, Mode};
 use crate::locations::{self, Resolved};
 use crate::error::{Error, Result};
 use crate::history::{FolderChange, History, Run, RunStatus, Sample};
@@ -290,6 +290,8 @@ impl Engine {
         let mut extra = Vec::new();
         if options.dry_run {
             extra.push("--dry-run".to_string());
+        } else if job.archive.enabled {
+            extra.extend(plan.archive_args(&archive_stamp(run.started_at)));
         }
         if let Some(limit) = max_delete {
             extra.push(format!("--max-delete={limit}"));
@@ -328,6 +330,10 @@ impl Engine {
             (Tool::Rclone { .. }, false, Some(6)) => RunStatus::Partial,
             _ => RunStatus::Failed,
         };
+        if !options.dry_run && run.status.completed() && job.archive.enabled {
+            self.prune_archive(plan, job.archive.keep_days, &mut log).await;
+            log.flush().await?;
+        }
         run.message = match run.status {
             RunStatus::Succeeded | RunStatus::Cancelled => None,
             RunStatus::Blocked => Some(format!(
@@ -401,6 +407,7 @@ impl Engine {
         let mut bytes_now = 0_i64;
         let mut throughput: VecDeque<f64> = VecDeque::with_capacity(LIVE_SAMPLES);
         let mut recent: VecDeque<String> = VecDeque::with_capacity(RECENT_PATHS);
+        let mut moved_aside: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut exit = None;
         let mut streams_open = true;
         let mut cancel_open = true;
@@ -438,7 +445,12 @@ impl Engine {
                                         });
                                     }
                                 }
+                                Event::MovedAside(path) => {
+                                    moved_aside.insert(path);
+                                }
                                 Event::File { change, size, path } => {
+                                    // With an archive, an overwritten file is first moved aside, then copied anew.
+                                    let change = if moved_aside.remove(&path) { Change::ChangedFile } else { change };
                                     // The safety check's would-be changes stay out of the log.
                                     if report && let Some(line) = log_entry(change, size, &path) {
                                         log.write_all(line.as_bytes()).await?;
@@ -446,6 +458,7 @@ impl Engine {
                                     self.count_file(job_id, &mut result, &mut recent, change, size, &path, report);
                                 }
                                 Event::Deleted(path) => {
+                                    moved_aside.remove(&path);
                                     result.deleted_lines += 1;
                                     if report {
                                         log.write_all(format!("- {path}\n").as_bytes()).await?;
@@ -569,6 +582,26 @@ impl Engine {
         Ok(result)
     }
 
+    /// Removes archive folders older than `keep_days`; failures only end up in the log.
+    async fn prune_archive(&self, plan: &Plan, keep_days: u32, log: &mut BufWriter<tokio::fs::File>) {
+        let cutoff = archive_stamp(Utc::now() - chrono::Duration::days(i64::from(keep_days)));
+        let outcome = match (&plan.tool, &plan.target_path) {
+            (Tool::Rsync, Some(target)) => prune_local(&target.join(ARCHIVE_DIR), &cutoff),
+            (Tool::Rclone { config }, _) => {
+                let archive = format!("{}/{ARCHIVE_DIR}", plan.target.trim_end_matches('/'));
+                prune_rclone(&plan.program, config, &archive, &cutoff).await
+            }
+            // A server over SSH: an empty folder synced with a filter deletes only the old ones.
+            (Tool::Rsync, None) => prune_ssh(plan, &cutoff).await,
+        };
+        let line = match outcome {
+            Ok(0) => return,
+            Ok(removed) => format!("# archive: removed {removed} folders older than {cutoff}\n"),
+            Err(error) => format!("! archive cleanup failed: {error}\n"),
+        };
+        let _ = log.write_all(line.as_bytes()).await;
+    }
+
     /// Counts one transferred file for the numbers and the live list.
     #[allow(clippy::too_many_arguments)]
     fn count_file(
@@ -684,6 +717,8 @@ impl Plan {
             args.push("--delete".into());
         }
         args.extend(job.excludes.iter().map(|pattern| format!("--exclude={pattern}")));
+        // The archive lives inside the target and must never be mirrored away.
+        args.push(format!("--exclude=/{ARCHIVE_DIR}/"));
         let (target_arg, target_path) = match target {
             Resolved::Local(path) => (path.to_string_lossy().trim_end_matches('/').to_string(), Some(path.clone())),
             Resolved::Remote { destination, .. } => (destination.trim_end_matches('/').to_string(), None),
@@ -724,6 +759,7 @@ impl Plan {
             "NOTICE".into(),
         ];
         args.extend(job.excludes.iter().map(|pattern| format!("--exclude={}", rclone_pattern(pattern))));
+        args.push(format!("--exclude=/{ARCHIVE_DIR}/**"));
         Ok(Self {
             tool: Tool::Rclone { config: rclone_config.to_path_buf() },
             program: program.to_string(),
@@ -733,6 +769,16 @@ impl Plan {
             source_path,
             target_path,
         })
+    }
+
+    /// Arguments that move deleted and overwritten files into this run's archive folder.
+    fn archive_args(&self, stamp: &str) -> Vec<String> {
+        match &self.tool {
+            // Relative to the target; works the same on a server over SSH.
+            Tool::Rsync => vec!["--backup".into(), format!("--backup-dir={ARCHIVE_DIR}/{stamp}")],
+            // rclone wants the full path on the same remote.
+            Tool::Rclone { .. } => vec!["--backup-dir".into(), format!("{}/{ARCHIVE_DIR}/{stamp}", self.target.trim_end_matches('/'))],
+        }
     }
 
     /// An absent or empty source must never be mirrored over a full target.
@@ -763,6 +809,67 @@ impl Plan {
         }
         check_volume_mounted(path)
     }
+}
+
+fn prune_local(archive: &Path, cutoff: &str) -> Result<usize> {
+    let Ok(entries) = std::fs::read_dir(archive) else { return Ok(0) };
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if entry.path().is_dir() && is_stamp(&name) && name.as_str() < cutoff {
+            std::fs::remove_dir_all(entry.path())?;
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
+async fn prune_rclone(program: &str, config: &Path, archive: &str, cutoff: &str) -> Result<usize> {
+    let listed = cloud::list_dirs(program, config, archive).await.unwrap_or_default();
+    let mut removed = 0;
+    for name in listed.into_iter().filter(|name| is_stamp(name) && name.as_str() < cutoff) {
+        let output = Command::new(program).args(["purge", &format!("{archive}/{name}"), "--config"]).arg(config).output().await?;
+        if output.status.success() {
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
+async fn prune_ssh(plan: &Plan, cutoff: &str) -> Result<usize> {
+    // Lists the archive with rsync itself (no shell needed on the server), then
+    // syncs an empty folder over it with a filter that only matches old stamps.
+    let archive = format!("{}/{ARCHIVE_DIR}/", plan.target.trim_end_matches('/'));
+    let rsh: Vec<String> = plan.base_args.iter().filter(|arg| arg.starts_with("--rsh=")).cloned().collect();
+    let listing = Command::new(&plan.program).args(&rsh).arg("--list-only").arg(&archive).output().await?;
+    if !listing.status.success() {
+        return Ok(0);
+    }
+    let old: Vec<String> = String::from_utf8_lossy(&listing.stdout)
+        .lines()
+        .filter_map(|line| line.split_whitespace().last())
+        .filter(|name| is_stamp(name) && *name < cutoff)
+        .map(str::to_string)
+        .collect();
+    if old.is_empty() {
+        return Ok(0);
+    }
+    let empty = std::env::temp_dir().join(format!("clonq-empty-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&empty)?;
+    let mut command = Command::new(&plan.program);
+    command.args(&rsh).args(["-r", "--delete"]);
+    for name in &old {
+        command.arg(format!("--include=/{name}/***"));
+    }
+    command.arg("--exclude=*").arg(format!("{}/", empty.display())).arg(&archive);
+    let output = command.output().await;
+    let _ = std::fs::remove_dir_all(&empty);
+    if output?.status.success() { Ok(old.len()) } else { Ok(0) }
+}
+
+/// `2026-09-23_14-05-09`
+fn is_stamp(name: &str) -> bool {
+    name.len() == 19 && chrono::NaiveDateTime::parse_from_str(name, "%Y-%m-%d_%H-%M-%S").is_ok()
 }
 
 /// rsync patterns name a folder with a trailing slash; rclone wants `/**` for its contents.
@@ -833,6 +940,11 @@ struct RsyncResult {
 struct Detail {
     samples: Vec<Sample>,
     folders: Vec<FolderChange>,
+}
+
+/// Archive folder names sort by time: `2026-09-23_14-05-09`.
+pub fn archive_stamp(at: chrono::DateTime<Utc>) -> String {
+    at.with_timezone(&chrono::Local).format("%Y-%m-%d_%H-%M-%S").to_string()
 }
 
 /// One line of the run log: `+ size path` new, `~ size path` changed.
@@ -1022,6 +1134,7 @@ mod tests {
                 safety: Safety::default(),
                 ring: None,
                 triggers: Triggers::default(),
+                archive: crate::config::Archive::default(),
             });
             config
         }
@@ -1039,8 +1152,11 @@ mod tests {
             self.history.recent(50).unwrap().into_iter().find(|run| run.id == run_id).unwrap()
         }
 
+        /// Entries in a folder, not counting clonq's archive.
         fn count_files(path: &Path) -> usize {
-            fs::read_dir(path).map(|entries| entries.count()).unwrap_or(0)
+            fs::read_dir(path)
+                .map(|entries| entries.flatten().filter(|entry| entry.file_name() != ARCHIVE_DIR).count())
+                .unwrap_or(0)
         }
     }
 
@@ -1180,6 +1296,44 @@ mod tests {
         let run = f.run(&f.config(Mode::Mirror, "cloud:cloudroot"), RunOptions::default()).await;
         assert_eq!(run.status, RunStatus::Blocked, "{:?}", run.message);
         assert_eq!(Fixture::count_files(&f.root.join("cloudroot")), 30);
+    }
+
+    #[tokio::test]
+    async fn deleted_and_overwritten_files_go_to_the_archive() {
+        let f = Fixture::new();
+        f.write("src/keep.txt", "v1");
+        f.write("src/gone.txt", "bye");
+        let config = f.config(Mode::Mirror, "dst");
+        let first = f.run(&config, RunOptions::default()).await;
+        assert_eq!(first.status, RunStatus::Succeeded, "{:?}", first.message);
+        std::thread::sleep(Duration::from_millis(1100));
+        f.write("src/keep.txt", "v2");
+        fs::remove_file(f.src().join("gone.txt")).unwrap();
+        let second = f.run(&config, RunOptions::default()).await;
+        assert_eq!(second.status, RunStatus::Succeeded, "{:?}", second.message);
+        let stamp = archive_stamp(second.started_at);
+        let archived = f.dst().join(ARCHIVE_DIR).join(&stamp);
+        assert_eq!(fs::read_to_string(archived.join("keep.txt")).unwrap(), "v1");
+        assert_eq!(fs::read_to_string(archived.join("gone.txt")).unwrap(), "bye");
+        // A third run must leave the earlier archive alone.
+        std::thread::sleep(Duration::from_millis(1100));
+        f.write("src/keep.txt", "v3");
+        let third = f.run(&config, RunOptions::default()).await;
+        assert_eq!(third.status, RunStatus::Succeeded, "{:?}", third.message);
+        assert!(archived.join("gone.txt").exists());
+    }
+
+    #[test]
+    fn old_archive_folders_are_pruned() {
+        let dir = std::env::temp_dir().join(format!("clonq-prune-{}", uuid::Uuid::new_v4()));
+        for name in ["2026-08-01_10-00-00", "2026-09-20_10-00-00", "notes"] {
+            fs::create_dir_all(dir.join(name)).unwrap();
+        }
+        assert_eq!(prune_local(&dir, "2026-09-01_00-00-00").unwrap(), 1);
+        assert!(!dir.join("2026-08-01_10-00-00").exists());
+        assert!(dir.join("2026-09-20_10-00-00").exists());
+        assert!(dir.join("notes").exists(), "only stamped folders are touched");
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[tokio::test]

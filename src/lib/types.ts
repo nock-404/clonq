@@ -63,6 +63,12 @@ export interface Triggers {
   afterJob: string | null;
 }
 
+/** Deleted and overwritten files are kept in `.clonq-archiv/<time>/` on the target. */
+export interface Archive {
+  enabled: boolean;
+  keepDays: number;
+}
+
 export interface Safety {
   maxDeletePercent: number;
   alwaysAllowedDeletions: number;
@@ -79,6 +85,7 @@ export interface Job {
   safety: Safety;
   ring: Ring | null;
   triggers: Triggers;
+  archive: Archive;
 }
 
 export interface Config {
@@ -144,6 +151,8 @@ export interface JobInput {
   ring: Ring | null;
   triggers: Triggers;
   enabled: boolean;
+  /** Defaults to on, 30 days, when left out. */
+  archive?: Archive;
 }
 
 export type RunStatus = "running" | "succeeded" | "partial" | "blocked" | "failed" | "cancelled";

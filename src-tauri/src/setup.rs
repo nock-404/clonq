@@ -7,7 +7,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::AppState;
 use crate::commands::EVENT_CONFIG_CHANGED;
-use crate::config::{Config, Job, Location, LocationKind, Mode, Place, Ring, Safety, Triggers, default_excludes, volume_system_excludes};
+use crate::config::{Archive, Config, Job, Location, LocationKind, Mode, Place, Ring, Safety, Triggers, default_excludes, volume_system_excludes};
 use crate::error::{Error, Result};
 use crate::locations::{self, LocationStatus, MountedVolume, Reach, Resolved};
 use crate::{cloud, smb, ssh};
@@ -435,6 +435,8 @@ pub struct JobInput {
     pub ring: Option<Ring>,
     pub triggers: Triggers,
     pub enabled: bool,
+    #[serde(default)]
+    pub archive: Archive,
 }
 
 /// Why two places cannot be a job, or None when they can.
@@ -513,6 +515,7 @@ pub fn save_job(app: AppHandle, state: State<'_, AppState>, job: JobInput) -> Re
         safety: Safety { max_delete_percent: job.max_delete_percent, ..Safety::default() },
         ring: job.ring,
         triggers: job.triggers.clone(),
+        archive: job.archive.clone(),
     };
     let stored = saved.clone();
     commit(&app, &state, |config| {

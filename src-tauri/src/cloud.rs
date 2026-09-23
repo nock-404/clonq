@@ -7,6 +7,7 @@ use std::path::Path;
 use std::time::Duration;
 use tokio::process::Command;
 
+use crate::config::ARCHIVE_DIR;
 use crate::error::{Error, Result};
 
 #[derive(Debug, Clone, Serialize)]
@@ -187,9 +188,14 @@ pub async fn make_dir(rclone: &str, config_file: &Path, spec: &str) -> Result<()
     Ok(())
 }
 
-/// Number of objects under a remote path (for the first-run deletion check).
+/// Number of objects under a remote path, not counting clonq's archive
+/// (for the deletion check and the next run's limit).
 pub async fn count(rclone: &str, config_file: &Path, spec: &str) -> Result<i64> {
-    let output = Command::new(rclone).args(["size", "--json", spec, "--config"]).arg(config_file).output().await?;
+    let output = Command::new(rclone)
+        .args(["size", "--json", spec, "--exclude", &format!("/{ARCHIVE_DIR}/**"), "--config"])
+        .arg(config_file)
+        .output()
+        .await?;
     if !output.status.success() {
         // A target that does not exist yet holds nothing.
         return Ok(0);
