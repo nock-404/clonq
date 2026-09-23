@@ -20,6 +20,14 @@
 - Vorschau-Server: Vite auf Port 1440 (`preview.html?window=main&scene=running&job=work-to-m2mini`, `&sheet=addLocation|jobWizard`, `&location=box`). Weitere alte Vite-Prozesse auf 1430/1441/1442/1443/1452 aufräumen, sobald der Workflow fertig ist.
 - Danach einhängen: `ArchivePanel` und Konfliktregeln ins Job-Detail/Assistenten, `FileBrowser` in `LocationDetail`, Hostschlüssel-Bestätigung (API: `prepareServer(name, host, port)` → `hostKeys`, dann `trustServer(locationId)`) in den Server-Ablauf, `connectLocation` für SMB.
 
+## Veröffentlichung (23.09.2026, 17:25)
+
+- `nock-404/clonq` ist öffentlich (Apache 2.0) mit bereinigter Historie (Beispieldaten ohne Arbeits- und Privatnamen). Das alte private Repo heißt `nock-404/clonq-privat` (Remote `privat`), der alte Stand liegt lokal im Tag `pre-public-backup` – diesen Tag nie pushen, kein `git push --tags`.
+- Installation und Update: `curl -fsSL https://raw.githubusercontent.com/nock-404/clonq/main/install.sh | sh`; in der App Update-Band (Seitenleiste, Popover) und „Nach Updates suchen“ in den Einstellungen.
+- Release: Version in `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json` setzen, committen, `git tag vX.Y.Z && git push origin main vX.Y.Z`. Workflow `.github/workflows/release.yml` baut auf macOS 26 (arm64), signiert mit den Secrets und lädt `latest.json` hoch.
+- Update-Signierschlüssel: `~/.tauri/clonq.key` (+ `.pub`), Passwort im Schlüsselbund unter „clonq-updater-signing“, beides als Repo-Secrets hinterlegt. Geht der Schlüssel verloren, können installierte Apps keine Updates mehr annehmen.
+- Pushen mit dem Token von nock-404 pro Aufruf, der aktive gh-Account ist mg-pr.
+
 ## Stand 23.09.2026 nachmittags (zweite Session)
 
 - Logo „Spule“ gewählt und überall drin: App-Icon (`src-tauri/icons`, aus `~/Downloads/clonq-logo/spule/app-icon-1024.png`), Menüleiste mit drei Drehstufen (`icons/tray*.png`, `tray.rs` dreht ruckartig, solange `engine.busy()`), `UiLogo` (mark/wordmark/icon) in Seitenleiste, Popover-Fußleiste, Einführung, Einstellungen „Über clonq“. Schriftzug zart grau (#a4a4ab), auf die Tinte zugeschnitten.
