@@ -32,10 +32,16 @@ pub mod reason {
 
 #[derive(Default)]
 pub struct Scheduler {
-    /// Source change seen at, per job, until the quiet time has passed.
-    pending_changes: Mutex<HashMap<String, Instant>>,
+    /// Last source change seen per job, until the quiet time has passed.
+    pending_changes: Mutex<HashMap<String, DateTime<Utc>>>,
     watcher: Mutex<Option<RecommendedWatcher>>,
+    /// Automatic starts that failed (location not reachable) wait until this
+    /// time, or until a drive or server check changes the picture.
+    backoff: Mutex<HashMap<String, Instant>>,
 }
+
+/// How long a job whose automatic start failed is left alone.
+const BACKOFF: Duration = Duration::from_secs(300);
 
 pub fn start(app: AppHandle) {
     app.manage(Scheduler::default());
@@ -66,6 +72,10 @@ fn config(app: &AppHandle) -> Config {
 
 /// Starts a job if it is enabled; a job that is running or unreachable is skipped quietly.
 fn fire(app: &AppHandle, job_id: &str, why: &str) -> bool {
+    let scheduler = app.state::<Scheduler>();
+    if scheduler.backoff.lock().expect("backoff").get(job_id).is_some_and(|until| Instant::now() < *until) {
+        return false;
+    }
     let state = app.state::<AppState>();
     let config = state.config.read().expect("config lock").clone();
     if !config.job(job_id).is_some_and(|job| job.enabled) {
@@ -75,7 +85,26 @@ fn fire(app: &AppHandle, job_id: &str, why: &str) -> bool {
     if state.history.last_real_status(job_id).ok().flatten() == Some(RunStatus::Blocked) {
         return false;
     }
-    state.engine.start(&config, job_id, why, RunOptions::default()).is_ok()
+    match state.engine.start(&config, job_id, why, RunOptions::default()) {
+        Ok(_) => {
+            scheduler.backoff.lock().expect("backoff").remove(job_id);
+            true
+        }
+        Err(error) => {
+            // A running job is fine to retry soon; anything else (a drive not
+            // connected, a server down) waits instead of retrying every tick.
+            if !error.to_string().contains("already running") {
+                scheduler.backoff.lock().expect("backoff").insert(job_id.to_string(), Instant::now() + BACKOFF);
+            }
+            false
+        }
+    }
+}
+
+/// Drives or servers changed: jobs that were waiting may be reachable now.
+pub fn reachability_changed(app: &AppHandle) {
+    app.state::<Scheduler>().backoff.lock().expect("backoff").clear();
+    rewatch(app);
 }
 
 /// Called by the volume watcher with the drives that just appeared.
@@ -126,14 +155,17 @@ fn tick(app: &AppHandle) {
     // Source changes whose quiet time is over.
     let scheduler = app.state::<Scheduler>();
     let due: Vec<String> = {
-        let pending = scheduler.pending_changes.lock().expect("pending");
+        let mut pending = scheduler.pending_changes.lock().expect("pending");
+        // A run that started after the change (for any reason) already covered it.
+        pending.retain(|job_id, seen| history.last_started(job_id).ok().flatten().is_none_or(|started| started < *seen));
         pending
             .iter()
             .filter(|(job_id, seen)| {
                 config
                     .job(job_id)
                     .and_then(|job| job.triggers.on_change_after_seconds)
-                    .is_some_and(|quiet| seen.elapsed() >= Duration::from_secs(quiet))
+                    .and_then(|quiet| i64::try_from(quiet).ok())
+                    .is_some_and(|quiet| now - **seen >= chrono::Duration::seconds(quiet))
             })
             .map(|(job_id, _)| job_id.clone())
             .collect()
@@ -148,16 +180,25 @@ fn tick(app: &AppHandle) {
 
 /// Every N minutes, counted from the last start of the job (any trigger).
 pub fn every_due(last: Option<DateTime<Utc>>, minutes: u64, now: DateTime<Utc>) -> bool {
+    let Some(interval) = i64::try_from(minutes).ok().and_then(chrono::Duration::try_minutes) else { return false };
     match last {
         None => true,
-        Some(last) => now - last >= chrono::Duration::minutes(minutes as i64),
+        Some(last) => now - last >= interval,
     }
 }
 
 /// Daily at a local time: due once the time has passed today and the job has
 /// not started since. A Mac that slept through the time catches up on waking.
 pub fn daily_due(last: Option<DateTime<Utc>>, at: NaiveTime, now: DateTime<Local>) -> bool {
-    let Some(today_at) = Local.from_local_datetime(&now.date_naive().and_time(at)).earliest() else { return false };
+    let naive = now.date_naive().and_time(at);
+    // In the spring-forward gap the time does not exist; the first valid moment after it counts.
+    let Some(today_at) = Local
+        .from_local_datetime(&naive)
+        .earliest()
+        .or_else(|| Local.from_local_datetime(&(naive + chrono::Duration::hours(1))).earliest())
+    else {
+        return false;
+    };
     if now < today_at {
         return false;
     }
@@ -190,7 +231,7 @@ fn rewatch(app: &AppHandle) {
         let mut pending = scheduler.pending_changes.lock().expect("pending");
         for (job_id, root, excluded) in &targets {
             if event.paths.iter().any(|path| path.starts_with(root) && !is_excluded(path, root, excluded)) {
-                pending.insert(job_id.clone(), Instant::now());
+                pending.insert(job_id.clone(), Utc::now());
             }
         }
     });
@@ -257,6 +298,7 @@ mod tests {
     #[test]
     fn every_counts_from_the_last_start() {
         let now = utc("2026-09-23T12:00:00Z");
+        assert!(!every_due(Some(now), u64::MAX, now), "a huge interval is never due and never panics");
         assert!(every_due(None, 60, now));
         assert!(!every_due(Some(utc("2026-09-23T11:30:00Z")), 60, now));
         assert!(every_due(Some(utc("2026-09-23T11:00:00Z")), 60, now));
@@ -273,6 +315,15 @@ mod tests {
         assert!(daily_due(Some(yesterday), at, after), "slept through 02:00, runs at 09:00");
         assert!(!daily_due(Some(today_2), at, after), "already ran today");
         assert!(daily_due(None, at, after));
+    }
+
+    #[test]
+    fn daily_time_in_the_spring_forward_gap_still_fires() {
+        // Europe/Berlin skips 02:00–03:00 on 2027-03-28; only meaningful in such a zone.
+        let at = NaiveTime::from_hms_opt(2, 30, 0).unwrap();
+        let naive = chrono::NaiveDate::from_ymd_opt(2027, 3, 28).unwrap().and_hms_opt(10, 0, 0).unwrap();
+        let Some(later) = Local.from_local_datetime(&naive).earliest() else { return };
+        assert!(daily_due(None, at, later));
     }
 
     #[test]

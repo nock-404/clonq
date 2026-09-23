@@ -489,6 +489,9 @@ pub fn save_job(app: AppHandle, state: State<'_, AppState>, job: JobInput) -> Re
     if !(0.0..=100.0).contains(&job.max_delete_percent) {
         return Err(Error::Job("the deletion limit must be between 0 and 100 %".into()));
     }
+    if job.triggers.every_minutes.is_some_and(|minutes| minutes == 0 || minutes > 525_600) {
+        return Err(Error::Job("the interval must be between 1 minute and one year".into()));
+    }
     if let Some(time) = &job.triggers.daily_at
         && chrono::NaiveTime::parse_from_str(time, "%H:%M").is_err()
     {
@@ -506,6 +509,17 @@ pub fn save_job(app: AppHandle, state: State<'_, AppState>, job: JobInput) -> Re
         }
     }
     let id = job.id.clone().unwrap_or_else(|| new_id(&name));
+    if let Some(first) = &job.triggers.after_job {
+        // Following the "after job" links from here must never come back to this job.
+        let mut current = Some(first.clone());
+        let mut seen = std::collections::HashSet::new();
+        while let Some(next) = current {
+            if next == id || !seen.insert(next.clone()) {
+                return Err(Error::Job("the jobs would start each other in a circle".into()));
+            }
+            current = config.job(&next).and_then(|job| job.triggers.after_job.clone());
+        }
+    }
     let saved = Job {
         id: id.clone(),
         name,

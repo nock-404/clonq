@@ -51,6 +51,8 @@ pub fn volumes(app: AppHandle) {
                 let appeared: HashSet<String> = current.difference(&uuids).cloned().collect();
                 uuids = current;
                 let _ = app.emit(EVENT_VOLUMES_CHANGED, volumes);
+                // Change watchers on a drive that just came or went must be rebuilt.
+                scheduler::reachability_changed(&app);
                 if !appeared.is_empty() {
                     scheduler::volumes_mounted(&app, &appeared);
                 }
@@ -77,6 +79,7 @@ pub fn servers(app: AppHandle) {
                 app.state::<AppState>().server_checks.record(&location.id, result);
             }
             let _ = app.emit(EVENT_SERVERS_CHECKED, ());
+            scheduler::reachability_changed(&app);
             tokio::time::sleep(SERVER_INTERVAL).await;
         }
     });
