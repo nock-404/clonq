@@ -16,6 +16,8 @@ use crate::config::{Config, Job, Mode};
 use crate::locations::{self, Resolved};
 use crate::error::{Error, Result};
 use crate::history::{FolderChange, History, Run, RunStatus, Sample};
+use crate::cloud;
+use crate::rclone_output::{self, Event};
 use crate::rsync_output::{self, Change, Line, Stats};
 
 pub const EVENT_RUN_UPDATE: &str = "run-update";
@@ -89,12 +91,14 @@ pub struct Engine {
     emit: Emit,
     history: Arc<History>,
     log_dir: PathBuf,
+    /// clonq's own rclone config with one remote per cloud location.
+    rclone_config: PathBuf,
     active: Arc<Mutex<HashMap<String, Active>>>,
 }
 
 impl Engine {
-    pub fn new(emit: Emit, history: Arc<History>, log_dir: PathBuf) -> Self {
-        Self { emit, history, log_dir, active: Arc::default() }
+    pub fn new(emit: Emit, history: Arc<History>, log_dir: PathBuf, rclone_config: PathBuf) -> Self {
+        Self { emit, history, log_dir, rclone_config, active: Arc::default() }
     }
 
     pub fn live_runs(&self) -> Vec<LiveRun> {
@@ -119,7 +123,7 @@ impl Engine {
         let volumes = locations::mounted_volumes();
         let source = locations::resolve(&job.source, config, &volumes)?;
         let target = locations::resolve(&job.target, config, &volumes)?;
-        let plan = Plan::new(&job, &config.rsync_path, &source, &target)?;
+        let plan = Plan::new(&job, config, &self.rclone_config, &source, &target)?;
 
         let run_id = uuid::Uuid::new_v4().to_string();
         let run = Run {
@@ -251,16 +255,20 @@ impl Engine {
                         run.message = Some(check.error_summary());
                         return Ok(());
                     }
-                    let percent = check.stats.delete_percent();
-                    let allowed = job.safety.allowed_deletions(check.stats.target_entries_before());
-                    if check.stats.deleted > allowed {
+                    let (deleted, before) = match &plan.tool {
+                        Tool::Rsync => (check.stats.deleted, check.stats.target_entries_before()),
+                        Tool::Rclone { config } => {
+                            (check.deleted_lines, cloud::count(&plan.program, config, &plan.target).await?)
+                        }
+                    };
+                    let percent = if before > 0 { deleted as f64 * 100.0 / before as f64 } else { 0.0 };
+                    let allowed = job.safety.allowed_deletions(before);
+                    if deleted > allowed {
                         run.status = RunStatus::Blocked;
-                        run.files_deleted = check.stats.deleted;
-                        run.target_entries = check.stats.target_entries_before();
+                        run.files_deleted = deleted;
+                        run.target_entries = before;
                         run.message = Some(format!(
-                            "would delete {} of {} entries on the target ({percent:.1} %), limit is {} %",
-                            check.stats.deleted,
-                            check.stats.target_entries_before(),
+                            "would delete {deleted} of {before} entries on the target ({percent:.1} %), limit is {} %",
                             job.safety.max_delete_percent
                         ));
                         return Ok(());
@@ -295,19 +303,20 @@ impl Engine {
         run.wire_bytes = result.stats.sent + result.stats.received;
         detail.samples = thin(&result.samples, STORED_SAMPLES);
         detail.folders = top_folders(std::mem::take(&mut result.folders), STORED_FOLDERS);
-        run.target_entries = if options.dry_run {
-            result.stats.target_entries_before()
-        } else {
-            match job.mode {
-                Mode::Mirror => result.stats.files,
-                _ => result.stats.target_entries_before() + result.stats.created,
-            }
+        run.target_entries = match (&plan.tool, options.dry_run, job.mode) {
+            (Tool::Rsync, true, _) => result.stats.target_entries_before(),
+            (Tool::Rsync, false, Mode::Mirror) => result.stats.files,
+            (Tool::Rsync, false, _) => result.stats.target_entries_before() + result.stats.created,
+            // rclone does not count the target itself; ask it once the run is over.
+            (Tool::Rclone { config }, _, _) => cloud::count(&plan.program, config, &plan.target).await.unwrap_or(0),
         };
-        run.status = match (result.cancelled, result.exit_code) {
-            (true, _) => RunStatus::Cancelled,
-            (false, Some(0)) => RunStatus::Succeeded,
-            (false, Some(23 | 24)) => RunStatus::Partial,
-            (false, Some(25)) => RunStatus::Blocked,
+        run.status = match (&plan.tool, result.cancelled, result.exit_code) {
+            (_, true, _) => RunStatus::Cancelled,
+            (_, false, Some(0)) => RunStatus::Succeeded,
+            (Tool::Rsync, false, Some(23 | 24)) => RunStatus::Partial,
+            (Tool::Rsync, false, Some(25)) => RunStatus::Blocked,
+            (Tool::Rclone { .. }, false, Some(7)) if result.delete_limit_hit => RunStatus::Blocked,
+            (Tool::Rclone { .. }, false, Some(6)) => RunStatus::Partial,
             _ => RunStatus::Failed,
         };
         run.message = match run.status {
@@ -399,6 +408,52 @@ impl Engine {
                         continue;
                     };
                     match line {
+                        Output::Stdout(text) | Output::Stderr(text) if plan.tool.is_rclone() => {
+                            match rclone_output::parse(&text) {
+                                Event::Stats { progress, totals } => {
+                                    bytes_now = progress.bytes;
+                                    result.stats.transferred_size = totals.bytes;
+                                    result.stats.literal = totals.bytes;
+                                    result.stats.sent = totals.bytes;
+                                    result.stats.regular_transferred = totals.transfers;
+                                    result.stats.deleted = totals.deletes;
+                                    if report {
+                                        let speed = rate.sample(progress.bytes);
+                                        self.update(job_id, |live| {
+                                            live.percent = progress.percent;
+                                            live.bytes = progress.bytes;
+                                            live.bytes_per_second = speed;
+                                            live.eta_seconds = Some(progress.eta_seconds);
+                                            live.files_total = progress.total_files;
+                                            live.files_done = progress.transferred_files.unwrap_or(0);
+                                        });
+                                    }
+                                }
+                                Event::File { change, size, path } => {
+                                    log.write_all(format!("{change:?} {size} {path}\n").as_bytes()).await?;
+                                    self.count_file(job_id, &mut result, &mut recent, change, size, &path, report);
+                                }
+                                Event::Deleted(path) => {
+                                    result.deleted_lines += 1;
+                                    log.write_all(format!("*deleting {path}\n").as_bytes()).await?;
+                                    if report {
+                                        let deleted = result.deleted_lines;
+                                        self.update(job_id, |live| live.files_deleted = deleted);
+                                    }
+                                }
+                                Event::Error(message) => {
+                                    log.write_all(format!("! {message}\n").as_bytes()).await?;
+                                    if rclone_output::is_delete_limit(&message) {
+                                        result.delete_limit_hit = true;
+                                    }
+                                    result.errors.push(message);
+                                    if result.errors.len() > 20 {
+                                        result.errors.remove(0);
+                                    }
+                                }
+                                Event::Other => {}
+                            }
+                        }
                         Output::Stdout(text) => {
                             match rsync_output::parse(&text) {
                                 Line::Progress(progress) => {
@@ -427,37 +482,7 @@ impl Engine {
                                 }
                                 Line::Changed { code, size, path } => {
                                     log.write_all(format!("{code} {size} {path}\n").as_bytes()).await?;
-                                    let change = Change::of(code);
-                                    match change {
-                                        Change::NewFile => {
-                                            result.files_new += 1;
-                                            result.bytes_new += size;
-                                        }
-                                        Change::ChangedFile => {
-                                            result.files_changed += 1;
-                                            result.bytes_changed += size;
-                                        }
-                                        Change::NewOther | Change::Metadata => {}
-                                    }
-                                    if matches!(change, Change::NewFile | Change::ChangedFile) {
-                                        let entry = result.folders.entry(folder_of(path)).or_default();
-                                        entry.0 += 1;
-                                        entry.1 += size;
-                                        if report {
-                                            if recent.len() == RECENT_PATHS {
-                                                recent.pop_back();
-                                            }
-                                            recent.push_front(path.to_string());
-                                            let (new, changed) = (result.files_new, result.files_changed);
-                                            let (current, paths) = (path.to_string(), recent.iter().cloned().collect());
-                                            self.update(job_id, |live| {
-                                                live.current_path = Some(current);
-                                                live.recent_paths = paths;
-                                                live.files_new = new;
-                                                live.files_changed = changed;
-                                            });
-                                        }
-                                    }
+                                    self.count_file(job_id, &mut result, &mut recent, Change::of(code), size, path, report);
                                 }
                                 Line::Stat(stat) => {
                                     result.stats.apply(stat);
@@ -526,6 +551,48 @@ impl Engine {
         Ok(result)
     }
 
+    /// Counts one transferred file for the numbers and the live list.
+    #[allow(clippy::too_many_arguments)]
+    fn count_file(
+        &self,
+        job_id: &str,
+        result: &mut RsyncResult,
+        recent: &mut VecDeque<String>,
+        change: Change,
+        size: i64,
+        path: &str,
+        report: bool,
+    ) {
+        match change {
+            Change::NewFile => {
+                result.files_new += 1;
+                result.bytes_new += size;
+            }
+            Change::ChangedFile => {
+                result.files_changed += 1;
+                result.bytes_changed += size;
+            }
+            Change::NewOther | Change::Metadata => return,
+        }
+        let entry = result.folders.entry(folder_of(path)).or_default();
+        entry.0 += 1;
+        entry.1 += size;
+        if report {
+            if recent.len() == RECENT_PATHS {
+                recent.pop_back();
+            }
+            recent.push_front(path.to_string());
+            let (new, changed) = (result.files_new, result.files_changed);
+            let (current, paths) = (path.to_string(), recent.iter().cloned().collect());
+            self.update(job_id, |live| {
+                live.current_path = Some(current);
+                live.recent_paths = paths;
+                live.files_new = new;
+                live.files_changed = changed;
+            });
+        }
+    }
+
     fn update(&self, job_id: &str, change: impl FnOnce(&mut LiveRun)) {
         if let Some(entry) = self.active.lock().expect("active lock").get_mut(job_id) {
             change(&mut entry.live);
@@ -541,18 +608,39 @@ impl Engine {
 }
 
 /// Everything rsync needs for one job, resolved from the config.
+/// Which program moves the data.
+enum Tool {
+    Rsync,
+    Rclone { config: PathBuf },
+}
+
+impl Tool {
+    fn is_rclone(&self) -> bool {
+        matches!(self, Self::Rclone { .. })
+    }
+}
+
 struct Plan {
+    tool: Tool,
     program: String,
     base_args: Vec<String>,
     source: String,
     target: String,
-    source_path: PathBuf,
+    /// Only set when the source is on this Mac.
+    source_path: Option<PathBuf>,
     /// Only set when the target is on this Mac.
     target_path: Option<PathBuf>,
 }
 
 impl Plan {
-    fn new(job: &Job, rsync: &str, source: &Resolved, target: &Resolved) -> Result<Self> {
+    fn new(job: &Job, config: &Config, rclone_config: &Path, source: &Resolved, target: &Resolved) -> Result<Self> {
+        if matches!(job.mode, Mode::Blind | Mode::Bidirectional) {
+            return Err(Error::Job(format!("mode {:?} is not built yet", job.mode)));
+        }
+        let uses_cloud = matches!(source, Resolved::Cloud { .. }) || matches!(target, Resolved::Cloud { .. });
+        if uses_cloud {
+            return Self::rclone(job, &config.rclone_path, rclone_config, source, target);
+        }
         let Resolved::Local(source_path) = source else {
             return Err(Error::Job("a server as the source is not built yet".into()));
         };
@@ -568,37 +656,70 @@ impl Plan {
                 remote.push(format!("--rsh={}", shell_join(ssh)));
                 remote
             }
+            Resolved::Cloud { .. } => unreachable!("cloud targets go through rclone"),
         };
         args.extend(
             ["--8-bit-output", "--no-inc-recursive", "--info=progress2,stats2", "--out-format=%i %l %n%L", "--outbuf=L"]
                 .map(String::from),
         );
-        match job.mode {
-            Mode::Mirror => args.push("--delete".into()),
-            Mode::Backup => {}
-            Mode::Blind | Mode::Bidirectional => {
-                return Err(Error::Job(format!("mode {:?} is not built yet", job.mode)));
-            }
+        if job.mode == Mode::Mirror {
+            args.push("--delete".into());
         }
         args.extend(job.excludes.iter().map(|pattern| format!("--exclude={pattern}")));
         let (target_arg, target_path) = match target {
             Resolved::Local(path) => (path.to_string_lossy().trim_end_matches('/').to_string(), Some(path.clone())),
             Resolved::Remote { destination, .. } => (destination.trim_end_matches('/').to_string(), None),
+            Resolved::Cloud { .. } => unreachable!("cloud targets go through rclone"),
         };
         Ok(Self {
-            program: rsync.to_string(),
+            tool: Tool::Rsync,
+            program: config.rsync_path.clone(),
             base_args: args,
             // The trailing slash copies the folder's contents, not the folder itself.
             source: format!("{}/", source_path.to_string_lossy().trim_end_matches('/')),
             target: target_arg,
-            source_path: source_path.clone(),
+            source_path: Some(source_path.clone()),
+            target_path,
+        })
+    }
+
+    /// rclone copies the contents of the source into the target; `sync` also deletes.
+    fn rclone(job: &Job, program: &str, rclone_config: &Path, source: &Resolved, target: &Resolved) -> Result<Self> {
+        let side = |resolved: &Resolved| -> Result<(String, Option<PathBuf>)> {
+            match resolved {
+                Resolved::Local(path) => Ok((path.to_string_lossy().into_owned(), Some(path.clone()))),
+                Resolved::Cloud { spec } => Ok((spec.clone(), None)),
+                Resolved::Remote { .. } => Err(Error::Job("an SSH server and a cloud cannot be paired in one job yet".into())),
+            }
+        };
+        let (source_arg, source_path) = side(source)?;
+        let (target_arg, target_path) = side(target)?;
+        let mut args: Vec<String> = vec![
+            if job.mode == Mode::Mirror { "sync".into() } else { "copy".into() },
+            "--config".into(),
+            rclone_config.to_string_lossy().into_owned(),
+            "--use-json-log".into(),
+            "-v".into(),
+            "--stats".into(),
+            "1s".into(),
+            "--stats-log-level".into(),
+            "NOTICE".into(),
+        ];
+        args.extend(job.excludes.iter().map(|pattern| format!("--exclude={}", rclone_pattern(pattern))));
+        Ok(Self {
+            tool: Tool::Rclone { config: rclone_config.to_path_buf() },
+            program: program.to_string(),
+            base_args: args,
+            source: source_arg,
+            target: target_arg,
+            source_path,
             target_path,
         })
     }
 
     /// An absent or empty source must never be mirrored over a full target.
     fn check_source(&self) -> Result<()> {
-        let path = &self.source_path;
+        let Some(path) = &self.source_path else { return Ok(()) };
         let metadata = std::fs::metadata(path)
             .map_err(|_| Error::Job(format!("source {} does not exist", path.display())))?;
         if !metadata.is_dir() {
@@ -623,6 +744,14 @@ impl Plan {
             return Err(Error::Job(format!("target folder {} does not exist", parent.display())));
         }
         check_volume_mounted(path)
+    }
+}
+
+/// rsync patterns name a folder with a trailing slash; rclone wants `/**` for its contents.
+fn rclone_pattern(pattern: &str) -> String {
+    match pattern.strip_suffix('/') {
+        Some(folder) => format!("{folder}/**"),
+        None => pattern.to_string(),
     }
 }
 
@@ -677,6 +806,8 @@ struct RsyncResult {
     folders: HashMap<String, (i64, i64)>,
     samples: Vec<Sample>,
     errors: Vec<String>,
+    /// rclone stopped at `--max-delete`.
+    delete_limit_hit: bool,
 }
 
 /// What a finished run stores beside its row.
@@ -813,7 +944,7 @@ mod tests {
             let events: Arc<Mutex<Vec<(String, serde_json::Value)>>> = Arc::default();
             let sink = events.clone();
             let emit: Emit = Arc::new(move |name, payload| sink.lock().unwrap().push((name.to_string(), payload)));
-            let engine = Engine::new(emit, history.clone(), root.join("logs"));
+            let engine = Engine::new(emit, history.clone(), root.join("logs"), root.join("rclone.conf"));
             Self { root, engine, history, events }
         }
 
@@ -839,6 +970,12 @@ mod tests {
                 id: "root".into(),
                 name: "Root".into(),
                 kind: LocationKind::Folder { path: self.root.to_string_lossy().into_owned() },
+            });
+            // A local-type rclone remote stands in for a cloud.
+            config.locations.push(Location {
+                id: "cloud".into(),
+                name: "Cloud".into(),
+                kind: LocationKind::Cloud { provider: "local".into(), remote: "fake".into(), root: self.root.to_string_lossy().into_owned() },
             });
             config.locations.push(Location {
                 id: "gone".into(),
@@ -949,6 +1086,64 @@ mod tests {
         assert!(kept.len() <= 241);
         assert_eq!(kept.first(), samples.first());
         assert_eq!(kept.last(), samples.last());
+    }
+
+    fn fake_cloud(f: &Fixture) {
+        let status = std::process::Command::new("/opt/homebrew/bin/rclone")
+            .args(["config", "create", "fake", "local", "--config"])
+            .arg(f.root.join("rclone.conf"))
+            .output()
+            .unwrap()
+            .status;
+        assert!(status.success());
+    }
+
+    #[test]
+    fn cloud_paths_keep_their_leading_slash() {
+        let f = Fixture::new();
+        let config = f.config(Mode::Mirror, "cloud:cloudroot");
+        let place = Place { location: "cloud".into(), path: "cloudroot".into() };
+        let Resolved::Cloud { spec } = locations::resolve(&place, &config, &[]).unwrap() else { panic!() };
+        assert_eq!(spec, format!("fake:{}/cloudroot", f.root.display()));
+    }
+
+    #[tokio::test]
+    async fn cloud_mirror_through_rclone() {
+        let f = Fixture::new();
+        fake_cloud(&f);
+        f.write("src/GM8/a.txt", "12345");
+        f.write("src/b.txt", "1");
+        f.write("src/node_modules/x.js", "x");
+        f.write("cloudroot/stale.txt", "old");
+        let config = f.config(Mode::Mirror, "cloud:cloudroot");
+        let first = f.run(&config, RunOptions::default()).await;
+        assert_eq!(first.status, RunStatus::Succeeded, "{:?}", first.message);
+        assert_eq!(first.files_new, 2);
+        assert_eq!(first.bytes_new, 6);
+        assert_eq!(first.files_deleted, 1);
+        assert!(f.root.join("cloudroot/GM8/a.txt").exists());
+        assert!(!f.root.join("cloudroot/node_modules").exists());
+        assert!(!f.root.join("cloudroot/stale.txt").exists());
+        assert_eq!(first.target_entries, 2);
+
+        std::thread::sleep(Duration::from_millis(1100));
+        f.write("src/b.txt", "changed");
+        let second = f.run(&config, RunOptions::default()).await;
+        assert_eq!(second.status, RunStatus::Succeeded, "{:?}", second.message);
+        assert_eq!(second.files_new + second.files_changed, 1);
+    }
+
+    #[tokio::test]
+    async fn cloud_first_run_that_would_wipe_is_blocked() {
+        let f = Fixture::new();
+        fake_cloud(&f);
+        f.write("src/only.txt", "1");
+        for i in 0..30 {
+            f.write(&format!("cloudroot/stale{i}.txt"), "old");
+        }
+        let run = f.run(&f.config(Mode::Mirror, "cloud:cloudroot"), RunOptions::default()).await;
+        assert_eq!(run.status, RunStatus::Blocked, "{:?}", run.message);
+        assert_eq!(Fixture::count_files(&f.root.join("cloudroot")), 30);
     }
 
     #[tokio::test]

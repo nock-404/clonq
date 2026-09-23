@@ -9,6 +9,7 @@ use std::sync::Mutex;
 
 use crate::config::{Config, Location, LocationKind, Place};
 use crate::error::{Error, Result};
+use crate::smb;
 
 /// A drive that is mounted right now.
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -139,7 +140,14 @@ pub fn status_of(location: &Location, config: &Config, volumes: &[MountedVolume]
             },
             None => Reach::Disconnected,
         },
-        LocationKind::Ssh { .. } => match checks.get(&location.id) {
+        LocationKind::Smb { url, .. } => match smb::parse(url).ok().and_then(|share| smb::mount_point(&share)) {
+            Some(point) => {
+                let (free, total) = free_space(&point);
+                Reach::Connected { path: Some(point.to_string_lossy().into_owned()), free_bytes: free, total_bytes: total }
+            }
+            None => Reach::Disconnected,
+        },
+        LocationKind::Ssh { .. } | LocationKind::Cloud { .. } => match checks.get(&location.id) {
             Some(Ok(())) => Reach::Connected { path: None, free_bytes: None, total_bytes: None },
             Some(Err(message)) => Reach::Failed { message },
             None => Reach::Untested,
@@ -157,6 +165,8 @@ pub fn status_of(location: &Location, config: &Config, volumes: &[MountedVolume]
 pub enum Resolved {
     Local(PathBuf),
     Remote { destination: String, ssh: Vec<String>, display: String },
+    /// An rclone path such as `clonq-box:bucket/folder`.
+    Cloud { spec: String },
 }
 
 /// Resolves a place against the current state of the machine; fails with a
@@ -182,6 +192,23 @@ pub fn resolve(place: &Place, config: &Config, volumes: &[MountedVolume]) -> Res
                 .find(|v| &v.uuid == volume_uuid)
                 .ok_or_else(|| Error::Job(format!("volume /Volumes/{volume_name} is not connected")))?;
             Ok(Resolved::Local(join(Path::new(&volume.mount_point), relative)))
+        }
+        LocationKind::Smb { url, .. } => {
+            let share = smb::parse(url)?;
+            let point = smb::mount_point(&share)
+                .ok_or_else(|| Error::Job(format!("share {} is not connected", location.name)))?;
+            Ok(Resolved::Local(join(&point, relative)))
+        }
+        LocationKind::Cloud { remote, root, .. } => {
+            // A leading slash is meaningful (absolute paths on some backends); only the end is trimmed.
+            let root = root.trim_end_matches('/');
+            let path = match (root.is_empty(), relative.is_empty()) {
+                (true, true) => String::new(),
+                (true, false) => relative.to_string(),
+                (false, true) => root.to_string(),
+                (false, false) => format!("{root}/{relative}"),
+            };
+            Ok(Resolved::Cloud { spec: format!("{remote}:{path}") })
         }
         LocationKind::Ssh { host, port, user, identity_file, base_path } => {
             let base = base_path.trim_end_matches('/');

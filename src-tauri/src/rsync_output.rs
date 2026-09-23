@@ -111,14 +111,6 @@ impl Stats {
         (self.files - self.created + self.deleted).max(0)
     }
 
-    /// Share of the current target that the run deletes, in percent.
-    pub fn delete_percent(&self) -> f64 {
-        let before = self.target_entries_before();
-        if before == 0 {
-            return 0.0;
-        }
-        self.deleted as f64 * 100.0 / before as f64
-    }
 }
 
 static PROGRESS: LazyLock<Regex> = LazyLock::new(|| {
@@ -301,7 +293,7 @@ mod tests {
         // Dry run of an empty folder over a target with 22 entries.
         let stats = Stats { files: 1, created: 0, deleted: 22, ..Stats::default() };
         assert_eq!(stats.target_entries_before(), 23);
-        assert!(stats.delete_percent() > 95.0);
+        assert!(stats.deleted * 100 / stats.target_entries_before() >= 95);
     }
 
     #[test]

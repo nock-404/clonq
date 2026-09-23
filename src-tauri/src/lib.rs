@@ -1,3 +1,4 @@
+mod cloud;
 mod commands;
 mod config;
 mod engine;
@@ -5,8 +6,10 @@ mod error;
 mod glass;
 mod history;
 mod locations;
+mod rclone_output;
 mod rsync_output;
 mod setup;
+mod smb;
 mod ssh;
 mod stats;
 mod tray;
@@ -51,7 +54,7 @@ pub fn run() {
             let emit: engine::Emit = Arc::new(move |event, payload| {
                 let _ = handle.emit(event, payload);
             });
-            let engine = Engine::new(emit, history.clone(), data_dir.join("logs"));
+            let engine = Engine::new(emit, history.clone(), data_dir.join("logs"), data_dir.join("rclone.conf"));
             app.manage(AppState {
                 config: RwLock::new(config),
                 config_dir: data_dir,
@@ -109,6 +112,10 @@ pub fn run() {
             setup::prepare_server,
             setup::install_server_key,
             setup::test_server,
+            setup::add_smb_location,
+            setup::connect_location,
+            setup::cloud_providers,
+            setup::add_cloud_location,
             setup::add_server_location,
             setup::test_location,
             setup::rename_location,

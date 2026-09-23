@@ -16,6 +16,8 @@ const CURRENT_VERSION: u32 = 2;
 pub struct Config {
     pub version: u32,
     pub rsync_path: String,
+    #[serde(default = "default_rclone")]
+    pub rclone_path: String,
     #[serde(default)]
     pub ui: UiSettings,
     #[serde(default)]
@@ -90,6 +92,12 @@ pub enum LocationKind {
         /// Folder on the server that paths are relative to; empty means the login folder.
         base_path: String,
     },
+    /// A network share (SMB), mounted the way Finder does; the password is in the keychain.
+    #[serde(rename_all = "camelCase")]
+    Smb { url: String, user: String },
+    /// Cloud storage through rclone: `remote` is a section in clonq's own rclone config.
+    #[serde(rename_all = "camelCase")]
+    Cloud { provider: String, remote: String, root: String },
 }
 
 /// One end of a job: a location and a path inside it ("" is the location itself).
@@ -177,6 +185,10 @@ impl Safety {
     }
 }
 
+fn default_rclone() -> String {
+    "/opt/homebrew/bin/rclone".into()
+}
+
 fn default_always_allowed() -> i64 {
     10
 }
@@ -247,6 +259,7 @@ impl Config {
         Self {
             version: CURRENT_VERSION,
             rsync_path: "/opt/homebrew/bin/rsync".into(),
+            rclone_path: default_rclone(),
             ui: UiSettings::default(),
             locations: vec![],
             jobs: vec![],

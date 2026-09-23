@@ -10,7 +10,8 @@ use crate::commands::EVENT_CONFIG_CHANGED;
 use crate::config::{Config, Job, Location, LocationKind, Mode, Place, Ring, Safety, Triggers, default_excludes, volume_system_excludes};
 use crate::error::{Error, Result};
 use crate::locations::{self, LocationStatus, MountedVolume, Reach, Resolved};
-use crate::ssh;
+use crate::{cloud, smb, ssh};
+use std::collections::HashMap;
 
 fn keys_dir(app: &AppHandle) -> Result<PathBuf> {
     Ok(app.path().app_data_dir()?.join("keys"))
@@ -216,24 +217,47 @@ pub fn rename_location(app: AppHandle, state: State<'_, AppState>, id: String, n
 
 #[tauri::command]
 pub fn remove_location(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<Config> {
-    let mut key_to_delete = None;
+    let mut key_to_delete: Option<Cleanup> = None;
     let config = commit(&app, &state, |config| {
         let users: Vec<String> = config.jobs_using(&id).iter().map(|job| job.name.clone()).collect();
         if !users.is_empty() {
             return Err(Error::Job(format!("still used by {}", users.join(", "))));
         }
         let index = config.locations.iter().position(|l| l.id == id).ok_or_else(|| Error::Job(format!("location {id} does not exist")))?;
-        if let LocationKind::Ssh { identity_file, .. } = &config.locations[index].kind {
-            key_to_delete = Some(identity_file.clone());
+        match &config.locations[index].kind {
+            LocationKind::Ssh { identity_file, .. } => key_to_delete = Some(Cleanup::Key(identity_file.clone())),
+            LocationKind::Smb { url, user } => {
+                if let Ok(share) = smb::parse(url) {
+                    key_to_delete = Some(Cleanup::Keychain(share.host, user.clone()));
+                }
+            }
+            LocationKind::Cloud { remote, .. } => key_to_delete = Some(Cleanup::Remote(remote.clone())),
+            _ => {}
         }
         config.locations.remove(index);
         Ok(())
     })?;
-    if let Some(key) = key_to_delete {
-        let _ = std::fs::remove_file(&key);
-        let _ = std::fs::remove_file(format!("{key}.pub"));
+    match key_to_delete {
+        Some(Cleanup::Key(key)) => {
+            let _ = std::fs::remove_file(&key);
+            let _ = std::fs::remove_file(format!("{key}.pub"));
+        }
+        Some(Cleanup::Keychain(host, user)) => smb::delete_password(&host, &user),
+        Some(Cleanup::Remote(remote)) => {
+            let rclone = config.rclone_path.clone();
+            let file = state.config_dir.join("rclone.conf");
+            tauri::async_runtime::spawn(async move { cloud::delete_remote(&rclone, &file, &remote).await });
+        }
+        None => {}
     }
     Ok(config)
+}
+
+/// What else goes when a location is removed.
+enum Cleanup {
+    Key(String),
+    Keychain(String, String),
+    Remote(String),
 }
 
 #[derive(Debug, Serialize)]
@@ -260,6 +284,11 @@ pub async fn list_folders(state: State<'_, AppState>, location: String, path: St
             }
             entries
         }
+        Resolved::Cloud { spec } => cloud::list_dirs(&config.rclone_path, &state.config_dir.join("rclone.conf"), &spec)
+            .await?
+            .into_iter()
+            .map(|name| FolderEntry { hidden: name.starts_with('.'), name })
+            .collect(),
         Resolved::Remote { destination, ssh, .. } => {
             let (login, remote_path) = destination.split_once(':').unwrap_or((&destination, "."));
             let mut command = ssh.clone();
@@ -298,6 +327,7 @@ pub async fn create_folder(state: State<'_, AppState>, location: String, path: S
             }
             std::fs::create_dir(&dir).map_err(|error| Error::Job(format!("{} cannot be created: {error}", dir.display())))?;
         }
+        Resolved::Cloud { spec } => cloud::make_dir(&config.rclone_path, &state.config_dir.join("rclone.conf"), &spec).await?,
         Resolved::Remote { destination, ssh, .. } => {
             let (login, remote_path) = destination.split_once(':').unwrap_or((&destination, "."));
             let mut command = ssh.clone();
@@ -310,6 +340,85 @@ pub async fn create_folder(state: State<'_, AppState>, location: String, path: S
         }
     }
     Ok(())
+}
+
+/// Saves a network share: password into the keychain, then one mount to prove it works.
+#[tauri::command]
+pub async fn add_smb_location(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    name: String,
+    url: String,
+    user: String,
+    password: String,
+) -> Result<Location> {
+    let name = require_name(&name)?;
+    let share = smb::parse(&url)?;
+    let user = user.trim().to_string();
+    if user.is_empty() {
+        return Err(Error::Job("a user is required".into()));
+    }
+    smb::store_password(&share.host, &user, &password)?;
+    if let Err(error) = smb::mount(&share, &user).await {
+        smb::delete_password(&share.host, &user);
+        return Err(error);
+    }
+    let url = format!("smb://{}/{}", share.host, share.share);
+    let location = Location { id: new_id(&name), name, kind: LocationKind::Smb { url, user } };
+    let added = location.clone();
+    commit(&app, &state, |config| {
+        config.locations.push(added);
+        Ok(())
+    })?;
+    Ok(location)
+}
+
+/// Brings a location online where that is possible: mounts a network share.
+#[tauri::command]
+pub async fn connect_location(state: State<'_, AppState>, id: String) -> Result<LocationStatus> {
+    let config = state.config.read().expect("config lock").clone();
+    let location = config.location(&id).ok_or_else(|| Error::Job(format!("location {id} does not exist")))?.clone();
+    if let LocationKind::Smb { url, user } = &location.kind {
+        smb::mount(&smb::parse(url)?, user).await?;
+    }
+    Ok(locations::status_of(&location, &config, &locations::mounted_volumes(), &state.server_checks))
+}
+
+#[tauri::command]
+pub fn cloud_providers() -> Vec<cloud::Provider> {
+    cloud::providers()
+}
+
+/// Creates the rclone remote (for browser providers this waits for the sign-in),
+/// tests it, and only then saves the location.
+#[tauri::command]
+pub async fn add_cloud_location(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    name: String,
+    provider: String,
+    fields: HashMap<String, String>,
+    root: String,
+) -> Result<Location> {
+    let name = require_name(&name)?;
+    let id = new_id(&name);
+    let remote = format!("clonq-{id}");
+    let rclone = state.config.read().expect("config lock").rclone_path.clone();
+    let file = state.config_dir.join("rclone.conf");
+    cloud::create_remote(&rclone, &file, &remote, &provider, &fields).await?;
+    let root = root.trim().trim_end_matches('/').to_string();
+    if let Err(message) = cloud::test(&rclone, &file, &format!("{remote}:{root}")).await {
+        cloud::delete_remote(&rclone, &file, &remote).await;
+        return Err(Error::Job(message));
+    }
+    state.server_checks.record(&id, Ok(()));
+    let location = Location { id, name, kind: LocationKind::Cloud { provider, remote, root } };
+    let added = location.clone();
+    commit(&app, &state, |config| {
+        config.locations.push(added);
+        Ok(())
+    })?;
+    Ok(location)
 }
 
 #[derive(Debug, Deserialize)]

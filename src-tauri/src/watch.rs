@@ -6,6 +6,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::AppState;
+use crate::cloud;
 use crate::config::LocationKind;
 use crate::locations;
 use crate::ssh;
@@ -48,27 +49,22 @@ pub fn volumes(app: AppHandle) {
         .expect("volume watcher thread");
 }
 
-/// Tests every server location in the background so its status is known.
+/// Tests every server and cloud location in the background so its status is known.
 pub fn servers(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
-            let servers: Vec<(String, String, u16, String, String)> = {
+            let (locations, rclone, rclone_config) = {
                 let state = app.state::<AppState>();
                 let config = state.config.read().expect("config lock");
-                config
-                    .locations
-                    .iter()
-                    .filter_map(|location| match &location.kind {
-                        LocationKind::Ssh { host, port, user, identity_file, .. } => {
-                            Some((location.id.clone(), host.clone(), *port, user.clone(), identity_file.clone()))
-                        }
-                        _ => None,
-                    })
-                    .collect()
+                (config.locations.clone(), config.rclone_path.clone(), state.config_dir.join("rclone.conf"))
             };
-            for (id, host, port, user, key) in servers {
-                let result = ssh::test(&host, port, &user, &key).await.map(|_| ());
-                app.state::<AppState>().server_checks.record(&id, result);
+            for location in locations {
+                let result = match &location.kind {
+                    LocationKind::Ssh { host, port, user, identity_file, .. } => ssh::test(host, *port, user, identity_file).await.map(|_| ()),
+                    LocationKind::Cloud { remote, root, .. } => cloud::test(&rclone, &rclone_config, &format!("{remote}:{root}")).await,
+                    _ => continue,
+                };
+                app.state::<AppState>().server_checks.record(&location.id, result);
             }
             let _ = app.emit(EVENT_SERVERS_CHECKED, ());
             tokio::time::sleep(SERVER_INTERVAL).await;

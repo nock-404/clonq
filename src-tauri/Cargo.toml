@@ -20,6 +20,10 @@ tauri = { version = "2.11.6", features = ["tray-icon", "macos-private-api", "ima
 tauri-plugin-opener = "2.5.5"
 tauri-plugin-dialog = "2.7.3"
 plist = "1.10.1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "3.7.0"
+security-framework-sys = "2.17.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 tokio = { version = "1.53.1", features = ["process", "io-util", "sync", "macros", "rt-multi-thread", "time", "fs"] }
