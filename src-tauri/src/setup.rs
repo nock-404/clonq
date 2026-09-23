@@ -119,15 +119,32 @@ pub struct ServerDraft {
     pub location_id: String,
     pub public_key: String,
     pub storage_box: bool,
+    /// The server's host keys; the user compares a fingerprint before anything is sent.
+    pub host_keys: Vec<ssh::HostKey>,
 }
 
 #[tauri::command]
-pub async fn prepare_server(app: AppHandle, name: String, host: String) -> Result<ServerDraft> {
+pub async fn prepare_server(app: AppHandle, state: State<'_, AppState>, name: String, host: String, port: u16) -> Result<ServerDraft> {
     let name = require_name(&name)?;
+    let host = host.trim().to_string();
+    let host_keys = ssh::scan(&host, port).await?;
     let location_id = new_id(&name);
     let key = ssh::ensure_key(&keys_dir(&app)?, &location_id).await?;
     let public_key = tokio::fs::read_to_string(format!("{}.pub", key.display())).await?;
-    Ok(ServerDraft { location_id, public_key: public_key.trim().to_string(), storage_box: ssh::is_storage_box(host.trim()) })
+    state.pending_host_keys.lock().expect("pending keys").insert(location_id.clone(), host_keys.clone());
+    Ok(ServerDraft { location_id, public_key: public_key.trim().to_string(), storage_box: ssh::is_storage_box(&host), host_keys })
+}
+
+/// The user compared the fingerprint and trusts this server from now on.
+#[tauri::command]
+pub fn trust_server(state: State<'_, AppState>, location_id: String) -> Result<()> {
+    let keys = state
+        .pending_host_keys
+        .lock()
+        .expect("pending keys")
+        .remove(&location_id)
+        .ok_or_else(|| Error::Job("the server's key was not read; start again".into()))?;
+    ssh::trust(&keys)
 }
 
 #[derive(Debug, Deserialize)]
@@ -242,7 +259,15 @@ pub fn remove_location(app: AppHandle, state: State<'_, AppState>, id: String) -
             let _ = std::fs::remove_file(&key);
             let _ = std::fs::remove_file(format!("{key}.pub"));
         }
-        Some(Cleanup::Keychain(host, user)) => smb::delete_password(&host, &user),
+        Some(Cleanup::Keychain(host, user)) => {
+            let still_used = config.locations.iter().any(|location| {
+                matches!(&location.kind, LocationKind::Smb { url, user: other }
+                    if other == &user && smb::parse(url).is_ok_and(|share| share.host.eq_ignore_ascii_case(&host)))
+            });
+            if !still_used {
+                smb::delete_password(&host, &user);
+            }
+        }
         Some(Cleanup::Remote(remote)) => {
             let rclone = config.rclone_path.clone();
             let file = state.config_dir.join("rclone.conf");
@@ -358,9 +383,16 @@ pub async fn add_smb_location(
     if user.is_empty() {
         return Err(Error::Job("a user is required".into()));
     }
+    // Another share on the same server may use this keychain entry; keep its password if this one fails.
+    let previous = smb::read_password(&share.host, &user);
     smb::store_password(&share.host, &user, &password)?;
     if let Err(error) = smb::mount(&share, &user).await {
-        smb::delete_password(&share.host, &user);
+        match previous {
+            Some(old) => {
+                let _ = smb::store_password(&share.host, &user, &old);
+            }
+            None => smb::delete_password(&share.host, &user),
+        }
         return Err(error);
     }
     let url = format!("smb://{}/{}", share.host, share.share);

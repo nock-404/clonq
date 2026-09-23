@@ -39,6 +39,8 @@ pub struct AppState {
     pub history: Arc<History>,
     pub engine: Engine,
     pub server_checks: locations::ServerChecks,
+    /// Host keys seen while adding a server, until the user confirms them.
+    pub pending_host_keys: std::sync::Mutex<std::collections::HashMap<String, Vec<ssh::HostKey>>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -54,6 +56,7 @@ pub fn run() {
 
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
+            ssh::set_known_hosts(data_dir.join("known_hosts"));
             let config = Config::load_or_init(&data_dir)?;
             let history = Arc::new(History::open(&data_dir.join("history.sqlite"))?);
             let handle = app.handle().clone();
@@ -67,6 +70,7 @@ pub fn run() {
                 history,
                 engine,
                 server_checks: locations::ServerChecks::default(),
+                pending_host_keys: std::sync::Mutex::default(),
             });
             scheduler::start(app.handle().clone());
             watch::volumes(app.handle().clone());
@@ -126,6 +130,7 @@ pub fn run() {
             setup::add_folder_location,
             setup::add_volume_location,
             setup::prepare_server,
+            setup::trust_server,
             setup::install_server_key,
             setup::test_server,
             setup::add_smb_location,

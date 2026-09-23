@@ -224,8 +224,9 @@ pub fn resolve(place: &Place, config: &Config, volumes: &[MountedVolume]) -> Res
                 ssh: ssh_command(*port, identity_file),
                 display: format!("{}:{remote_path}", location.name),
                 sftp: format!(
-                    ":sftp,host={host},user={user},port={port},key_file='{}':{remote_path}",
-                    identity_file.replace('\'', "")
+                    ":sftp,host={host},user={user},port={port},key_file='{}',known_hosts_file='{}':{remote_path}",
+                    identity_file.replace('\'', ""),
+                    crate::ssh::known_hosts().display().to_string().replace('\'', "")
                 ),
             })
         }
@@ -237,7 +238,7 @@ fn join(base: &Path, relative: &str) -> PathBuf {
 }
 
 /// The ssh invocation clonq uses everywhere: its own key, no password prompts,
-/// host keys learned on first contact.
+/// only the host key the user confirmed.
 pub fn ssh_command(port: u16, identity_file: &str) -> Vec<String> {
     vec![
         "/usr/bin/ssh".into(),
@@ -250,7 +251,9 @@ pub fn ssh_command(port: u16, identity_file: &str) -> Vec<String> {
         "-o".into(),
         "IdentitiesOnly=yes".into(),
         "-o".into(),
-        "StrictHostKeyChecking=accept-new".into(),
+        format!("UserKnownHostsFile={}", crate::ssh::known_hosts().display()),
+        "-o".into(),
+        "StrictHostKeyChecking=yes".into(),
         "-o".into(),
         "ConnectTimeout=10".into(),
         // A dead connection is noticed within a minute instead of hanging.
@@ -339,7 +342,8 @@ mod tests {
         }]);
         let place = Place { location: "box".into(), path: "M2mini/WORK".into() };
         let Resolved::Remote { destination, ssh, display, sftp } = resolve(&place, &config, &[]).unwrap() else { panic!() };
-        assert_eq!(sftp, ":sftp,host=u1.your-storagebox.de,user=u1,port=23,key_file='/k':M2mini/WORK");
+        assert!(sftp.starts_with(":sftp,host=u1.your-storagebox.de,user=u1,port=23,key_file='/k',known_hosts_file='"), "{sftp}");
+        assert!(sftp.ends_with("':M2mini/WORK"), "{sftp}");
         assert_eq!(destination, "u1@u1.your-storagebox.de:M2mini/WORK");
         assert!(ssh.contains(&"23".to_string()));
         assert_eq!(display, "Storage Box:M2mini/WORK");

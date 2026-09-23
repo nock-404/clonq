@@ -1,14 +1,86 @@
 //! Servers over SSH: a key per server, a one-time key install with the password,
 //! and a connection test. The password is only held for the install call.
 
+use serde::Serialize;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::OnceLock;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 use crate::error::{Error, Result};
 use crate::locations::ssh_command;
+
+/// clonq's own known_hosts: a server's key goes in only after the user confirmed
+/// its fingerprint, and every later connection insists on exactly that key.
+static KNOWN_HOSTS: OnceLock<PathBuf> = OnceLock::new();
+
+pub fn set_known_hosts(path: PathBuf) {
+    let _ = KNOWN_HOSTS.set(path);
+}
+
+pub fn known_hosts() -> PathBuf {
+    KNOWN_HOSTS.get().cloned().unwrap_or_else(|| std::env::temp_dir().join("clonq-test-known_hosts"))
+}
+
+/// A server's public host key as `ssh-keyscan` saw it, with its fingerprint for the user.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HostKey {
+    #[serde(skip)]
+    pub line: String,
+    pub kind: String,
+    pub fingerprint: String,
+}
+
+/// Reads the server's host keys without logging in.
+pub async fn scan(host: &str, port: u16) -> Result<Vec<HostKey>> {
+    let output = Command::new("/usr/bin/ssh-keyscan").args(["-p", &port.to_string(), "-T", "10", host]).output().await?;
+    let lines: Vec<String> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|line| !line.starts_with('#') && !line.trim().is_empty())
+        .map(str::to_string)
+        .collect();
+    if lines.is_empty() {
+        return Err(Error::Job("no answer from the server (timeout)".into()));
+    }
+    let mut keys = Vec::new();
+    for line in lines {
+        let mut child = Command::new("/usr/bin/ssh-keygen").args(["-l", "-f", "-"]).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()?;
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(format!("{line}\n").as_bytes()).await?;
+        }
+        let printed = String::from_utf8_lossy(&child.wait_with_output().await?.stdout).into_owned();
+        // "256 SHA256:abc… [host]:23 (ED25519)"
+        let mut fields = printed.split_whitespace();
+        let fingerprint = fields.nth(1).unwrap_or_default().to_string();
+        let kind = printed.trim().rsplit(' ').next().unwrap_or_default().trim_matches(['(', ')']).to_string();
+        if !fingerprint.is_empty() {
+            keys.push(HostKey { line, kind, fingerprint });
+        }
+    }
+    Ok(keys)
+}
+
+/// Adds confirmed host keys to clonq's known_hosts.
+pub fn trust(keys: &[HostKey]) -> Result<()> {
+    let path = known_hosts();
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut text = existing.clone();
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    for key in keys {
+        if !existing.lines().any(|line| line == key.line) {
+            text.push_str(&key.line);
+            text.push('\n');
+        }
+    }
+    std::fs::write(&path, text)?;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+    Ok(())
+}
 
 /// Hetzner Storage Boxes install keys with their own command on port 23.
 pub fn is_storage_box(host: &str) -> bool {
@@ -69,11 +141,17 @@ pub async fn install_key(
     let remote_command = if is_storage_box(host) {
         "install-ssh-key".to_string()
     } else {
-        "umask 077; mkdir -p .ssh && cat >> .ssh/authorized_keys".to_string()
+        // A last line without a newline would glue the new key onto it; a key already there is not added twice.
+        "umask 077; mkdir -p .ssh && touch .ssh/authorized_keys && { [ -n \"$(tail -c1 .ssh/authorized_keys)\" ] && echo >> .ssh/authorized_keys; KEY=$(cat); grep -qxF \"$KEY\" .ssh/authorized_keys || printf '%s\\n' \"$KEY\" >> .ssh/authorized_keys; }".to_string()
     };
+    let known_hosts = known_hosts();
     let mut child = Command::new("/usr/bin/ssh")
         .args(["-p", &port.to_string()])
-        .args(["-o", "StrictHostKeyChecking=accept-new"])
+        .arg("-o")
+        .arg(format!("UserKnownHostsFile={}", known_hosts.display()))
+        .args(["-o", "StrictHostKeyChecking=yes"])
+        .args(["-o", "ForwardAgent=no"])
+        .args(["-o", "ClearAllForwardings=yes"])
         .args(["-o", "PreferredAuthentications=password,keyboard-interactive"])
         .args(["-o", "PubkeyAuthentication=no"])
         .args(["-o", "NumberOfPasswordPrompts=1"])

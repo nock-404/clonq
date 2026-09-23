@@ -34,6 +34,15 @@ pub fn store_password(host: &str, user: &str, password: &str) -> Result<()> {
 }
 
 #[cfg(target_os = "macos")]
+pub fn read_password(host: &str, user: &str) -> Option<String> {
+    use security_framework::passwords::get_internet_password;
+    use security_framework_sys::keychain::{SecAuthenticationType, SecProtocolType};
+    get_internet_password(host, None, user, "", None, SecProtocolType::SMB, SecAuthenticationType::Default)
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+}
+
+#[cfg(target_os = "macos")]
 pub fn delete_password(host: &str, user: &str) {
     use security_framework::passwords::delete_internet_password;
     use security_framework_sys::keychain::{SecAuthenticationType, SecProtocolType};

@@ -122,16 +122,25 @@ pub fn create_args(provider: &str, fields: &HashMap<String, String>) -> Result<V
     Ok(args)
 }
 
+/// Fields that are secrets: never on a command line, where other users could read them.
+fn is_secret(provider: &str, key: &str) -> bool {
+    providers().iter().any(|p| p.id == provider && p.fields.iter().any(|field| field.key == key && field.secret))
+}
+
 /// Creates the remote; for browser providers this waits until the sign-in is done.
+/// Secrets are written into clonq's rclone config file directly afterwards
+/// (passwords obscured through rclone's stdin), so they never appear in argv.
 pub async fn create_remote(rclone: &str, config_file: &Path, remote: &str, provider: &str, fields: &HashMap<String, String>) -> Result<()> {
+    let args = create_args(provider, fields)?;
+    let (secrets, plain): (Vec<String>, Vec<String>) =
+        args.into_iter().partition(|arg| arg.split_once('=').is_some_and(|(key, _)| is_secret(provider, key)));
     let mut command = Command::new(rclone);
     command
         .arg("config")
         .arg("create")
         .arg(remote)
         .arg(provider)
-        .args(create_args(provider, fields)?)
-        .arg("--obscure")
+        .args(&plain)
         .arg("--config")
         .arg(config_file)
         .kill_on_drop(true);
@@ -141,6 +150,70 @@ pub async fn create_remote(rclone: &str, config_file: &Path, remote: &str, provi
     if !output.status.success() {
         return Err(Error::Job(last_error(&String::from_utf8_lossy(&output.stderr))));
     }
+    let mut lines = Vec::new();
+    for secret in secrets {
+        let (key, value) = secret.split_once('=').expect("key=value");
+        if value.contains(['\n', '\r']) {
+            return Err(Error::Job(format!("{key} must be a single line")));
+        }
+        // rclone keeps passwords obscured in its config; keys it keeps as they are.
+        let value = if key == "pass" { obscure(rclone, value).await? } else { value.to_string() };
+        lines.push(format!("{key} = {value}"));
+    }
+    if !lines.is_empty() {
+        insert_into_section(config_file, remote, &lines)?;
+    }
+    Ok(())
+}
+
+async fn obscure(rclone: &str, secret: &str) -> Result<String> {
+    let mut child = Command::new(rclone)
+        .args(["obscure", "-"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        use tokio::io::AsyncWriteExt;
+        stdin.write_all(format!("{secret}\n").as_bytes()).await?;
+    }
+    let output = child.wait_with_output().await?;
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// Adds `key = value` lines at the end of the `[remote]` section of an rclone config.
+fn insert_into_section(config_file: &Path, remote: &str, lines: &[String]) -> Result<()> {
+    let text = std::fs::read_to_string(config_file)?;
+    let header = format!("[{remote}]");
+    let mut out: Vec<String> = Vec::new();
+    let mut inside = false;
+    let mut inserted = false;
+    for line in text.lines() {
+        if line.trim_start().starts_with('[') {
+            if inside && !inserted {
+                while out.last().is_some_and(|last| last.trim().is_empty()) {
+                    out.pop();
+                }
+                out.extend(lines.iter().cloned());
+                out.push(String::new());
+                inserted = true;
+            }
+            inside = line.trim() == header;
+        }
+        out.push(line.to_string());
+    }
+    if inside && !inserted {
+        while out.last().is_some_and(|last| last.trim().is_empty()) {
+            out.pop();
+        }
+        out.extend(lines.iter().cloned());
+        inserted = true;
+    }
+    if !inserted {
+        return Err(Error::Job(format!("remote {remote} is missing in the rclone config")));
+    }
+    std::fs::write(config_file, out.join("\n") + "\n")?;
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(config_file, std::fs::Permissions::from_mode(0o600))?;
     Ok(())
 }
 
@@ -242,6 +315,39 @@ mod tests {
         let error = create_args("webdav", &fields(&[("url", "https://x")])).unwrap_err().to_string();
         assert!(error.contains("Benutzer is required"), "{error}");
         assert!(create_args("drive", &fields(&[])).unwrap().is_empty());
+    }
+
+    #[test]
+    fn secrets_go_into_the_right_section() {
+        let dir = std::env::temp_dir().join(format!("clonq-ini-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("rclone.conf");
+        std::fs::write(&file, "[a]\ntype = s3\n\n[b]\ntype = webdav\nurl = https://x\n").unwrap();
+        insert_into_section(&file, "a", &["secret_access_key = S".into()]).unwrap();
+        insert_into_section(&file, "b", &["pass = P".into()]).unwrap();
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(text, "[a]\ntype = s3\nsecret_access_key = S\n\n[b]\ntype = webdav\nurl = https://x\npass = P\n");
+        assert!(insert_into_section(&file, "missing", &["x = 1".into()]).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn webdav_password_is_obscured_and_readable_by_rclone() {
+        let rclone = "/opt/homebrew/bin/rclone";
+        if !Path::new(rclone).exists() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("clonq-webdav-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("rclone.conf");
+        let fields: HashMap<String, String> =
+            [("url", "https://dav.example"), ("user", "me"), ("pass", "geheim")].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        create_remote(rclone, &file, "dav", "webdav", &fields).await.unwrap();
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(!text.contains("geheim"), "stored obscured: {text}");
+        let revealed = Command::new(rclone).args(["config", "dump", "--config"]).arg(&file).output().await.unwrap();
+        assert!(String::from_utf8_lossy(&revealed.stdout).contains("\"pass\""));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Against the real rclone: a remote of type "local" stands in for a cloud.
