@@ -220,10 +220,10 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
   const problems: Record<Step, string | null> = {
     0: !draft.source
       ? "Es ist noch keine Quelle gewählt."
-      : ((sourceLocation ? reachProblem(sourceLocation, "source", state) : null) ?? readProblem(draft.source)),
+      : ((sourceLocation ? reachProblem(sourceLocation, state) : null) ?? readProblem(draft.source)),
     1: !draft.target
       ? "Es ist noch kein Ziel gewählt."
-      : ((targetLocation ? reachProblem(targetLocation, "target", state) : null) ??
+      : ((targetLocation ? reachProblem(targetLocation, state) : null) ??
         readProblem(draft.target) ??
         (overlap && draft.source ? overlapText(overlap, "target", placeLabel(draft.source, config)) : null)),
     2: modeProblem(draft),

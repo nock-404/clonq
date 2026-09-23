@@ -45,12 +45,6 @@ mockIPC(
         ];
       case "job_defaults":
         return ["node_modules/"];
-      case "prepare_server":
-        return {
-          locationId: "box-a1b2c3",
-          publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFq0Yl1vDk3n7c0r2Yp0 clonq box-a1b2c3",
-          storageBox: true,
-        };
       case "test_server":
         return "/home";
       case "cloud_providers":

@@ -43,6 +43,15 @@ pub async fn scan(host: &str, port: u16) -> Result<Vec<HostKey>> {
         .map(str::to_string)
         .collect();
     if lines.is_empty() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // Measured on macOS 27: "getaddrinfo x: nodename nor servname provided", and for a
+        // closed port "write (127.0.0.1): Broken pipe".
+        if stderr.contains("getaddrinfo") {
+            return Err(Error::Job("host name not found".into()));
+        }
+        if stderr.contains("Broken pipe") || stderr.contains("Connection refused") {
+            return Err(Error::Job("the server refused the connection on this port".into()));
+        }
         return Err(Error::Job("no answer from the server (timeout)".into()));
     }
     let mut keys = Vec::new();
@@ -63,23 +72,31 @@ pub async fn scan(host: &str, port: u16) -> Result<Vec<HostKey>> {
     Ok(keys)
 }
 
-/// Adds confirmed host keys to clonq's known_hosts.
+/// Pins confirmed host keys in clonq's known_hosts. Keys pinned earlier for the same
+/// host and port are replaced, so an old key is not accepted any more once the user
+/// confirmed a new one.
 pub fn trust(keys: &[HostKey]) -> Result<()> {
     let path = known_hosts();
     let existing = std::fs::read_to_string(&path).unwrap_or_default();
-    let mut text = existing.clone();
-    if !text.is_empty() && !text.ends_with('\n') {
-        text.push('\n');
-    }
-    for key in keys {
-        if !existing.lines().any(|line| line == key.line) {
-            text.push_str(&key.line);
-            text.push('\n');
-        }
-    }
-    std::fs::write(&path, text)?;
+    std::fs::write(&path, pinned(&existing, keys))?;
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
     Ok(())
+}
+
+/// known_hosts text with `keys` in place of every earlier line for their hosts.
+/// ssh-keyscan writes the host as the first field ("host" or "[host]:port"), unhashed.
+fn pinned(existing: &str, keys: &[HostKey]) -> String {
+    let hosts: Vec<&str> = keys.iter().filter_map(|key| key.line.split_whitespace().next()).collect();
+    let mut text: String = existing
+        .lines()
+        .filter(|line| !line.split_whitespace().next().is_some_and(|host| hosts.contains(&host)))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    for key in keys {
+        text.push_str(&key.line);
+        text.push('\n');
+    }
+    text
 }
 
 /// Hetzner Storage Boxes install keys with their own command on port 23.
@@ -185,7 +202,7 @@ async fn write_askpass(dir: &Path) -> Result<PathBuf> {
 }
 
 /// Turns ssh's stderr into one line the user can act on.
-fn explain(stderr: &str) -> String {
+pub(crate) fn explain(stderr: &str) -> String {
     let text = stderr.trim();
     if text.contains("Permission denied") {
         return "login refused: wrong user, password or key".into();
@@ -199,6 +216,10 @@ fn explain(stderr: &str) -> String {
     if text.contains("timed out") || text.contains("Operation timed out") {
         return "no answer from the server (timeout)".into();
     }
+    // ssh says "No ED25519 host key is known for …" when nothing is pinned for this host yet.
+    if text.contains("host key is known for") {
+        return "the server's host key is not confirmed yet".into();
+    }
     if text.contains("Host key verification failed") || text.contains("REMOTE HOST IDENTIFICATION HAS CHANGED") {
         return "the server's host key changed; check it before trusting it again".into();
     }
@@ -208,6 +229,16 @@ fn explain(stderr: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_new_confirmation_replaces_the_old_keys_of_that_host() {
+        let key = |line: &str| HostKey { line: line.into(), kind: String::new(), fingerprint: String::new() };
+        let existing = "[box]:23 ssh-ed25519 OLD\n[box]:23 ssh-rsa OLDRSA\nother ssh-ed25519 KEEP\n";
+        let text = pinned(existing, &[key("[box]:23 ssh-ed25519 NEW")]);
+        assert_eq!(text, "other ssh-ed25519 KEEP\n[box]:23 ssh-ed25519 NEW\n");
+        // A file without a final newline still gets one line per key.
+        assert_eq!(pinned("a k1", &[key("b k2")]), "a k1\nb k2\n");
+    }
 
     #[test]
     fn storage_boxes_are_recognised() {

@@ -61,7 +61,13 @@ async fn list_files(root: &Resolved, config: &Config, rclone_config: &Path) -> R
                 .output()
                 .await?;
             if !output.status.success() {
-                return Ok(vec![]);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                // No archive folder yet is an empty archive; anything else is a real failure
+                // and must not read as "nothing kept".
+                if output.status.code() == Some(23) && stderr.contains("No such file or directory") {
+                    return Ok(vec![]);
+                }
+                return Err(Error::Job(crate::ssh::explain(&stderr)));
             }
             Ok(parse_list_only(&String::from_utf8_lossy(&output.stdout)))
         }
@@ -72,7 +78,12 @@ async fn list_files(root: &Resolved, config: &Config, rclone_config: &Path) -> R
                 .output()
                 .await?;
             if !output.status.success() {
-                return Ok(vec![]);
+                // rclone exits with 3 when the directory does not exist: no archive yet.
+                if output.status.code() == Some(3) {
+                    return Ok(vec![]);
+                }
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(Error::Job(stderr.lines().last().unwrap_or("rclone failed").trim().to_string()));
             }
             Ok(String::from_utf8_lossy(&output.stdout)
                 .lines()

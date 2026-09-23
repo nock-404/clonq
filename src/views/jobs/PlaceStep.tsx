@@ -51,8 +51,7 @@ function Breakable({ text }: { text: string }) {
 }
 
 /** A short state for the card: free space when it can be used, otherwise what stands in the way. */
-function cardState(location: Location, role: "source" | "target", state: ClonqState, checking: boolean) {
-  if (role === "source" && location.kind.type === "ssh") return { text: "nur als Ziel möglich", tone: "neutral" as const, busy: false, usable: false };
+function cardState(location: Location, state: ClonqState, checking: boolean) {
   const reach = state.locations[location.id]?.reach;
   if (reach?.state === "connected") {
     return { text: reach.freeBytes !== null ? `${formatBytes(reach.freeBytes)} frei` : "verbunden", tone: "ok" as const, busy: false, usable: true };
@@ -70,7 +69,7 @@ export function PlaceStep({ role, state, place, other, jobId, onChange, onAddLoc
   const locations = config?.locations ?? [];
   const chosen = place ? locations.find((location) => location.id === place.location) : undefined;
   const reach = chosen ? state.locations[chosen.id]?.reach : undefined;
-  const problem = chosen ? reachProblem(chosen, role, state) : null;
+  const problem = chosen ? reachProblem(chosen, state) : null;
   const clash = place ? clashOf(place, role, other, state) : null;
   const otherWord = role === "target" ? "Quelle" : "Ziel";
 
@@ -102,7 +101,7 @@ export function PlaceStep({ role, state, place, other, jobId, onChange, onAddLoc
 
   // In the grid a card shows the address too; in the narrow list beside the folders only the state.
   const card = (location: Location, compact: boolean) => {
-    const status = cardState(location, role, state, checking === location.id);
+    const status = cardState(location, state, checking === location.id);
     const statusLine = (
       <span className="flex items-center gap-1.5">
         <UiLamp tone={status.usable ? "neutral" : status.tone} busy={status.busy} />

@@ -170,8 +170,7 @@ export function suggestName(draft: Draft, config: Config | null, jobId: string |
 }
 
 /** Why a location cannot serve as this end of a job right now, as a sentence, or null. */
-export function reachProblem(location: Location, role: "source" | "target", state: ClonqState): string | null {
-  if (role === "source" && location.kind.type === "ssh") return "Ein Server kann noch nicht als Quelle dienen.";
+export function reachProblem(location: Location, state: ClonqState): string | null {
   const reach = state.locations[location.id]?.reach;
   switch (reach?.state) {
     case "connected":

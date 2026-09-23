@@ -86,6 +86,16 @@ export function reachLabel(reach: Reach | undefined): { text: string; tone: Tone
 /** Messages come from the Rust side in English; the known ones get German words. */
 export function messageLabel(message: string): string {
   const rules: [RegExp, (m: RegExpMatchArray) => string][] = [
+    // More specific than "source … does not exist" below, so it comes first.
+    [/^source folder (.+) does not exist$/, (m) => `Den Quellordner ${tidy(m[1])} gibt es nicht`],
+    [/^the deletion limit must be between 0 and 100 %$/, () => "Die Schutzschwelle muss zwischen 0 und 100 % liegen."],
+    [/^(.+) cannot be read$/, (m) => `${tidy(m[1])} lässt sich nicht lesen`],
+    [/^directory not found$/, () => "Diesen Ordner gibt es nicht mehr."],
+    [/^object not found$/, () => "Diese Datei gibt es nicht mehr."],
+    // The rest of these messages is English system text; it stays out of the sentence.
+    [/^file system: Permission denied/, () => "clonq hat für diese Datei keine Berechtigung."],
+    [/^file system: No such file or directory/, () => "Diese Datei oder diesen Ordner gibt es nicht mehr."],
+    [/^file system: /, () => "Der Zugriff auf das Dateisystem ist fehlgeschlagen."],
     [/^source (.+) does not exist$/, (m) => `Quelle ${tidy(m[1])} gibt es nicht`],
     [/^source (.+) is empty, nothing is changed$/, (m) => `Quelle ${tidy(m[1])} ist leer – es wurde nichts verändert`],
     [/^source (.+) is not a folder$/, (m) => `Quelle ${tidy(m[1])} ist kein Ordner`],
@@ -136,16 +146,17 @@ export function messageLabel(message: string): string {
     [/^the new name must be a plain name$/, () => "Der neue Name darf keinen Schrägstrich enthalten"],
     [/^the file is too large for a preview$/, () => "Die Datei ist für eine Vorschau zu groß"],
     [/^there is no preview for this kind of file$/, () => "Für diese Art Datei gibt es keine Vorschau"],
-    [/^moving to the Trash failed: (.+)$/, (m) => `In den Papierkorb legen hat nicht geklappt: ${m[1]}`],
+    [/^moving to the Trash failed: (.+)$/, () => "Die Datei ließ sich nicht in den Papierkorb legen."],
     [/^the location itself cannot be deleted here$/, () => "Der Ort selbst lässt sich hier nicht löschen"],
     [/^restoring from the archive failed$/, () => "Das Wiederherstellen aus dem Archiv ist fehlgeschlagen"],
     [/^(.+) is not an archive folder$/, (m) => `${m[1]} ist kein Archivordner`],
     [/^path must not climb out of the archive$/, () => "Der Pfad darf das Archiv nicht verlassen"],
     [/^the copy failed$/, () => "Das Kopieren ist fehlgeschlagen"],
     [/^rename failed$/, () => "Das Umbenennen ist fehlgeschlagen"],
-    [/^the server's key was not read; start again$/, () => "Der Schlüssel des Servers wurde nicht gelesen. Bitte von vorn beginnen."],
+    [/^the server's key was not read; start again$/, () => "Der Schlüssel des Servers wurde nicht gelesen. Bitte die Fingerabdrücke neu lesen."],
     [/^unknown server draft; start again$/, () => "Dieser Entwurf für den Server ist unbekannt. Bitte von vorn beginnen."],
-    [/^the server's host key changed; check it before trusting it again$/, () => "Der Hostschlüssel des Servers hat sich geändert. Bitte prüfen, bevor er wieder vertraut wird."],
+    [/^the server's host key is not confirmed yet$/, () => "Der Schlüssel des Servers ist noch nicht bestätigt. Bitte die Fingerabdrücke prüfen."],
+    [/^the server's host key changed; check it before trusting it again$/, () => "Der Schlüssel des Servers hat sich geändert. Bitte die Fingerabdrücke prüfen, bevor clonq ihm wieder vertraut."],
     [/^(.+) must be a single line$/, (m) => `${m[1]} darf keinen Zeilenumbruch enthalten`],
     [/^source (.+) does not exist$/, (m) => `Quelle ${tidy(m[1])} gibt es nicht`],
     [/^the app quit during this run$/, () => "clonq wurde während des Laufs beendet"],

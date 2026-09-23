@@ -46,7 +46,8 @@ export function MainWindow() {
 
   return (
     <div className="relative flex h-full bg-canvas text-ink">
-      <aside className="hairline-r flex w-60 shrink-0 flex-col gap-0.5 overflow-y-auto bg-well px-2.5 pt-3.5 pb-3" data-tauri-drag-region>
+      {/* While a sheet is open, the page behind it takes no focus and no clicks: Tab stays in the sheet. */}
+      <aside inert={sheet !== null} className="hairline-r flex w-60 shrink-0 flex-col gap-0.5 overflow-y-auto bg-well px-2.5 pt-3.5 pb-3" data-tauri-drag-region>
         {/* Level with the traffic lights, on the right; the whole strip stays a drag area. */}
         <div className="mb-2.5 flex h-8 shrink-0 justify-end pr-1.5" data-tauri-drag-region>
           <UiLogo variant="wordmark" size="md" label="clonq" />
@@ -90,7 +91,7 @@ export function MainWindow() {
         </div>
       </aside>
 
-      <main className="flex min-w-0 flex-1 flex-col">
+      <main inert={sheet !== null} className="flex min-w-0 flex-1 flex-col">
         <div className="h-10 shrink-0" data-tauri-drag-region />
         {state.error ? (
           <div className="px-8 pb-2">
