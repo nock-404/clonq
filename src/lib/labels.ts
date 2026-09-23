@@ -114,6 +114,7 @@ export function messageLabel(message: string): string {
     [/^(.+) is already a location$/, (m) => `${tidy(m[1])} ist schon als Ort angelegt`],
     [/^folders on external drives are added as a drive, not as a folder$/, () => "Ordner auf externen Laufwerken bitte als Laufwerk hinzufügen"],
     [/^a server as the source is not built yet$/, () => "Ein Server als Quelle kommt später"],
+    [/^two-way sync stopped: .*too many deletes \(>(\d+)%, (\d+) of (\d+)\)/, (m) => `Beidseitiger Abgleich gestoppt: ${count(m[2])} von ${count(m[3])} Dateien würden gelöscht, erlaubt sind ${m[1]} %`],
     [/^an SSH server and a cloud cannot be paired in one job yet$/, () => "Ein SSH-Server und eine Cloud lassen sich noch nicht in einem Job verbinden"],
     [/^share (.+) is not connected$/, (m) => `Die Freigabe ${m[1]} ist nicht verbunden`],
     [/^the address must start with smb:\/\/$/, () => "Die Adresse muss mit smb:// beginnen"],

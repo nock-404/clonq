@@ -34,10 +34,11 @@ fn archive_root(job: &Job, config: &Config) -> Result<Resolved> {
     let target = locations::resolve(&job.target, config, &locations::mounted_volumes())?;
     Ok(match target {
         Resolved::Local(path) => Resolved::Local(path.join(ARCHIVE_DIR)),
-        Resolved::Remote { destination, ssh, display } => Resolved::Remote {
+        Resolved::Remote { destination, ssh, display, sftp } => Resolved::Remote {
             destination: format!("{}/{ARCHIVE_DIR}", destination.trim_end_matches('/')),
             ssh,
             display,
+            sftp: format!("{}/{ARCHIVE_DIR}", sftp.trim_end_matches('/')),
         },
         Resolved::Cloud { spec } => Resolved::Cloud { spec: format!("{}/{ARCHIVE_DIR}", spec.trim_end_matches('/')) },
     })

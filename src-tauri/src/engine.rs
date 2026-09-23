@@ -12,7 +12,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, BufWriter};
 use tokio::process::Command;
 use tokio::sync::watch;
 
-use crate::config::{ARCHIVE_DIR, Config, Job, Mode};
+use crate::config::{ARCHIVE_DIR, Config, ConflictLoser, ConflictPrefer, Job, Mode};
 use crate::locations::{self, Resolved};
 use crate::error::{Error, Result};
 use crate::history::{FolderChange, History, Run, RunStatus, Sample};
@@ -52,6 +52,7 @@ pub struct LiveRun {
     pub files_deleted: i64,
     pub files_new: i64,
     pub files_changed: i64,
+    pub files_conflicted: i64,
     pub files_per_second: f64,
     /// Bytes per second, one value per second, oldest first.
     pub throughput: Vec<f64>,
@@ -148,6 +149,7 @@ impl Engine {
             files_new: 0,
             files_changed: 0,
             files_deleted: 0,
+            files_conflicted: 0,
             bytes_transferred: 0,
             bytes_new: 0,
             bytes_changed: 0,
@@ -180,6 +182,7 @@ impl Engine {
                 files_deleted: 0,
                 files_new: 0,
                 files_changed: 0,
+                files_conflicted: 0,
                 files_per_second: 0.0,
                 throughput: Vec::new(),
                 recent_paths: Vec::new(),
@@ -219,6 +222,7 @@ impl Engine {
             live.files_done = run.files_transferred;
             live.files_new = run.files_new;
             live.files_changed = run.files_changed;
+            live.files_conflicted = run.files_conflicted;
             live.files_deleted = run.files_deleted;
             live.bytes = run.bytes_transferred;
         });
@@ -245,7 +249,8 @@ impl Engine {
         log.write_all(format!("# {} {}\n", plan.program, plan.base_args.join(" ")).as_bytes()).await?;
 
         let mut max_delete = None;
-        if job.mode == Mode::Mirror && !options.dry_run && !options.force {
+        let two_way = matches!(plan.tool, Tool::Bisync { .. });
+        if job.mode == Mode::Mirror && !two_way && !options.dry_run && !options.force {
             match self.history.last_target_entries(&job.id)? {
                 Some(entries) => max_delete = Some(job.safety.allowed_deletions(entries)),
                 None => {
@@ -266,7 +271,7 @@ impl Engine {
                     }
                     let (deleted, before) = match &plan.tool {
                         Tool::Rsync => (check.stats.deleted, check.stats.target_entries_before()),
-                        Tool::Rclone { config } => {
+                        Tool::Rclone { config } | Tool::Bisync { config } => {
                             (check.deleted_lines, cloud::count(&plan.program, config, &plan.target).await?)
                         }
                     };
@@ -296,7 +301,22 @@ impl Engine {
         if let Some(limit) = max_delete {
             extra.push(format!("--max-delete={limit}"));
         }
+        if two_way {
+            if options.force {
+                extra.push("--force".into());
+            }
+            // Without an earlier two-way run there is nothing to compare with: the
+            // first run merges both sides and deletes nothing.
+            if !self.history.has_completed(&job.id)? {
+                extra.extend(plan.resync_args(job));
+            }
+        }
         let mut result = self.rsync(&job.id, plan, &extra, &mut log, &mut cancel, true).await?;
+        if two_way && !result.cancelled && result.errors.iter().any(|error| rclone_output::needs_resync(error)) {
+            log.write_all(b"# no earlier listings, merging both sides first\n").await?;
+            extra.extend(plan.resync_args(job));
+            result = self.rsync(&job.id, plan, &extra, &mut log, &mut cancel, true).await?;
+        }
         log.flush().await?;
 
         run.exit_code = result.exit_code;
@@ -305,6 +325,7 @@ impl Engine {
         run.files_new = result.files_new;
         run.files_changed = result.files_changed;
         run.files_deleted = result.deleted_lines;
+        run.files_conflicted = result.conflicts;
         run.bytes_transferred = result.stats.transferred_size;
         run.bytes_new = result.bytes_new;
         run.bytes_changed = result.bytes_changed;
@@ -319,7 +340,9 @@ impl Engine {
             (Tool::Rsync, false, Mode::Mirror) => result.stats.files,
             (Tool::Rsync, false, _) => result.stats.target_entries_before() + result.stats.created,
             // rclone does not count the target itself; ask it once the run is over.
-            (Tool::Rclone { config }, _, _) => cloud::count(&plan.program, config, &plan.target).await.unwrap_or(0),
+            (Tool::Rclone { config } | Tool::Bisync { config }, _, _) => {
+                cloud::count(&plan.program, config, &plan.target).await.unwrap_or(0)
+            }
         };
         run.status = match (&plan.tool, result.cancelled, result.exit_code) {
             (_, true, _) => RunStatus::Cancelled,
@@ -328,6 +351,7 @@ impl Engine {
             (Tool::Rsync, false, Some(25)) => RunStatus::Blocked,
             (Tool::Rclone { .. }, false, Some(7)) if result.delete_limit_hit => RunStatus::Blocked,
             (Tool::Rclone { .. }, false, Some(6)) => RunStatus::Partial,
+            (Tool::Bisync { .. }, false, Some(_)) if result.delete_limit_hit => RunStatus::Blocked,
             _ => RunStatus::Failed,
         };
         if !options.dry_run && run.status.completed() && job.archive.enabled {
@@ -336,6 +360,10 @@ impl Engine {
         }
         run.message = match run.status {
             RunStatus::Succeeded | RunStatus::Cancelled => None,
+            RunStatus::Blocked if two_way => Some(format!(
+                "two-way sync stopped: {}",
+                result.errors.iter().find(|error| rclone_output::is_delete_limit(error)).cloned().unwrap_or_default()
+            )),
             RunStatus::Blocked => Some(format!(
                 "deletion limit reached ({} allowed), the remaining deletions were skipped",
                 max_delete.unwrap_or_default()
@@ -447,6 +475,14 @@ impl Engine {
                                 }
                                 Event::MovedAside(path) => {
                                     moved_aside.insert(path);
+                                }
+                                Event::Conflict(path) => {
+                                    result.conflicts += 1;
+                                    log.write_all(format!("? {path}\n").as_bytes()).await?;
+                                    if report {
+                                        let conflicts = result.conflicts;
+                                        self.update(job_id, |live| live.files_conflicted = conflicts);
+                                    }
                                 }
                                 Event::File { change, size, path } => {
                                     // With an archive, an overwritten file is first moved aside, then copied anew.
@@ -591,6 +627,14 @@ impl Engine {
                 let archive = format!("{}/{ARCHIVE_DIR}", plan.target.trim_end_matches('/'));
                 prune_rclone(&plan.program, config, &archive, &cutoff).await
             }
+            (Tool::Bisync { config }, _) => {
+                let mut removed = 0;
+                for side in [&plan.source, &plan.target] {
+                    let archive = format!("{}/{ARCHIVE_DIR}", side.trim_end_matches('/'));
+                    removed += prune_rclone(&plan.program, config, &archive, &cutoff).await.unwrap_or(0);
+                }
+                Ok(removed)
+            }
             // A server over SSH: an empty folder synced with a filter deletes only the old ones.
             (Tool::Rsync, None) => prune_ssh(plan, &cutoff).await,
         };
@@ -663,12 +707,16 @@ impl Engine {
 enum Tool {
     Rsync,
     Rclone { config: PathBuf },
+    /// rclone bisync for two-way jobs; its listings live in a workdir per job.
+    Bisync { config: PathBuf },
 }
 
 impl Tool {
+    /// rclone and bisync share the JSON log format.
     fn is_rclone(&self) -> bool {
-        matches!(self, Self::Rclone { .. })
+        matches!(self, Self::Rclone { .. } | Self::Bisync { .. })
     }
+
 }
 
 struct Plan {
@@ -685,8 +733,11 @@ struct Plan {
 
 impl Plan {
     fn new(job: &Job, config: &Config, rclone_config: &Path, source: &Resolved, target: &Resolved) -> Result<Self> {
-        if matches!(job.mode, Mode::Blind | Mode::Bidirectional) {
+        if job.mode == Mode::Blind {
             return Err(Error::Job(format!("mode {:?} is not built yet", job.mode)));
+        }
+        if job.mode == Mode::Bidirectional {
+            return Self::bisync(job, &config.rclone_path, rclone_config, source, target);
         }
         let uses_cloud = matches!(source, Resolved::Cloud { .. }) || matches!(target, Resolved::Cloud { .. });
         if uses_cloud {
@@ -736,6 +787,69 @@ impl Plan {
         })
     }
 
+    /// Two-way sync with rclone bisync. Path1 is the source, Path2 the target.
+    fn bisync(job: &Job, program: &str, rclone_config: &Path, source: &Resolved, target: &Resolved) -> Result<Self> {
+        let side = |resolved: &Resolved| -> (String, Option<PathBuf>) {
+            match resolved {
+                Resolved::Local(path) => (path.to_string_lossy().into_owned(), Some(path.clone())),
+                Resolved::Cloud { spec } => (spec.clone(), None),
+                // A server joins through rclone's SFTP backend with clonq's key.
+                Resolved::Remote { sftp, .. } => (sftp.clone(), None),
+            }
+        };
+        let (path1, source_path) = side(source);
+        let (path2, target_path) = side(target);
+        let prefer = match job.conflicts.prefer {
+            ConflictPrefer::Newer => "newer",
+            ConflictPrefer::Older => "older",
+            ConflictPrefer::Larger => "larger",
+            ConflictPrefer::Smaller => "smaller",
+            ConflictPrefer::Source => "path1",
+            ConflictPrefer::Target => "path2",
+            ConflictPrefer::None => "none",
+        };
+        let loser = match job.conflicts.loser {
+            ConflictLoser::Keep => "num",
+            ConflictLoser::Delete => "delete",
+        };
+        let workdir = rclone_config.with_file_name("bisync").join(&job.id);
+        let mut args: Vec<String> = vec![
+            "bisync".into(),
+            "--config".into(),
+            rclone_config.to_string_lossy().into_owned(),
+            "--workdir".into(),
+            workdir.to_string_lossy().into_owned(),
+            "--use-json-log".into(),
+            "-v".into(),
+            "--color".into(),
+            "NEVER".into(),
+            "--stats".into(),
+            "1s".into(),
+            "--stats-log-level".into(),
+            "NOTICE".into(),
+            "--resilient".into(),
+            "--recover".into(),
+            "--conflict-resolve".into(),
+            prefer.into(),
+            "--conflict-loser".into(),
+            loser.into(),
+            // bisync takes the deletion limit as a percentage of each side.
+            "--max-delete".into(),
+            format!("{}", job.safety.max_delete_percent.round() as i64),
+        ];
+        args.extend(job.excludes.iter().map(|pattern| format!("--exclude={}", rclone_pattern(pattern))));
+        args.push(format!("--exclude=/{ARCHIVE_DIR}/**"));
+        Ok(Self {
+            tool: Tool::Bisync { config: rclone_config.to_path_buf() },
+            program: program.to_string(),
+            base_args: args,
+            source: path1,
+            target: path2,
+            source_path,
+            target_path,
+        })
+    }
+
     /// rclone copies the contents of the source into the target; `sync` also deletes.
     fn rclone(job: &Job, program: &str, rclone_config: &Path, source: &Resolved, target: &Resolved) -> Result<Self> {
         let side = |resolved: &Resolved| -> Result<(String, Option<PathBuf>)> {
@@ -778,7 +892,27 @@ impl Plan {
             Tool::Rsync => vec!["--backup".into(), format!("--backup-dir={ARCHIVE_DIR}/{stamp}")],
             // rclone wants the full path on the same remote.
             Tool::Rclone { .. } => vec!["--backup-dir".into(), format!("{}/{ARCHIVE_DIR}/{stamp}", self.target.trim_end_matches('/'))],
+            // Both sides lose files in a two-way sync, so both keep an archive.
+            Tool::Bisync { .. } => vec![
+                "--backup-dir1".into(),
+                format!("{}/{ARCHIVE_DIR}/{stamp}", self.source.trim_end_matches('/')),
+                "--backup-dir2".into(),
+                format!("{}/{ARCHIVE_DIR}/{stamp}", self.target.trim_end_matches('/')),
+            ],
         }
+    }
+
+    /// bisync's first-run merge: copies what is missing both ways, keeps the preferred version.
+    fn resync_args(&self, job: &Job) -> Vec<String> {
+        let mode = match job.conflicts.prefer {
+            ConflictPrefer::Source => "path1",
+            ConflictPrefer::Target => "path2",
+            ConflictPrefer::Older => "older",
+            ConflictPrefer::Larger => "larger",
+            ConflictPrefer::Smaller => "smaller",
+            ConflictPrefer::Newer | ConflictPrefer::None => "newer",
+        };
+        vec!["--resync".into(), "--resync-mode".into(), mode.into()]
     }
 
     /// An absent or empty source must never be mirrored over a full target.
@@ -933,6 +1067,8 @@ struct RsyncResult {
     errors: Vec<String>,
     /// rclone stopped at `--max-delete`.
     delete_limit_hit: bool,
+    /// Two-way sync: files changed on both sides.
+    conflicts: i64,
 }
 
 /// What a finished run stores beside its row.
@@ -1135,6 +1271,7 @@ mod tests {
                 ring: None,
                 triggers: Triggers::default(),
                 archive: crate::config::Archive::default(),
+                conflicts: crate::config::Conflicts::default(),
             });
             config
         }
@@ -1334,6 +1471,57 @@ mod tests {
         assert!(dir.join("2026-09-20_10-00-00").exists());
         assert!(dir.join("notes").exists(), "only stamped folders are touched");
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn two_way_merges_first_then_resolves_conflicts() {
+        let f = Fixture::new();
+        for i in 0..12 {
+            f.write(&format!("src/keep{i}.txt"), "k");
+        }
+        f.write("src/same.txt", "one");
+        f.write("src/only-source.txt", "s");
+        f.write("dst/only-target.txt", "t");
+        let config = f.config(Mode::Bidirectional, "dst");
+
+        // First run: nothing to compare with, so both sides are merged; nothing is deleted.
+        let first = f.run(&config, RunOptions::default()).await;
+        assert_eq!(first.status, RunStatus::Succeeded, "{:?}", first.message);
+        assert!(f.dst().join("only-source.txt").exists());
+        assert!(f.src().join("only-target.txt").exists());
+
+        // Both sides change the same file; the target's version is newer and wins.
+        std::thread::sleep(Duration::from_millis(1200));
+        f.write("src/same.txt", "from source");
+        std::thread::sleep(Duration::from_millis(1200));
+        f.write("dst/same.txt", "from target, newer");
+        fs::remove_file(f.src().join("only-source.txt")).unwrap();
+        let second = f.run(&config, RunOptions::default()).await;
+        assert_eq!(second.status, RunStatus::Succeeded, "{:?}", second.message);
+        assert_eq!(second.files_conflicted, 1);
+        assert_eq!(fs::read_to_string(f.src().join("same.txt")).unwrap(), "from target, newer");
+        assert!(f.src().join("same.txt.conflict1").exists(), "the loser is kept");
+        assert!(!f.dst().join("only-source.txt").exists(), "deletions travel across");
+    }
+
+    #[tokio::test]
+    async fn two_way_stops_at_too_many_deletions_unless_forced() {
+        let f = Fixture::new();
+        for i in 0..12 {
+            f.write(&format!("src/keep{i}.txt"), "k");
+        }
+        let config = f.config(Mode::Bidirectional, "dst");
+        let first = f.run(&config, RunOptions::default()).await;
+        assert_eq!(first.status, RunStatus::Succeeded, "{:?}", first.message);
+        for i in 0..10 {
+            fs::remove_file(f.src().join(format!("keep{i}.txt"))).unwrap();
+        }
+        let blocked = f.run(&config, RunOptions::default()).await;
+        assert_eq!(blocked.status, RunStatus::Blocked, "{:?}", blocked.message);
+        assert_eq!(Fixture::count_files(&f.dst()), 12);
+        let forced = f.run(&config, RunOptions { dry_run: false, force: true }).await;
+        assert_eq!(forced.status, RunStatus::Succeeded, "{:?}", forced.message);
+        assert_eq!(Fixture::count_files(&f.dst()), 2);
     }
 
     #[tokio::test]

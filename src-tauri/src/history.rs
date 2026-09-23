@@ -78,6 +78,8 @@ pub struct Run {
     pub files_new: i64,
     pub files_changed: i64,
     pub files_deleted: i64,
+    /// Two-way sync: files that changed on both sides.
+    pub files_conflicted: i64,
     /// Size of the sent files, counted whole.
     pub bytes_transferred: i64,
     pub bytes_new: i64,
@@ -147,6 +149,7 @@ const MIGRATIONS: &[&str] = &[
          bytes INTEGER NOT NULL,
          PRIMARY KEY (run_id, folder)
      );",
+    "ALTER TABLE runs ADD COLUMN files_conflicted INTEGER NOT NULL DEFAULT 0;",
 ];
 
 impl History {
@@ -189,7 +192,7 @@ impl History {
                  files_transferred = ?5, files_new = ?6, files_changed = ?7, files_deleted = ?8,
                  bytes_transferred = ?9, bytes_new = ?10, bytes_changed = ?11, source_bytes = ?12,
                  literal_bytes = ?13, matched_bytes = ?14, wire_bytes = ?15, target_entries = ?16,
-                 exit_code = ?17, message = ?18, samples = ?19
+                 exit_code = ?17, message = ?18, samples = ?19, files_conflicted = ?20
              WHERE id = ?1",
             params![
                 run.id,
@@ -211,6 +214,7 @@ impl History {
                 run.exit_code,
                 run.message,
                 serde_json::to_string(samples)?,
+                run.files_conflicted,
             ],
         )?;
         {
@@ -345,6 +349,16 @@ impl History {
         Ok(connection.query_row("SELECT log_path FROM runs WHERE id = ?1", [run_id], |row| row.get(0)).optional()?)
     }
 
+    /// Whether the job ever finished a real run.
+    pub fn has_completed(&self, job_id: &str) -> Result<bool> {
+        let connection = self.connection.lock().expect("history lock");
+        Ok(connection.query_row(
+            "SELECT EXISTS (SELECT 1 FROM runs WHERE job_id = ?1 AND dry_run = 0 AND status IN ('succeeded', 'partial'))",
+            [job_id],
+            |row| row.get(0),
+        )?)
+    }
+
     /// When the job last started a real run, whatever the trigger or outcome.
     pub fn last_started(&self, job_id: &str) -> Result<Option<DateTime<Utc>>> {
         let connection = self.connection.lock().expect("history lock");
@@ -426,6 +440,7 @@ fn row_to_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<Run> {
         files_new: row.get("files_new")?,
         files_changed: row.get("files_changed")?,
         files_deleted: row.get("files_deleted")?,
+        files_conflicted: row.get("files_conflicted")?,
         bytes_transferred: row.get("bytes_transferred")?,
         bytes_new: row.get("bytes_new")?,
         bytes_changed: row.get("bytes_changed")?,

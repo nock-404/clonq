@@ -130,6 +130,42 @@ pub struct Job {
     pub triggers: Triggers,
     #[serde(default)]
     pub archive: Archive,
+    /// Only for bidirectional jobs: what happens when a file changed on both sides.
+    #[serde(default)]
+    pub conflicts: Conflicts,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Conflicts {
+    pub prefer: ConflictPrefer,
+    pub loser: ConflictLoser,
+}
+
+/// Which version wins a conflict.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ConflictPrefer {
+    #[default]
+    Newer,
+    Older,
+    Larger,
+    Smaller,
+    Source,
+    Target,
+    /// No winner: both versions are kept under new names.
+    None,
+}
+
+/// What happens to the losing version.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ConflictLoser {
+    /// Kept next to the winner as `name.conflict1`.
+    #[default]
+    Keep,
+    /// Removed; with the archive on, it ends up there.
+    Delete,
 }
 
 /// Files a run deletes or overwrites on the target are moved into

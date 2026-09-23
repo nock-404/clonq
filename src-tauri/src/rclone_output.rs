@@ -12,6 +12,8 @@ pub enum Event {
     Deleted(String),
     /// Moved aside into the archive; a copy of the same path right after means it was changed.
     MovedAside(String),
+    /// Two-way sync: the file changed on both sides.
+    Conflict(String),
     /// A stats block: progress for the live view and the counters so far.
     Stats { progress: Progress, totals: Totals },
     Error(String),
@@ -91,6 +93,11 @@ pub fn parse(text: &str) -> Event {
             },
         };
     }
+    // bisync reports its own steps as text: "- WARNING   New or changed in both paths   - name".
+    if line.msg.contains("New or changed in both paths") {
+        let name = line.msg.rsplit(" - ").next().unwrap_or_default().trim().to_string();
+        return Event::Conflict(name);
+    }
     let path = line.object.unwrap_or_default();
     match (line.msg.as_str(), line.skipped.as_deref()) {
         ("Copied (new)", _) | ("Copied (server-side copy)", _) => Event::File { change: Change::NewFile, size: line.size.unwrap_or(0), path },
@@ -105,9 +112,15 @@ pub fn parse(text: &str) -> Event {
     }
 }
 
-/// Whether rclone stopped because `--max-delete` was reached.
+/// Whether rclone stopped because `--max-delete` was reached (sync) or its
+/// percentage check fired (bisync).
 pub fn is_delete_limit(error: &str) -> bool {
-    error.contains("--max-delete threshold reached")
+    error.contains("--max-delete threshold reached") || error.contains("too many deletes")
+}
+
+/// bisync has no state for this pair yet (first run, or the places changed).
+pub fn needs_resync(error: &str) -> bool {
+    error.contains("cannot find prior Path1 or Path2 listings")
 }
 
 #[cfg(test)]
@@ -147,6 +160,17 @@ mod tests {
         assert_eq!(progress.percent, 100.0);
         assert_eq!(progress.total_files, Some(30));
         assert_eq!(totals, Totals { bytes: 6_000_000, total_bytes: 6_000_000, transfers: 30, deletes: 2, errors: 2, listed: 35 });
+    }
+
+    #[test]
+    fn bisync_conflicts_and_aborts() {
+        let conflict = r#"{"level":"notice","msg":"- WARNING           New or changed in both paths                - same.txt"}"#;
+        assert_eq!(parse(conflict), Event::Conflict("same.txt".into()));
+        let abort = r#"{"level":"error","msg":"too many deletes (>50%, 10 of 12) on Path1 \"/a\""}"#;
+        let Event::Error(message) = parse(abort) else { panic!("not an error") };
+        assert!(is_delete_limit(&message));
+        assert!(is_delete_limit("Safety abort: too many deletes (>10%, 10 of 12) on Path1 \"/a\". Run with --force if desired."));
+        assert!(needs_resync("Bisync critical error: cannot find prior Path1 or Path2 listings, likely due to critical error on prior run"));
     }
 
     #[test]

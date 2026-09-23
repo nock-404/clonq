@@ -164,7 +164,8 @@ pub fn status_of(location: &Location, config: &Config, volumes: &[MountedVolume]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Resolved {
     Local(PathBuf),
-    Remote { destination: String, ssh: Vec<String>, display: String },
+    /// `sftp` is the same place as an rclone connection string, for two-way sync.
+    Remote { destination: String, ssh: Vec<String>, display: String, sftp: String },
     /// An rclone path such as `clonq-box:bucket/folder`.
     Cloud { spec: String },
 }
@@ -222,6 +223,10 @@ pub fn resolve(place: &Place, config: &Config, volumes: &[MountedVolume]) -> Res
                 destination: format!("{user}@{host}:{remote_path}"),
                 ssh: ssh_command(*port, identity_file),
                 display: format!("{}:{remote_path}", location.name),
+                sftp: format!(
+                    ":sftp,host={host},user={user},port={port},key_file='{}':{remote_path}",
+                    identity_file.replace('\'', "")
+                ),
             })
         }
     }
@@ -324,7 +329,8 @@ mod tests {
             },
         }]);
         let place = Place { location: "box".into(), path: "M2mini/WORK".into() };
-        let Resolved::Remote { destination, ssh, display } = resolve(&place, &config, &[]).unwrap() else { panic!() };
+        let Resolved::Remote { destination, ssh, display, sftp } = resolve(&place, &config, &[]).unwrap() else { panic!() };
+        assert_eq!(sftp, ":sftp,host=u1.your-storagebox.de,user=u1,port=23,key_file='/k':M2mini/WORK");
         assert_eq!(destination, "u1@u1.your-storagebox.de:M2mini/WORK");
         assert!(ssh.contains(&"23".to_string()));
         assert_eq!(display, "Storage Box:M2mini/WORK");
@@ -349,6 +355,7 @@ mod tests {
             ring: None,
             triggers: Triggers::default(),
             archive: crate::config::Archive::default(),
+            conflicts: crate::config::Conflicts::default(),
         });
         let status = status_of(&config.locations[0], &config, &[], &ServerChecks::default());
         assert_eq!(status.used_by, vec!["Tmp → Tmp".to_string()]);

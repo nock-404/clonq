@@ -69,6 +69,15 @@ export interface Archive {
   keepDays: number;
 }
 
+export type ConflictPrefer = "newer" | "older" | "larger" | "smaller" | "source" | "target" | "none";
+
+/** Two-way jobs only: what happens when a file changed on both sides. */
+export interface Conflicts {
+  prefer: ConflictPrefer;
+  /** "keep" renames the loser to name.conflict1, "delete" removes it (into the archive). */
+  loser: "keep" | "delete";
+}
+
 export interface Safety {
   maxDeletePercent: number;
   alwaysAllowedDeletions: number;
@@ -86,6 +95,7 @@ export interface Job {
   ring: Ring | null;
   triggers: Triggers;
   archive: Archive;
+  conflicts: Conflicts;
 }
 
 export interface Config {
@@ -153,6 +163,8 @@ export interface JobInput {
   enabled: boolean;
   /** Defaults to on, 30 days, when left out. */
   archive?: Archive;
+  /** Defaults to newer wins, loser kept. */
+  conflicts?: Conflicts;
 }
 
 export type RunStatus = "running" | "succeeded" | "partial" | "blocked" | "failed" | "cancelled";
@@ -173,6 +185,7 @@ export interface LiveRun {
   filesDeleted: number;
   filesNew: number;
   filesChanged: number;
+  filesConflicted: number;
   filesPerSecond: number;
   /** Bytes per second, one value per second, oldest first. */
   throughput: number[];
@@ -196,6 +209,7 @@ export interface Run {
   filesNew: number;
   filesChanged: number;
   filesDeleted: number;
+  filesConflicted: number;
   bytesTransferred: number;
   bytesNew: number;
   bytesChanged: number;
