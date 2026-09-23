@@ -134,10 +134,19 @@ export interface MountedVolume {
   internal: boolean;
 }
 
+export interface HostKey {
+  /** Key type as ssh names it, e.g. "ED25519". */
+  kind: string;
+  /** "SHA256:…", the form `ssh-keygen -l` and most hosters print. */
+  fingerprint: string;
+}
+
 export interface ServerDraft {
   locationId: string;
   publicKey: string;
   storageBox: boolean;
+  /** The server's host keys; the user compares one fingerprint before any password is sent. */
+  hostKeys: HostKey[];
 }
 
 export interface ServerInput {

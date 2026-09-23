@@ -123,12 +123,25 @@ pub struct ServerDraft {
     pub host_keys: Vec<ssh::HostKey>,
 }
 
+/// `location_id` is set when the address of a draft changed: the key stays, the host keys are read again.
 #[tauri::command]
-pub async fn prepare_server(app: AppHandle, state: State<'_, AppState>, name: String, host: String, port: u16) -> Result<ServerDraft> {
+pub async fn prepare_server(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    name: String,
+    host: String,
+    port: u16,
+    location_id: Option<String>,
+) -> Result<ServerDraft> {
     let name = require_name(&name)?;
     let host = host.trim().to_string();
     let host_keys = ssh::scan(&host, port).await?;
-    let location_id = new_id(&name);
+    let location_id = match location_id {
+        // The id names the key file, so it must look like one we made.
+        Some(id) if !id.is_empty() && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') => id,
+        Some(_) => return Err(Error::Job("unknown server draft; start again".into())),
+        None => new_id(&name),
+    };
     let key = ssh::ensure_key(&keys_dir(&app)?, &location_id).await?;
     let public_key = tokio::fs::read_to_string(format!("{}.pub", key.display())).await?;
     state.pending_host_keys.lock().expect("pending keys").insert(location_id.clone(), host_keys.clone());

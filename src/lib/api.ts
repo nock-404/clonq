@@ -63,7 +63,11 @@ export const api = {
   locationStatuses: () => invoke<LocationStatus[]>("location_statuses"),
   addFolderLocation: (name: string, path: string) => invoke<Location>("add_folder_location", { name, path }),
   addVolumeLocation: (name: string, volumeUuid: string) => invoke<Location>("add_volume_location", { name, volumeUuid }),
-  prepareServer: (name: string, host: string) => invoke<ServerDraft>("prepare_server", { name, host }),
+  /** Makes a key and reads the server's host keys. Pass the draft's id again after the address changed: the key stays. */
+  prepareServer: (name: string, host: string, port: number, locationId: string | null = null) =>
+    invoke<ServerDraft>("prepare_server", { name, host, port, locationId }),
+  /** The user compared a fingerprint; pins the host keys read by prepareServer. */
+  trustServer: (locationId: string) => invoke<void>("trust_server", { locationId }),
   installServerKey: (server: ServerInput, password: string) => invoke<void>("install_server_key", { server, password }),
   testServer: (server: ServerInput) => invoke<string>("test_server", { server }),
   addServerLocation: (server: ServerInput) => invoke<Location>("add_server_location", { server }),

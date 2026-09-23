@@ -852,6 +852,16 @@ struct Plan {
     target_path: Option<PathBuf>,
 }
 
+/// A place as rclone names it, and its path when it is on this Mac.
+fn rclone_side(resolved: &Resolved) -> (String, Option<PathBuf>) {
+    match resolved {
+        Resolved::Local(path) => (path.to_string_lossy().into_owned(), Some(path.clone())),
+        Resolved::Cloud { spec } => (spec.clone(), None),
+        // A server joins through rclone's SFTP backend with clonq's key and pinned host keys.
+        Resolved::Remote { sftp, .. } => (sftp.clone(), None),
+    }
+}
+
 impl Plan {
     fn new(job: &Job, config: &Config, rclone_config: &Path, source: &Resolved, target: &Resolved) -> Result<Self> {
         if job.mode == Mode::Blind {
@@ -860,13 +870,15 @@ impl Plan {
         if job.mode == Mode::Bidirectional {
             return Self::bisync(job, &config.rclone_path, rclone_config, source, target);
         }
+        // rsync pushes from this Mac to a disk or a server; everything else goes through rclone:
+        // clouds on either side, and a server as the source (rclone reads it over SFTP).
         let uses_cloud = matches!(source, Resolved::Cloud { .. }) || matches!(target, Resolved::Cloud { .. });
+        let Resolved::Local(source_path) = source else {
+            return Self::rclone(job, &config.rclone_path, rclone_config, source, target);
+        };
         if uses_cloud {
             return Self::rclone(job, &config.rclone_path, rclone_config, source, target);
         }
-        let Resolved::Local(source_path) = source else {
-            return Err(Error::Job("a server as the source is not built yet".into()));
-        };
         let mut args: Vec<String> = match target {
             Resolved::Local(_) => ["--archive", "--hard-links", "--acls", "--xattrs", "--crtimes", "--mkpath"]
                 .map(String::from)
@@ -912,16 +924,8 @@ impl Plan {
 
     /// Two-way sync with rclone bisync. Path1 is the source, Path2 the target.
     fn bisync(job: &Job, program: &str, rclone_config: &Path, source: &Resolved, target: &Resolved) -> Result<Self> {
-        let side = |resolved: &Resolved| -> (String, Option<PathBuf>) {
-            match resolved {
-                Resolved::Local(path) => (path.to_string_lossy().into_owned(), Some(path.clone())),
-                Resolved::Cloud { spec } => (spec.clone(), None),
-                // A server joins through rclone's SFTP backend with clonq's key.
-                Resolved::Remote { sftp, .. } => (sftp.clone(), None),
-            }
-        };
-        let (path1, source_path) = side(source);
-        let (path2, target_path) = side(target);
+        let (path1, source_path) = rclone_side(source);
+        let (path2, target_path) = rclone_side(target);
         let prefer = match job.conflicts.prefer {
             ConflictPrefer::Newer => "newer",
             ConflictPrefer::Older => "older",
@@ -977,15 +981,8 @@ impl Plan {
 
     /// rclone copies the contents of the source into the target; `sync` also deletes.
     fn rclone(job: &Job, program: &str, rclone_config: &Path, source: &Resolved, target: &Resolved) -> Result<Self> {
-        let side = |resolved: &Resolved| -> Result<(String, Option<PathBuf>)> {
-            match resolved {
-                Resolved::Local(path) => Ok((path.to_string_lossy().into_owned(), Some(path.clone()))),
-                Resolved::Cloud { spec } => Ok((spec.clone(), None)),
-                Resolved::Remote { .. } => Err(Error::Job("an SSH server and a cloud cannot be paired in one job yet".into())),
-            }
-        };
-        let (source_arg, source_path) = side(source)?;
-        let (target_arg, target_path) = side(target)?;
+        let (source_arg, source_path) = rclone_side(source);
+        let (target_arg, target_path) = rclone_side(target);
         let mut args: Vec<String> = vec![
             if job.mode == Mode::Mirror { "sync".into() } else { "copy".into() },
             "--config".into(),
@@ -1842,6 +1839,32 @@ mod tests {
         assert_eq!(run.status, RunStatus::Succeeded, "{:?}", run.message);
         assert!(f.dst().join("a.txt").exists());
         assert!(f.dst().join("stale.txt").exists());
+    }
+    #[test]
+    fn a_server_source_goes_through_rclone() {
+        let f = Fixture::new();
+        let config = f.config(Mode::Mirror, "dst");
+        let job = &config.jobs[0];
+        let server = Resolved::Remote {
+            destination: "u@box:/home/work/".into(),
+            ssh: vec!["ssh".into()],
+            display: "box:/home/work".into(),
+            sftp: ":sftp,host=box:/home/work".into(),
+        };
+        let cloud = Resolved::Cloud { spec: "fake:bucket".into() };
+        let local = Resolved::Local(f.dst());
+        for (source, target) in [(&server, &local), (&server, &cloud), (&local, &server)] {
+            let plan = Plan::new(job, &config, Path::new("rclone.conf"), source, target).unwrap();
+            let rclone = matches!(plan.tool, Tool::Rclone { .. });
+            // Only a push from this Mac to a server stays with rsync.
+            assert_eq!(rclone, !matches!(source, Resolved::Local(_)), "{} -> {}", plan.source, plan.target);
+        }
+        let plan = Plan::new(job, &config, Path::new("rclone.conf"), &server, &local).unwrap();
+        assert_eq!(plan.source, ":sftp,host=box:/home/work");
+        assert_eq!(plan.target_path.as_deref(), Some(f.dst().as_path()));
+        let plan = Plan::new(job, &config, Path::new("rclone.conf"), &cloud, &server).unwrap();
+        assert!(matches!(plan.tool, Tool::Rclone { .. }));
+        assert_eq!(plan.target, ":sftp,host=box:/home/work");
     }
 }
 

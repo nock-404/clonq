@@ -164,7 +164,7 @@ pub fn status_of(location: &Location, config: &Config, volumes: &[MountedVolume]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Resolved {
     Local(PathBuf),
-    /// `sftp` is the same place as an rclone connection string, for two-way sync.
+    /// `sftp` is the same place as an rclone connection string, for everything rsync cannot do.
     Remote { destination: String, ssh: Vec<String>, display: String, sftp: String },
     /// An rclone path such as `clonq-box:bucket/folder`.
     Cloud { spec: String },
