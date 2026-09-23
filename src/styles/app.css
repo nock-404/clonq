@@ -1,58 +1,116 @@
 @import "tailwindcss";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
 
-/* Colours follow the system appearance. The glass behind the page is native;
-   everything here is drawn on top of it, so surfaces stay translucent. */
+/* clonq is dark, like Raycast: a nearly opaque body with a trace of the native
+   glass at the edges. Accent and ring colours come from the tape library: the
+   write-enable rings on the reels and the oxide of the tape itself. */
 :root {
-  --ink: oklch(0.2 0.01 260);
-  --ink-soft: oklch(0.2 0.01 260 / 0.68);
-  --ink-faint: oklch(0.2 0.01 260 / 0.42);
-  --surface: oklch(1 0 0 / 0.46);
-  --surface-strong: oklch(1 0 0 / 0.72);
-  --surface-hover: oklch(1 0 0 / 0.62);
-  --edge: oklch(0.2 0.01 260 / 0.1);
-  --track: oklch(0.2 0.01 260 / 0.1);
-  --shine: oklch(1 0 0 / 0.7);
-  color-scheme: light dark;
+  color-scheme: dark;
+
+  --canvas: oklch(0.2 0.004 285 / 0.9);
+  --ink: oklch(0.95 0.003 285);
+  --ink-soft: oklch(0.72 0.008 285);
+  --ink-faint: oklch(0.52 0.008 285);
+  --well: oklch(1 0 0 / 0.035);
+  --hover: oklch(1 0 0 / 0.06);
+  --selected: oklch(1 0 0 / 0.1);
+  --edge: oklch(1 0 0 / 0.08);
+  --track: oklch(1 0 0 / 0.09);
+  --raised: oklch(0.245 0.004 285 / 0.98);
+
+  --oxide: oklch(0.42 0.06 55);
+  --oxide-deep: oklch(0.3 0.045 50);
+
+  --ring-red: oklch(0.66 0.2 25);
+  --ring-yellow: oklch(0.84 0.15 90);
+  --ring-blue: oklch(0.67 0.16 255);
+  --ring-green: oklch(0.74 0.16 155);
+  --ring-white: oklch(0.93 0.005 285);
+
+  --ok: oklch(0.74 0.16 155);
+  --warn: oklch(0.8 0.15 75);
+  --danger: oklch(0.66 0.2 25);
+
+  --accent: oklch(0.78 0.14 70);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ink: oklch(0.97 0.005 260);
-    --ink-soft: oklch(0.97 0.005 260 / 0.68);
-    --ink-faint: oklch(0.97 0.005 260 / 0.4);
-    --surface: oklch(1 0 0 / 0.07);
-    --surface-strong: oklch(1 0 0 / 0.13);
-    --surface-hover: oklch(1 0 0 / 0.11);
-    --edge: oklch(1 0 0 / 0.1);
-    --track: oklch(1 0 0 / 0.12);
-    --shine: oklch(1 0 0 / 0.16);
-  }
+:root[data-accent="ring"] {
+  --accent: oklch(0.66 0.2 25);
+}
+
+:root[data-accent="amber"] {
+  --accent: oklch(0.78 0.14 70);
+}
+
+:root[data-accent="blue"] {
+  --accent: oklch(0.67 0.16 255);
 }
 
 @theme inline {
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 
+  --color-canvas: var(--canvas);
   --color-ink: var(--ink);
   --color-ink-soft: var(--ink-soft);
   --color-ink-faint: var(--ink-faint);
-  --color-surface: var(--surface);
-  --color-surface-strong: var(--surface-strong);
-  --color-surface-hover: var(--surface-hover);
+  --color-well: var(--well);
+  --color-hover: var(--hover);
+  --color-selected: var(--selected);
   --color-edge: var(--edge);
   --color-track: var(--track);
+  --color-raised: var(--raised);
+  --color-oxide: var(--oxide);
+  --color-oxide-deep: var(--oxide-deep);
 
-  --color-accent: oklch(0.62 0.19 256);
-  --color-accent-soft: oklch(0.62 0.19 256 / 0.16);
-  --color-ok: oklch(0.7 0.17 150);
-  --color-ok-soft: oklch(0.7 0.17 150 / 0.16);
-  --color-warn: oklch(0.78 0.16 75);
-  --color-warn-soft: oklch(0.78 0.16 75 / 0.18);
-  --color-danger: oklch(0.63 0.21 25);
-  --color-danger-soft: oklch(0.63 0.21 25 / 0.16);
+  --color-accent: var(--accent);
+  --color-on-accent: oklch(0.18 0.01 60);
+  --color-accent-soft: color-mix(in oklch, var(--accent) 18%, transparent);
+  --color-ok: var(--ok);
+  --color-ok-soft: color-mix(in oklch, var(--ok) 16%, transparent);
+  --color-warn: var(--warn);
+  --color-warn-soft: color-mix(in oklch, var(--warn) 16%, transparent);
+  --color-danger: var(--danger);
+  --color-danger-soft: color-mix(in oklch, var(--danger) 16%, transparent);
 
-  --radius-card: 0.875rem;
-  --radius-control: 0.5rem;
+  --color-ring-red: var(--ring-red);
+  --color-ring-yellow: var(--ring-yellow);
+  --color-ring-blue: var(--ring-blue);
+  --color-ring-green: var(--ring-green);
+  --color-ring-white: var(--ring-white);
+
+  --radius-control: 0.375rem;
+  --radius-panel: 0.625rem;
+
+  /* A tape drive does not turn smoothly: it jerks forward in bursts, stops,
+     backs up a hair, and goes again. */
+  --animate-reel: reel 2.4s linear infinite;
+  --animate-reel-slow: reel 3.4s linear infinite;
+  --animate-lamp: lamp 0.9s steps(2, jump-none) infinite;
+  --animate-tape: tape 0.7s linear infinite;
+
+  @keyframes reel {
+    0% { transform: rotate(0deg); }
+    14% { transform: rotate(80deg); }
+    22% { transform: rotate(80deg); }
+    40% { transform: rotate(200deg); }
+    44% { transform: rotate(192deg); }
+    52% { transform: rotate(192deg); }
+    74% { transform: rotate(300deg); }
+    82% { transform: rotate(300deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  @keyframes lamp {
+    0% { opacity: 1; }
+    100% { opacity: 0.18; }
+  }
+
+  @keyframes tape {
+    to { stroke-dashoffset: -1.2; }
+  }
 }
 
 @layer base {
@@ -78,8 +136,18 @@
 
   /* One focus ring for every control, in rem like everything else. */
   :focus-visible {
-    outline: 0.125rem solid color-mix(in oklch, var(--color-accent) 60%, transparent);
-    outline-offset: 0.125rem;
+    outline: 0.125rem solid color-mix(in oklch, var(--accent) 70%, transparent);
+    outline-offset: 0.0625rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }
 
@@ -100,14 +168,24 @@
   border-right: 0.0625rem solid var(--edge);
 }
 
-/* A glass pane on the glass: a lighter surface with a bright top edge. */
-@utility pane {
-  background: var(--surface);
-  border: 0.0625rem solid var(--edge);
-  box-shadow: inset 0 0.0625rem 0 var(--shine);
-  border-radius: var(--radius-card);
-}
-
 @utility tabular {
   font-variant-numeric: tabular-nums;
+}
+
+/* Lamps blink out of step: each one gets its own period and offset. */
+@utility lamp-stagger {
+  &:nth-child(3n) { animation-duration: 0.7s; }
+  &:nth-child(3n + 1) { animation-duration: 1.13s; animation-delay: -0.3s; }
+  &:nth-child(4n + 2) { animation-duration: 0.53s; animation-delay: -0.17s; }
+  &:nth-child(5n) { animation-duration: 1.7s; animation-delay: -0.9s; }
+}
+
+/* SVG groups turn around their own centre. */
+@utility spin-origin {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@utility reel-reverse {
+  animation-direction: reverse;
 }

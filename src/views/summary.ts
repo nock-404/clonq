@@ -1,7 +1,7 @@
 import type { ClonqState } from "../hooks/useClonq";
 import type { Tone } from "../lib/labels";
 
-/** One line about everything: what the menu bar popover says at the top. */
+/** One line about everything, as the status in the action bar. */
 export function overallSummary(state: ClonqState): { text: string; tone: Tone } {
   const running = Object.values(state.live).filter((live) => live.phase !== "finished").length;
   if (running > 0) return { text: running === 1 ? "Ein Job läuft" : `${running} Jobs laufen`, tone: "accent" };

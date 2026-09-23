@@ -69,8 +69,11 @@ pub fn cancel_job(state: State<'_, AppState>, job_id: String) -> Result<()> {
     }
 }
 
+pub const EVENT_SHOW_JOB: &str = "show-job";
+
+/// Brings up the main window, optionally with one job selected.
 #[tauri::command]
-pub fn open_main_window(app: AppHandle) -> Result<()> {
+pub fn open_main_window(app: AppHandle, job_id: Option<String>) -> Result<()> {
     if let Some(popover) = app.get_webview_window(POPOVER) {
         popover.hide()?;
     }
@@ -79,6 +82,9 @@ pub fn open_main_window(app: AppHandle) -> Result<()> {
         .ok_or_else(|| Error::Job("main window missing".into()))?;
     main.show()?;
     main.set_focus()?;
+    if let Some(job_id) = job_id {
+        app.emit_to(MAIN, EVENT_SHOW_JOB, job_id)?;
+    }
     Ok(())
 }
 

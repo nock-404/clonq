@@ -19,7 +19,7 @@ interface UiTableProps<T> {
 export function UiTable<T>({ columns, rows, rowKey, empty }: UiTableProps<T>) {
   if (rows.length === 0 && empty) return <>{empty}</>;
   return (
-    <div className="pane overflow-hidden p-0">
+    <div className="hairline overflow-hidden rounded-[var(--radius-panel)] bg-well">
       <table className="w-full table-fixed border-collapse text-left">
         <thead>
           <tr className="hairline-b">
@@ -27,7 +27,7 @@ export function UiTable<T>({ columns, rows, rowKey, empty }: UiTableProps<T>) {
               <th
                 key={column.key}
                 className={[
-                  "px-3 py-2 text-[0.6875rem] font-semibold tracking-wide text-ink-faint uppercase",
+                  "px-3 py-2 text-[0.6875rem] font-medium text-ink-faint",
                   column.width ?? "",
                   column.align === "end" ? "text-right" : "",
                 ].join(" ")}
@@ -39,7 +39,7 @@ export function UiTable<T>({ columns, rows, rowKey, empty }: UiTableProps<T>) {
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={rowKey(row)} className="hairline-b last:border-b-0 hover:bg-surface-hover">
+            <tr key={rowKey(row)} className="hairline-b last:border-b-0 hover:bg-hover">
               {columns.map((column) => (
                 <td
                   key={column.key}

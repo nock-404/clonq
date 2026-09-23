@@ -19,7 +19,7 @@ export function UiNotice({ children, tone = "warn", onDismiss, actions }: UiNoti
         {children}
         {actions ? <div className="flex flex-wrap gap-1.5">{actions}</div> : null}
       </div>
-      {onDismiss ? <UiIconButton icon={X} label="Schließen" size="sm" onPress={onDismiss} /> : null}
+      {onDismiss ? <UiIconButton icon={X} label="Schließen" onPress={onDismiss} /> : null}
     </div>
   );
 }

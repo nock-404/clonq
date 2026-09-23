@@ -61,3 +61,26 @@ export function runDurationSeconds(startedAt: string, finishedAt: string | null)
   if (!finishedAt) return null;
   return (new Date(finishedAt).getTime() - new Date(startedAt).getTime()) / 1000;
 }
+
+/**
+ * A 2400-foot reel of 9-track tape at 6250 bpi held about 150 MB
+ * (https://en.wikipedia.org/wiki/9-track_tape).
+ */
+export const BYTES_PER_REEL = 150_000_000;
+
+export function formatReels(bytes: number): string {
+  const reels = bytes / BYTES_PER_REEL;
+  if (reels === 0) return "0 Spulen";
+  if (reels < 0.1) return "< 0,1 Spulen";
+  const digits = reels < 10 ? 1 : 0;
+  const text = reels.toLocaleString(LOCALE, { maximumFractionDigits: digits });
+  return `${text} ${reels === 1 ? "Spule" : "Spulen"}`;
+}
+
+export function formatPercent(value: number, digits = 0): string {
+  return `${value.toLocaleString(LOCALE, { maximumFractionDigits: digits, minimumFractionDigits: digits })} %`;
+}
+
+export function formatDay(iso: string): string {
+  return new Date(`${iso}T12:00:00`).toLocaleDateString(LOCALE, { weekday: "short", day: "numeric", month: "short" });
+}

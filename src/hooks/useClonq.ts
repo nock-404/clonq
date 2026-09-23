@@ -1,8 +1,8 @@
-// One store per window: config, live runs and history, kept current by events.
+// One store per window: config, live runs, history and stats, kept current by events.
 
 import { useEffect, useSyncExternalStore } from "react";
 import { api } from "../lib/api";
-import type { Config, LiveRun, Run } from "../lib/types";
+import type { Config, JobStats, LiveRun, Overview, Run } from "../lib/types";
 
 export interface ClonqState {
   config: Config | null;
@@ -11,6 +11,9 @@ export interface ClonqState {
   /** The newest real run of every job, by job id. */
   latest: Record<string, Run>;
   recent: Run[];
+  /** Stats of every job, by job id; refreshed whenever a run ends. */
+  stats: Record<string, JobStats>;
+  overview: Overview | null;
   error: string | null;
 }
 
@@ -18,7 +21,7 @@ export interface ClonqState {
 const FINISHED_LINGER_MS = 4000;
 const RECENT_LIMIT = 200;
 
-let state: ClonqState = { config: null, live: {}, latest: {}, recent: [], error: null };
+let state: ClonqState = { config: null, live: {}, latest: {}, recent: [], stats: {}, overview: null, error: null };
 const listeners = new Set<() => void>();
 let started = false;
 
@@ -31,10 +34,21 @@ function byJob<T extends { jobId: string }>(items: T[]): Record<string, T> {
   return Object.fromEntries(items.map((item) => [item.jobId, item]));
 }
 
+function applyConfig(config: Config) {
+  document.documentElement.dataset.accent = config.ui.accent;
+  set({ config });
+}
+
 async function refreshRuns() {
   try {
-    const [latest, recent] = await Promise.all([api.latestRuns(), api.recentRuns(RECENT_LIMIT)]);
-    set({ latest: byJob(latest), recent });
+    const jobs = state.config?.jobs ?? [];
+    const [latest, recent, overview, ...stats] = await Promise.all([
+      api.latestRuns(),
+      api.recentRuns(RECENT_LIMIT),
+      api.overview(),
+      ...jobs.map((job) => api.jobStats(job.id)),
+    ]);
+    set({ latest: byJob(latest), recent, overview, stats: byJob(stats) });
   } catch (error) {
     set({ error: String(error) });
   }
@@ -56,9 +70,11 @@ async function start() {
     }
   });
   await api.onRunsChanged(() => void refreshRuns());
+  await api.onConfigChanged(applyConfig);
   try {
     const [config, live] = await Promise.all([api.getConfig(), api.liveRuns()]);
-    set({ config, live: byJob(live) });
+    applyConfig(config);
+    set({ live: byJob(live) });
   } catch (error) {
     set({ error: String(error) });
   }
@@ -83,4 +99,22 @@ export function reportError(error: unknown) {
 
 export function clearError() {
   set({ error: null });
+}
+
+// A shared clock for "3 minutes ago" texts, ticking every 15 seconds.
+let now = Date.now();
+const clockListeners = new Set<() => void>();
+setInterval(() => {
+  now = Date.now();
+  for (const listener of clockListeners) listener();
+}, 15_000);
+
+export function useNow(): number {
+  return useSyncExternalStore(
+    (listener) => {
+      clockListeners.add(listener);
+      return () => clockListeners.delete(listener);
+    },
+    () => now,
+  );
 }
