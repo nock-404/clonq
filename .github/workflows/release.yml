@@ -47,13 +47,13 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: clonq ${{ github.ref_name }}
           releaseBody: |
-            Installieren oder aktualisieren:
+            Install or update:
 
                 curl -fsSL https://raw.githubusercontent.com/nock-404/clonq/main/install.sh | sh
 
-            Eine installierte clonq meldet das Update auch selbst.
+            An installed clonq also offers the update by itself.
 
-            Enthalten sind rclone 1.75.1 (MIT) und rsync 3.5.1 (GPLv3, Quellcode: https://download.samba.org/pub/rsync/src/rsync-3.5.1.tar.gz).
+            Includes rclone 1.75.1 (MIT) and rsync 3.5.1 (GPLv3, source: https://download.samba.org/pub/rsync/src/rsync-3.5.1.tar.gz).
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true
