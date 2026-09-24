@@ -9,10 +9,20 @@ export type UpdateState =
   | { phase: "idle" }
   | { phase: "checking" }
   | { phase: "current"; checkedAt: number }
-  | { phase: "available"; version: string; notes: string | null }
+  | { phase: "available"; version: string; notes: string | null; cover: UpdateCover }
   | { phase: "downloading"; version: string; received: number; total: number | null }
   | { phase: "restarting"; version: string }
   | { phase: "failed"; message: string };
+
+/** Whether the licence covers the new version; asked before it is offered for install. */
+export interface UpdateCover {
+  covered: boolean;
+  /** YYYY-MM-DD, set when not covered. */
+  updatesUntil: string | null;
+  renewUrl: string | null;
+}
+
+const COVERED: UpdateCover = { covered: true, updatesUntil: null, renewUrl: null };
 
 const FIRST_CHECK_MS = 15_000;
 const EVERY_MS = 6 * 60 * 60 * 1000;
@@ -47,7 +57,15 @@ export async function checkForUpdate(quiet = false) {
   try {
     const update = await check();
     pending = update;
-    set(update ? { phase: "available", version: update.version, notes: update.body ?? null } : { phase: "current", checkedAt: Date.now() });
+    if (!update) {
+      set({ phase: "current", checkedAt: Date.now() });
+      return;
+    }
+    // A Pro licence ends its update time at a date; a newer version must say so before it is installed.
+    const cover = update.date
+      ? await invoke<UpdateCover>("licence_covers_update", { published: update.date }).catch(() => COVERED)
+      : COVERED;
+    set({ phase: "available", version: update.version, notes: update.body ?? null, cover });
   } catch (error) {
     set(quiet ? { phase: "idle" } : { phase: "failed", message: messageOf(error) });
   }

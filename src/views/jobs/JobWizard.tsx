@@ -529,6 +529,7 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
                 mode={draft.mode}
                 onMode={(mode) => change({ mode })}
                 versionedBlocked={versionedProblem(draft, config) ?? (pro ? null : t.messages.proNeeded)}
+                versionedNeedsPro={versionedProblem(draft, config) === null && !pro}
                 excludes={draft.excludes}
                 onExcludes={(excludes) => change({ excludes })}
                 maxDeletePercent={draft.maxDeletePercent}

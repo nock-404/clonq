@@ -134,6 +134,7 @@ pub fn run() {
             commands::repair_job,
             commands::weekly_report,
             commands::encryption_key,
+            commands::licence_covers_update,
             commands::cancel_job,
             commands::open_main_window,
             commands::quit,

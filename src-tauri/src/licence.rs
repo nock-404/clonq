@@ -226,6 +226,30 @@ fn require(dir: &Path, missing: &str) -> crate::error::Result<()> {
     }))
 }
 
+/// What an update would do to Pro, asked before it is installed (LICENSE-FORMAT.md, point 5).
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCover {
+    /// False only when a licence is active now and does not cover the new version.
+    pub covered: bool,
+    pub updates_until: Option<NaiveDate>,
+    /// Where a new licence is bought, when the build knows the licence service.
+    pub renew_url: Option<String>,
+}
+
+/// Whether the licence also covers a version published on `published` (its release date).
+pub fn covers_update(dir: &Path, published: NaiveDate) -> UpdateCover {
+    cover_for(Store::new(dir).status(), published)
+}
+
+fn cover_for(status: Status, published: NaiveDate) -> UpdateCover {
+    let renew_url = SERVICE.map(|service| format!("{}/buy", service.trim_end_matches('/')));
+    match status {
+        Status::Active { updates_until: Some(until), .. } if published > until => UpdateCover { covered: false, updates_until: Some(until), renew_url },
+        _ => UpdateCover { covered: true, updates_until: None, renew_url: None },
+    }
+}
+
 /// Fetches the revocation list with the system's curl; offline simply keeps the last one.
 pub async fn refresh(store: &Store) {
     let Some(service) = SERVICE else { return };
@@ -329,5 +353,16 @@ mod tests {
         // Without a built-in public key (a development build) keys cannot be checked.
         assert_eq!(store.status_with(None, day(2026, 10, 1)), Status::Unchecked);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_update_past_the_update_time_is_announced_and_nothing_else_is() {
+        let day = |text: &str| NaiveDate::parse_from_str(text, "%Y-%m-%d").unwrap();
+        let active = |until: Option<&str>| Status::Active { email: "a@b.c".into(), updates_until: until.map(day) };
+        assert!(!cover_for(active(Some("2027-09-24")), day("2027-10-01")).covered);
+        assert_eq!(cover_for(active(Some("2027-09-24")), day("2027-10-01")).updates_until, Some(day("2027-09-24")));
+        assert!(cover_for(active(Some("2027-09-24")), day("2027-09-24")).covered, "released on the last day is covered");
+        assert!(cover_for(active(None), day("2040-01-01")).covered, "updates for good");
+        assert!(cover_for(Status::None, day("2040-01-01")).covered, "without Pro an update takes nothing away");
     }
 }

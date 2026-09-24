@@ -32,6 +32,8 @@ interface ModeStepProps {
   onMode: (mode: Mode) => void;
   /** Why the chosen places can't hold a versioned job, or null; the card is then disabled with this reason. */
   versionedBlocked: string | null;
+  /** The card is blocked because Versions need clonq Pro, not because of the places. */
+  versionedNeedsPro: boolean;
   excludes: string[];
   onExcludes: (excludes: string[]) => void;
   maxDeletePercent: string;
@@ -118,6 +120,7 @@ export function ModeStep({
   mode,
   onMode,
   versionedBlocked,
+  versionedNeedsPro,
   excludes,
   onExcludes,
   maxDeletePercent,
@@ -190,7 +193,7 @@ export function ModeStep({
                 key={option.mode}
                 layout="row"
                 art={
-                  <UiModeDiagram mode={option.mode} active={mode === option.mode} extraLabel={blocked ? m.versionedUnavailable : option.extra} />
+                  <UiModeDiagram mode={option.mode} active={mode === option.mode} extraLabel={blocked ? (versionedNeedsPro ? m.versionedProLabel : m.versionedUnavailable) : option.extra} />
                 }
                 title={modeLabel(option.mode)}
                 description={blocked ? versionedBlocked : option.description}

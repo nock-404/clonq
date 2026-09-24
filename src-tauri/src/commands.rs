@@ -49,6 +49,18 @@ pub async fn encryption_key(state: State<'_, AppState>, job_id: String) -> Resul
     crate::cloud::crypt_password(&rclone, &state.config_dir.join("rclone.conf"), &job_id).await
 }
 
+/// Asked before an update is installed: does the licence cover the new version? `published`
+/// is the update's date as the updater reports it (RFC 3339 or YYYY-MM-DD).
+#[tauri::command]
+pub fn licence_covers_update(state: State<'_, AppState>, published: String) -> crate::licence::UpdateCover {
+    let day = published.get(..10).and_then(|day| chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d").ok());
+    match day {
+        Some(day) => crate::licence::covers_update(&state.config_dir, day),
+        // An update without a date cannot be judged; say nothing rather than guess.
+        None => crate::licence::UpdateCover { covered: true, updates_until: None, renew_url: None },
+    }
+}
+
 /// The last seven days: runs, data and space per target, with the watchdog's verdict.
 #[tauri::command]
 pub fn weekly_report(state: State<'_, AppState>) -> Result<crate::report::WeeklyReport> {

@@ -157,6 +157,7 @@ export const wizard = {
     versionedNoCloud: "Versions need a folder, drive or server as the target, not a cloud.",
     versionedLocalSource: "Versions need a source on this Mac.",
     versionedUnavailable: "not here",
+    versionedProLabel: "Pro",
     encryptTitle: "Encrypt",
     encryptOn: "Files and their names are encrypted on this Mac before upload; the cloud only stores unreadable data. After saving, clonq shows the password.",
     encryptOff: "The cloud stores the files as they are.",
