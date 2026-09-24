@@ -7,7 +7,7 @@
     oklch(0.55 0.05 260);
 }
 
-/* Window sizes from tauri.conf.json (380×520 and 1040×680 points). */
+/* Window sizes from tauri.conf.json (380×520 and 1040×760 points). */
 #root.preview-frame {
   margin: 2.5rem;
   overflow: hidden;
@@ -22,7 +22,7 @@
 
 #root.preview-frame[data-frame="main"] {
   width: 65rem;
-  height: 42.5rem;
+  height: 47.5rem;
 }
 
 /* ?bare=1: the window alone on a transparent page, with room for its shadow. */

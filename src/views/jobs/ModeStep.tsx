@@ -130,7 +130,6 @@ export function ModeStep({
   const t = useT();
   const m = t.wizard.mode;
   const options = modeOptions();
-  const chosen = options.find((option) => option.mode === mode);
   const [pattern, setPattern] = useState("");
   // Conflict rules and archive stay folded until needed, so the step fits without scrolling.
   const [openConflicts, setOpenConflicts] = useState(false);
@@ -178,18 +177,20 @@ export function ModeStep({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-1.5">
-        <UiRadioGroup label={m.groupLabel} columns={4}>
+        {/* Two by two: each card keeps its picture and its own description. */}
+        <UiRadioGroup label={m.groupLabel} columns={2}>
           {options.map((option) => {
-            // A versioned job the places can't hold stays visible, dimmed; the reason runs under the row.
+            // A versioned job the places can't hold stays visible, dimmed, with the reason on the card.
             const blocked = option.mode === "versioned" && versionedBlocked !== null;
             return (
               <UiOptionCard
                 key={option.mode}
-                layout="tall"
+                layout="row"
                 art={
                   <UiModeDiagram mode={option.mode} active={mode === option.mode} extraLabel={blocked ? m.versionedUnavailable : option.extra} />
                 }
                 title={modeLabel(option.mode)}
+                description={blocked ? versionedBlocked : option.description}
                 shortcut={option.key}
                 selected={mode === option.mode}
                 disabled={blocked && mode !== option.mode}
@@ -198,10 +199,6 @@ export function ModeStep({
             );
           })}
         </UiRadioGroup>
-        <p aria-live="polite" className="px-1 text-[0.6875rem] leading-snug text-ink-faint">
-          {chosen ? chosen.description : m.hint}
-          {versionedBlocked && mode !== "versioned" ? ` ${versionedBlocked}` : ""}
-        </p>
       </div>
 
       <div className="hairline flex flex-col rounded-[var(--radius-panel)] bg-well">
