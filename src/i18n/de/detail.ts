@@ -25,7 +25,11 @@ export const detail: Shape<typeof source> = {
   check: {
     title: "Prüflauf",
     intact: "Quelle und Ziel stimmen inhaltlich überein.",
-    hint: "Eine der beiden Fassungen ist beschädigt; welche, kann clonq nicht erkennen. Ein normaler Lauf lässt beide unverändert. Öffne deshalb beide Fassungen und ersetze die beschädigte von Hand.",
+    hint: "Eine der beiden Fassungen ist beschädigt; welche, kann clonq nicht erkennen. Ein normaler Lauf lässt beide unverändert.",
+    repair: "Reparieren",
+    repairOneWay: "Reparieren kopiert die Fassung aus der Quelle erneut ins Ziel. Die bisherige Zielfassung kommt ins Archiv, auch wenn das Archiv ausgeschaltet ist. War doch die Quelle beschädigt, ist die heile Fassung dort weiterhin vorhanden.",
+    repairVersioned: "Reparieren legt einen neuen Snapshot an, in den diese Dateien frisch aus der Quelle kopiert werden. Die bisherigen Snapshots bleiben unverändert.",
+    repairTwoWay: "Reparieren setzt die Fassung der Quelle ein und behält die Fassung des Ziels als eigene Datei daneben. Nach dem nächsten Lauf liegen beide auf beiden Seiten, und du entscheidest, welche heil ist.",
     failed: "Der Prüflauf wurde nicht abgeschlossen.",
   },
   quote: (name) => `„${name}“`,
@@ -283,6 +287,7 @@ export const detail: Shape<typeof source> = {
       chain: "Nach Job",
       verify: "Prüflauf",
       verifyScheduled: "Geplanter Prüflauf",
+      repair: "Reparatur",
     },
   },
 
@@ -308,6 +313,7 @@ export const detail: Shape<typeof source> = {
       chain: "nach einem anderen Job",
       verify: "als Prüflauf",
       verifyScheduled: "als geplanter Prüflauf",
+      repair: "als Reparatur",
     },
   },
 };

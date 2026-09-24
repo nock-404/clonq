@@ -117,6 +117,7 @@ export function messageLabel(message: string): string {
     [/^the integrity check is part of clonq Pro: enter a licence in Settings$/, () => t.checkNeedsPro],
     [/^(\d+) file\(s\) differ in content (?:although size and date match|between source and target)$/, (m) => t.contentDiffers(Number(m[1]))],
     [/^there is no snapshot to check yet$/, () => t.noSnapshotToCheck],
+    [/^could not repair (.+?): (.*)$/, (m) => t.couldNotRepair(m[1] ?? "", m[2] ?? "")],
     [/^versioned backups need a source on this Mac and a folder, drive or server as the target$/, () => t.versionedNeedsLocalAndFolder],
     [/^only versioned jobs keep snapshots$/, () => t.onlyVersionedSnapshots],
     [/^only two-way jobs keep an archive on the source$/, () => t.onlyTwoWaySourceArchive],

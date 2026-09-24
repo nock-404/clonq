@@ -60,5 +60,6 @@ export const jobActions = {
   dryRun: (jobId: string) => api.runJob(jobId, { dryRun: true }).catch(reportError),
   force: (jobId: string) => api.runJob(jobId, { force: true }).catch(reportError),
   verify: (jobId: string) => api.verifyJob(jobId).catch(reportError),
+  repair: (jobId: string) => api.repairJob(jobId).catch(reportError),
   cancel: (jobId: string) => api.cancelJob(jobId).catch(reportError),
 };

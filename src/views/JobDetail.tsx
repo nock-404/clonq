@@ -129,7 +129,7 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
         </UiNotice>
       ) : null}
 
-      {!running && state.dryRuns[job.id] ? <DryRunResult run={state.dryRuns[job.id]!} canRun={!remote} /> : null}
+      {!running && state.dryRuns[job.id] ? <DryRunResult run={state.dryRuns[job.id]!} canRun={!remote} mode={job.mode} /> : null}
 
       <div className="grid grid-cols-[auto_1fr] gap-4">
         {/* Fixed width: the three reel styles differ a little in proportion, and switching must not shift the page. */}

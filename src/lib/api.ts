@@ -59,6 +59,7 @@ export const api = {
   runJob: (jobId: string, options: RunOptions = {}) =>
     invoke<string>("run_job", { jobId, dryRun: options.dryRun ?? false, force: options.force ?? false }),
   verifyJob: (jobId: string) => invoke<string>("verify_job", { jobId }),
+  repairJob: (jobId: string) => invoke<string>("repair_job", { jobId }),
   cancelJob: (jobId: string) => invoke<void>("cancel_job", { jobId }),
   openMainWindow: (jobId?: string) => invoke<void>("open_main_window", { jobId: jobId ?? null }),
   quit: () => invoke<void>("quit"),

@@ -1,10 +1,10 @@
-import { FileText, Play, X } from "lucide-react";
+import { FileText, Play, Wrench, X } from "lucide-react";
 import { dismissDryRun } from "../hooks/useClonq";
 import { useT } from "../i18n";
 import { formatCount } from "../lib/format";
 import { messageLabel } from "../lib/labels";
 import { openSheet } from "../lib/nav";
-import type { LiveRun } from "../lib/types";
+import type { LiveRun, Mode } from "../lib/types";
 import { UiButton, UiIconButton, UiStat } from "../ui";
 import { jobActions } from "../lib/jobs";
 
@@ -12,15 +12,16 @@ interface DryRunResultProps {
   run: LiveRun;
   /** False while the job cannot run, e.g. because a location is not reachable. */
   canRun: boolean;
+  mode: Mode;
 }
 
 /** What the last dry run found, kept on screen until it is dismissed or the next run starts. */
-export function DryRunResult({ run, canRun }: DryRunResultProps) {
-  if (run.verify) return <CheckResult run={run} />;
+export function DryRunResult({ run, canRun, mode }: DryRunResultProps) {
+  if (run.verify) return <CheckResult run={run} canRun={canRun} mode={mode} />;
   return <DryRun run={run} canRun={canRun} />;
 }
 
-function DryRun({ run, canRun }: DryRunResultProps) {
+function DryRun({ run, canRun }: Omit<DryRunResultProps, "mode">) {
   const t = useT().detail.dryResult;
   const failed = run.status === "failed" || run.status === "cancelled";
   const nothing = !failed && run.filesNew + run.filesChanged + run.filesDeleted === 0;
@@ -57,7 +58,7 @@ function DryRun({ run, canRun }: DryRunResultProps) {
 }
 
 /** What the last integrity check found. */
-function CheckResult({ run }: { run: LiveRun }) {
+function CheckResult({ run, canRun, mode }: DryRunResultProps) {
   const d = useT().detail;
   const t = d.check;
   const failed = run.status === "failed" || run.status === "cancelled";
@@ -71,7 +72,11 @@ function CheckResult({ run }: { run: LiveRun }) {
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="text-[0.8125rem] font-medium text-ink">{t.title}</span>
           <span className="text-xs text-ink-soft">{line}</span>
-          {damaged ? <span className="text-xs text-ink-soft">{t.hint}</span> : null}
+          {damaged ? (
+            <span className="text-xs text-ink-soft">
+              {t.hint} {mode === "versioned" ? t.repairVersioned : mode === "bidirectional" ? t.repairTwoWay : t.repairOneWay}
+            </span>
+          ) : null}
         </div>
         <UiIconButton icon={X} label={d.dryResult.dismiss} onPress={() => dismissDryRun(run.jobId)} />
       </div>
@@ -79,6 +84,11 @@ function CheckResult({ run }: { run: LiveRun }) {
         <UiButton variant="secondary" icon={FileText} onPress={() => openSheet({ kind: "run", runId: run.runId })}>
           {d.dryResult.details}
         </UiButton>
+        {damaged ? (
+          <UiButton variant="primary" icon={Wrench} disabled={!canRun} onPress={() => void jobActions.repair(run.jobId)}>
+            {t.repair}
+          </UiButton>
+        ) : null}
       </div>
     </section>
   );

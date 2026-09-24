@@ -21,7 +21,11 @@ export const detail = {
   check: {
     title: "Integrity check",
     intact: "Source and target match in content.",
-    hint: "One of the two copies is damaged, and clonq cannot tell which. A normal run leaves both as they are, so open both copies and replace the damaged one by hand.",
+    hint: "One of the two copies is damaged, and clonq cannot tell which. A normal run leaves both as they are.",
+    repair: "Repair",
+    repairOneWay: "Repair copies the source version to the target again. The target version goes to the archive, even with the archive turned off, so if the source was the damaged one, the intact version is still there.",
+    repairVersioned: "Repair makes a new snapshot with fresh copies of these files from the source. The earlier snapshots stay as they are.",
+    repairTwoWay: "Repair puts the source version in place and keeps the target version beside it as its own file; after the next sync both sides have both, and you decide which one is intact.",
     failed: "The integrity check did not finish.",
   },
   /** A file or folder name inside a sentence. */
@@ -284,6 +288,7 @@ export const detail = {
       chain: "After job",
       verify: "Integrity check",
       verifyScheduled: "Scheduled check",
+      repair: "Repair",
     },
   },
 
@@ -309,6 +314,7 @@ export const detail = {
       chain: "after another job",
       verify: "as an integrity check",
       verifyScheduled: "as a scheduled integrity check",
+      repair: "as a repair",
     },
   },
 };
