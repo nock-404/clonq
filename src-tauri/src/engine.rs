@@ -1682,12 +1682,12 @@ pub(crate) fn shell_join(parts: &[String]) -> String {
     parts
         .iter()
         .map(|part| {
+            // rsync splits --rsh itself: single quotes keep spaces, and a doubled single quote
+            // inside them is one quote (rsync(1), --rsh). No shell and no backslashes involved.
             if part.chars().all(|c| c.is_ascii_alphanumeric() || "-_=./:@".contains(c)) {
                 part.clone()
-            } else if part.contains('\'') {
-                format!("\"{part}\"")
             } else {
-                format!("'{part}'")
+                format!("'{}'", part.replace('\'', "''"))
             }
         })
         .collect::<Vec<_>>()
@@ -2477,6 +2477,26 @@ mod plan_tests {
         assert!(root.join("Photos/inner/f.txt").exists(), "a user folder must stay");
         assert_eq!(std::fs::read_to_string(root.join("notes.txt")).unwrap(), "user file");
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn rsh_survives_apostrophes_and_quotes_in_paths() {
+        // A fake ssh in a folder named like "Sam's Mac" records the arguments rsync hands it.
+        let dir = std::env::temp_dir().join(format!("clonq rsh {} Sam's \"Mac\"", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("fake ssh");
+        let record = dir.join("args");
+        std::fs::write(&fake, format!("#!/bin/sh\nfor a in \"$@\"; do printf '%s\\n' \"$a\"; done > '{}'\nexit 1\n", record.display().to_string().replace('\'', "'\\''"))).unwrap();
+        std::fs::set_permissions(&fake, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        let key = dir.join("key file").to_string_lossy().into_owned();
+        let known = format!("UserKnownHostsFile=\"{}\"", dir.join("known_hosts").display());
+        let rsh = shell_join(&[fake.to_string_lossy().into_owned(), "-i".into(), key.clone(), "-o".into(), known.clone()]);
+        let rsync = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries/rsync-aarch64-apple-darwin");
+        let _ = std::process::Command::new(rsync).arg(format!("--rsh={rsh}")).args(["--list-only", "host:x/"]).output().unwrap();
+        let args = std::fs::read_to_string(&record).unwrap();
+        let args: Vec<&str> = args.lines().collect();
+        assert_eq!(&args[..4], &["-i", key.as_str(), "-o", known.as_str()], "{args:?}");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

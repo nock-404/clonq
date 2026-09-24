@@ -224,9 +224,10 @@ pub fn resolve(place: &Place, config: &Config, volumes: &[MountedVolume]) -> Res
                 ssh: ssh_command(*port, identity_file),
                 display: format!("{}:{remote_path}", location.name),
                 sftp: format!(
+                    // In an rclone connection string a quote inside a quoted value is doubled.
                     ":sftp,host={host},user={user},port={port},key_file='{}',known_hosts_file='{}':{remote_path}",
-                    identity_file.replace('\'', ""),
-                    crate::ssh::known_hosts().display().to_string().replace('\'', "")
+                    identity_file.replace('\'', "''"),
+                    crate::ssh::known_hosts().display().to_string().replace('\'', "''")
                 ),
             })
         }
