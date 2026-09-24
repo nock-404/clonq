@@ -12,7 +12,7 @@ use tauri_plugin_notification::NotificationExt;
 
 use crate::AppState;
 use crate::commands::EVENT_CONFIG_CHANGED;
-use crate::config::{Config, Job, Language, LocationKind};
+use crate::config::{ARCHIVE_DIR, Config, Job, Language, LocationKind, Mode};
 use crate::engine::RunOptions;
 use crate::history::{Run, RunStatus};
 use crate::locations::{self, Resolved};
@@ -205,18 +205,16 @@ pub fn daily_due(last: Option<DateTime<Utc>>, at: NaiveTime, now: DateTime<Local
     last.is_none_or(|last| last < today_at.with_timezone(&Utc))
 }
 
-/// Rebuilds the source watchers for jobs with a change trigger.
+/// Rebuilds the watchers for jobs with a change trigger: the source, and for a two-way
+/// job the target as well, since changes there must reach the source too.
+///
+/// No event is ever dropped, not even while the job runs: a change made during a run
+/// would otherwise wait for the next trigger. The run's own writes therefore cause one
+/// follow-up run, which finds nothing to do and writes nothing (measured with rclone
+/// bisync 1.75.1: an idle run touches no file and no folder), so it does not loop.
 fn rewatch(app: &AppHandle) {
     let config = config(app);
-    let volumes = locations::mounted_volumes();
-    let mut watched: Vec<(String, PathBuf, Vec<String>)> = Vec::new();
-    for job in config.jobs.iter().filter(|job| job.enabled && job.triggers.on_change_after_seconds.is_some()) {
-        if let Ok(Resolved::Local(path)) = locations::resolve(&job.source, &config, &volumes)
-            && path.is_dir()
-        {
-            watched.push((job.id.clone(), path, excluded_folders(job)));
-        }
-    }
+    let watched = watch_roots(&config, &locations::mounted_volumes());
     let scheduler = app.state::<Scheduler>();
     let mut slot = scheduler.watcher.lock().expect("watcher");
     *slot = None;
@@ -242,13 +240,35 @@ fn rewatch(app: &AppHandle) {
     *slot = Some(watcher);
 }
 
-/// Folder names from exclude patterns like `node_modules/` or `/WORK/`.
+/// The folders to watch: (job, folder, excluded folder names) for every enabled job with a
+/// change trigger, both ends of a two-way job, only those on this Mac.
+fn watch_roots(config: &Config, volumes: &[locations::MountedVolume]) -> Vec<(String, PathBuf, Vec<String>)> {
+    let mut watched = Vec::new();
+    for job in config.jobs.iter().filter(|job| job.enabled && job.triggers.on_change_after_seconds.is_some()) {
+        let mut sides = vec![&job.source];
+        if job.mode == Mode::Bidirectional {
+            sides.push(&job.target);
+        }
+        for side in sides {
+            if let Ok(Resolved::Local(path)) = locations::resolve(side, config, volumes)
+                && path.is_dir()
+            {
+                watched.push((job.id.clone(), path, excluded_folders(job)));
+            }
+        }
+    }
+    watched
+}
+
+/// Folder names from exclude patterns like `node_modules/` or `/WORK/`, and always the
+/// archive, which only runs write to.
 fn excluded_folders(job: &Job) -> Vec<String> {
     job.excludes
         .iter()
         .filter(|pattern| pattern.ends_with('/') && !pattern.contains('*'))
         .map(|pattern| pattern.trim_matches('/').to_string())
         .filter(|name| !name.is_empty())
+        .chain([ARCHIVE_DIR.to_string()])
         .collect()
 }
 
@@ -295,6 +315,42 @@ fn after_run(app: &AppHandle, run: &Run) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn two_way_jobs_watch_both_ends_one_way_jobs_only_the_source() {
+        let root = std::env::temp_dir().join(format!("clonq-watch-{}", uuid::Uuid::new_v4()));
+        for dir in ["a", "b", "c", "d"] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        let mut config: Config = serde_json::from_str(r#"{"version":2,"rsyncPath":"/opt/homebrew/bin/rsync"}"#).unwrap();
+        config.locations.push(crate::config::Location {
+            id: "root".into(),
+            name: "Root".into(),
+            kind: LocationKind::Folder { path: root.to_string_lossy().into_owned() },
+        });
+        let job = |id: &str, mode: Mode, source: &str, target: &str| -> Job {
+            let mut job: Job = serde_json::from_value(serde_json::json!({
+                "id": id, "name": id, "enabled": true,
+                "source": { "location": "root", "path": source },
+                "target": { "location": "root", "path": target },
+                "mode": mode, "excludes": [], "ring": null, "safety": { "maxDeletePercent": 10, "alwaysAllowedDeletions": 10 },
+                "triggers": { "onMount": false, "onChangeAfterSeconds": 10, "everyMinutes": null, "dailyAt": null, "afterJob": null }
+            }))
+            .unwrap();
+            job.enabled = true;
+            job
+        };
+        config.jobs.push(job("two", Mode::Bidirectional, "a", "b"));
+        config.jobs.push(job("one", Mode::Mirror, "c", "d"));
+        let roots = watch_roots(&config, &[]);
+        let of = |id: &str| roots.iter().filter(|(job, _, _)| job == id).map(|(_, path, _)| path.clone()).collect::<Vec<_>>();
+        assert_eq!(of("two"), vec![root.join("a"), root.join("b")]);
+        assert_eq!(of("one"), vec![root.join("c")]);
+        // The archive is written by runs only; changes in it never start one.
+        assert!(roots.iter().all(|(_, _, excluded)| excluded.iter().any(|name| name == ARCHIVE_DIR)));
+        assert!(is_excluded(&root.join("b/.clonq-archiv/2026/x.txt"), &root.join("b"), &roots[1].2));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 
     fn utc(text: &str) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339(text).unwrap().with_timezone(&Utc)

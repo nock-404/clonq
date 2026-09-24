@@ -10,6 +10,18 @@ const it = (dir: boolean) =>
     : { subject: "Die Datei", object: "die Datei", all: "", nominative: "sie", accusative: "sie" };
 
 export const detail: Shape<typeof source> = {
+  dryResult: {
+    title: "Ergebnis des Probelaufs",
+    nothing: "Es würde sich nichts ändern: Quelle und Ziel stimmen schon überein.",
+    summary: "Ein echter Lauf würde das hier ändern. Angefasst wurde noch nichts.",
+    added: "Würde neu anlegen",
+    changed: "Würde ändern",
+    deleted: "Würde löschen",
+    failed: "Der Probelauf wurde nicht abgeschlossen.",
+    details: "Dateien zeigen",
+    run: "Jetzt starten",
+    dismiss: "Schließen",
+  },
   quote: (name) => `„${name}“`,
   retry: "Erneut versuchen",
   reading: "Wird gelesen …",

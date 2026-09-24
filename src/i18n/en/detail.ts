@@ -6,6 +6,18 @@ const thing = (dir: boolean) => (dir ? "the folder and everything in it" : "the 
 const Thing = (dir: boolean) => (dir ? "The folder and everything in it" : "The file");
 
 export const detail = {
+  dryResult: {
+    title: "Dry run result",
+    nothing: "Nothing would change: source and target already match.",
+    summary: "A real run would make these changes. Nothing has been touched yet.",
+    added: "Would add",
+    changed: "Would change",
+    deleted: "Would delete",
+    failed: "The dry run did not finish.",
+    details: "Show files",
+    run: "Run now",
+    dismiss: "Dismiss",
+  },
   /** A file or folder name inside a sentence. */
   quote: (name: string) => `“${name}”`,
   retry: "Try again",

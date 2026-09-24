@@ -36,6 +36,7 @@ import {
 import { UiLinkButton } from "../ui/UiLinkButton";
 import { ringOf } from "../ui/rings";
 import { ArchivePanel } from "./ArchivePanel";
+import { DryRunResult } from "./DryRunResult";
 import { JobHeader } from "./jobs/JobHeader";
 
 interface JobDetailProps {
@@ -120,6 +121,8 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
           {messageLabel(latest.message)}
         </UiNotice>
       ) : null}
+
+      {!running && state.dryRuns[job.id] ? <DryRunResult run={state.dryRuns[job.id]!} canRun={!remote} /> : null}
 
       <div className="grid grid-cols-[auto_1fr] gap-4">
         {/* Fixed width: the three reel styles differ a little in proportion, and switching must not shift the page. */}

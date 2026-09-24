@@ -185,6 +185,20 @@ await import("../src/main");
 // ?job=<id> opens that job in the main window, as the popover would.
 const jobParam = params.get("job");
 if (jobParam) setTimeout(() => void emit("show-job", jobParam), 300);
+// ?dryResult=1|none sends a finished dry run for ?job, as the backend does at the end of one.
+const dryParam = params.get("dryResult");
+if (jobParam && dryParam) {
+  const found = dryParam === "none" ? [0, 0, 0] : [1_043, 204, 3];
+  setTimeout(
+    () =>
+      void emit("run-update", {
+        runId: "dry-preview", jobId: jobParam, dryRun: true, phase: "finished", percent: 100, bytes: 0, bytesPerSecond: 0,
+        etaSeconds: null, filesDone: 0, filesTotal: null, filesNew: found[0], filesChanged: found[1], filesDeleted: found[2],
+        filesConflicted: 0, filesPerSecond: 0, throughput: [], recentPaths: [], currentPath: null, status: "succeeded", message: null,
+      }),
+    700,
+  );
+}
 
 // ?sheet=addLocation|jobWizard opens a sheet, ?location=<id> shows a location.
 const nav = await import("../src/lib/nav");

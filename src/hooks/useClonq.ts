@@ -20,6 +20,8 @@ export interface ClonqState {
   locations: Record<string, LocationStatus>;
   /** Drives mounted right now. */
   volumes: MountedVolume[];
+  /** The last finished dry run of each job, kept until it is dismissed or the next run starts. */
+  dryRuns: Record<string, LiveRun>;
   error: string | null;
 }
 
@@ -36,6 +38,7 @@ let state: ClonqState = {
   overview: null,
   locations: {},
   volumes: [],
+  dryRuns: {},
   error: null,
 };
 const listeners = new Set<() => void>();
@@ -83,11 +86,20 @@ async function refreshRuns() {
   }
 }
 
+export function dismissDryRun(jobId: string) {
+  const rest = { ...state.dryRuns };
+  delete rest[jobId];
+  set({ dryRuns: rest });
+}
+
 async function start() {
   if (started) return;
   started = true;
   await api.onRunUpdate((run) => {
     set({ live: { ...state.live, [run.jobId]: run } });
+    // A dry run's result must outlast the short linger of the live view; a new run replaces it.
+    if (run.phase === "finished" && run.dryRun) set({ dryRuns: { ...state.dryRuns, [run.jobId]: run } });
+    else if (run.phase !== "finished" && state.dryRuns[run.jobId]) dismissDryRun(run.jobId);
     if (run.phase === "finished") {
       setTimeout(() => {
         const current = state.live[run.jobId];

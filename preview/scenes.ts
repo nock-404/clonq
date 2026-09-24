@@ -175,7 +175,7 @@ const detail: RunDetail = {
     { folder: "GM8/clonq", files: 412, bytes: 612_000_000 },
     { folder: "Projekte/wetterstation", files: 380, bytes: 402_000_000 },
     { folder: "GM8/matthiasg.rocks", files: 96, bytes: 210_000_000 },
-    { folder: "Musik/kunde-x", files: 41, bytes: 98_000_000 },
+    { folder: "Musik/playlists", files: 41, bytes: 98_000_000 },
   ],
 };
 
