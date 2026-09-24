@@ -72,3 +72,18 @@ jobs:
           dmg=$(ls src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/clonq_*_aarch64.dmg | head -1)
           cp "$dmg" clonq-mac.dmg
           gh release upload "${{ github.ref_name }}" clonq-mac.dmg --clobber
+
+      # tauri-action points latest.json at api.github.com, which allows 60 unauthenticated
+      # requests per hour and address; past that the update download fails with 403.
+      # The plain download link has no such limit. The signature covers the file, not the URL.
+      - name: direct download links in latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ github.ref_name }}"
+          gh release download "$tag" --pattern latest.json --clobber
+          name=$(gh release view "$tag" --json assets --jq '.assets[].name | select(endswith(".app.tar.gz"))')
+          jq --arg url "https://github.com/${{ github.repository }}/releases/download/$tag/$name" \
+            '.platforms |= map_values(.url = $url)' latest.json > latest.fixed.json
+          mv latest.fixed.json latest.json
+          gh release upload "$tag" latest.json --clobber
