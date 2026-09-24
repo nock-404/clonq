@@ -1,3 +1,5 @@
+import { useT } from "../i18n";
+
 interface UiModeDiagramProps {
   /**
    * What a run does: the target becomes an exact copy (mirror), keeps everything it had plus what
@@ -6,9 +8,10 @@ interface UiModeDiagramProps {
   mode: "mirror" | "backup" | "bidirectional";
   /** Plays the run once, e.g. when the option is picked. */
   active: boolean;
+  /** "Source" and "Target" by default. */
   sourceLabel?: string;
   targetLabel?: string;
-  /** A caption beside the record that shows the difference, e.g. "wird gelöscht". */
+  /** A caption beside the record that shows the difference, e.g. "deleted". */
   extraLabel?: string;
 }
 
@@ -63,7 +66,10 @@ const captionTone = { mirror: "text-danger", backup: "text-ink-soft", bidirectio
  * by a mirror and kept by a backup; a two-way run carries records both ways and shows a file
  * changed on both tapes.
  */
-export function UiModeDiagram({ mode, active, sourceLabel = "Quelle", targetLabel = "Ziel", extraLabel }: UiModeDiagramProps) {
+export function UiModeDiagram({ mode, active, extraLabel, ...words }: UiModeDiagramProps) {
+  const t = useT().wizard.steps;
+  const sourceLabel = words.sourceLabel ?? t.source;
+  const targetLabel = words.targetLabel ?? t.target;
   const twoWay = mode === "bidirectional";
   const caption = extraLabel ? <span className={`min-w-0 truncate text-[0.6875rem] font-medium ${captionTone[mode]}`}>{extraLabel}</span> : null;
   return (

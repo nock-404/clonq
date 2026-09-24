@@ -1,4 +1,5 @@
 import { Download, RotateCw } from "lucide-react";
+import { useT } from "../i18n";
 import { formatBytes } from "../lib/format";
 import { checkForUpdate, installUpdate, useUpdate } from "../lib/update";
 import { UiButton, UiProgressBar } from "../ui";
@@ -7,30 +8,31 @@ import { UiLogo } from "../ui/UiLogo";
 /** A newer clonq is out: a small band with one button. Invisible while there is nothing to install. */
 export function UpdateBand() {
   const update = useUpdate();
+  const t = useT().shell.update;
   if (update.phase !== "available" && update.phase !== "downloading" && update.phase !== "restarting") return null;
   const percent = update.phase === "downloading" && update.total ? (update.received / update.total) * 100 : null;
   return (
     <div className="hairline flex flex-col gap-2 rounded-[var(--radius-panel)] bg-accent-soft px-3 py-2.5">
       <div className="flex items-center gap-2">
         <UiLogo variant="mark" size="xs" />
-        <span className="text-xs font-medium text-ink">clonq {update.version} ist da</span>
+        <span className="text-xs font-medium text-ink">{t.available(update.version)}</span>
       </div>
       {update.phase === "available" ? (
         <div className="flex flex-col items-start gap-1">
           <UiButton variant="primary" icon={Download} onPress={() => void installUpdate()}>
-            Installieren
+            {t.install}
           </UiButton>
-          <span className="text-[0.6875rem] text-ink-soft">clonq startet danach neu.</span>
+          <span className="text-[0.6875rem] text-ink-soft">{t.restartsAfter}</span>
         </div>
       ) : (
         <div className="flex flex-col gap-1">
           <UiProgressBar value={update.phase === "restarting" ? 100 : percent} />
           <span className="text-[0.6875rem] text-ink-soft tabular">
             {update.phase === "restarting"
-              ? "clonq startet neu …"
+              ? t.restarting
               : update.total
-                ? `${formatBytes(update.received)} von ${formatBytes(update.total)} geladen`
-                : "wird geladen …"}
+                ? t.loaded(formatBytes(update.received), formatBytes(update.total))
+                : t.loading}
           </span>
         </div>
       )}
@@ -41,21 +43,22 @@ export function UpdateBand() {
 /** The update part of the settings: version, a manual check, and the result. */
 export function UpdateCheck() {
   const update = useUpdate();
+  const t = useT().shell.update;
   const busy = update.phase === "checking" || update.phase === "downloading" || update.phase === "restarting";
   const line =
     update.phase === "checking"
-      ? "Sucht nach Updates …"
+      ? t.checking
       : update.phase === "current"
-        ? "Diese Version ist die neueste."
+        ? t.current
         : update.phase === "failed"
-          ? `Suche fehlgeschlagen: ${update.message}`
+          ? t.failed(update.message)
           : update.phase === "available"
-            ? `Version ${update.version} steht bereit.`
+            ? t.ready(update.version)
             : null;
   return (
     <div className="flex flex-col items-start gap-2">
       <UiButton variant="secondary" icon={RotateCw} disabled={busy} onPress={() => void checkForUpdate()}>
-        Nach Updates suchen
+        {t.check}
       </UiButton>
       {line ? <span className={`text-xs ${update.phase === "failed" ? "text-danger" : "text-ink-soft"}`}>{line}</span> : null}
       <UpdateBand />

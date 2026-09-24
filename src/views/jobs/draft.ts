@@ -1,12 +1,23 @@
 // The job wizard's working copy of a job, and everything derived from it.
 
 import type { ClonqState } from "../../hooks/useClonq";
+import { texts } from "../../i18n";
 import { locationOf, messageLabel, placeLabel } from "../../lib/labels";
 import type { Config, ConflictPrefer, Conflicts, Job, JobInput, Location, LocationStatus, Mode, Place, Ring, Triggers } from "../../lib/types";
 import { RINGS, ringOf } from "../../ui/rings";
 
-export const STEPS = ["Quelle", "Ziel", "Art", "Auslöser", "Name"] as const;
 export type Step = 0 | 1 | 2 | 3 | 4;
+const STEP_KEYS = ["source", "target", "mode", "triggers", "name"] as const;
+
+/** The name of a step, as the stepper shows it. */
+export function stepLabel(step: Step): string {
+  return texts().wizard.steps[STEP_KEYS[step]];
+}
+
+/** The words of the link that jumps to a step. */
+export function jumpLabel(step: Step): string {
+  return texts().wizard.jump[STEP_KEYS[step]];
+}
 export const LAST_STEP: Step = 4;
 export const ALL_STEPS: Step[] = [0, 1, 2, 3, 4];
 
@@ -52,14 +63,6 @@ const DEFAULT_DELETE_PERCENT = 10;
 /** The defaults of the Rust side, see Archive and Conflicts in src-tauri/src/config.rs. */
 const DEFAULT_KEEP_DAYS = 30;
 const DEFAULT_CONFLICTS: Conflicts = { prefer: "newer", loser: "keep" };
-
-export const ringName: Record<Ring, string> = {
-  blue: "Blau",
-  green: "Grün",
-  red: "Rot",
-  yellow: "Gelb",
-  white: "Weiß",
-};
 
 function triggerDraft(triggers: Triggers | null): TriggerDraft {
   return {
@@ -174,19 +177,20 @@ export function suggestName(draft: Draft, config: Config | null, jobId: string |
 /** Why a location cannot serve as this end of a job right now, as a sentence, or null. */
 export function reachProblem(location: Location, state: ClonqState): string | null {
   const reach = state.locations[location.id]?.reach;
+  const t = texts().wizard.reach;
   switch (reach?.state) {
     case "connected":
       return null;
     case "disconnected":
-      return `${location.name} ist nicht angeschlossen.`;
+      return t.disconnected(location.name);
     case "missing":
-      return `Den Ordner von ${location.name} gibt es nicht mehr.`;
+      return t.missing(location.name);
     case "untested":
-      return `Die Verbindung zu ${location.name} wird noch geprüft.`;
+      return t.untested(location.name);
     case "failed":
-      return `${location.name} ist gerade nicht erreichbar.`;
+      return t.failed(location.name);
     default:
-      return `Der Zustand von ${location.name} ist unbekannt.`;
+      return t.unknown(location.name);
   }
 }
 
@@ -228,17 +232,10 @@ export function overlapOf(source: Place, target: Place, state: ClonqState): Over
 
 /** The overlap in words, seen from the end that is being chosen, with what to do instead. */
 export function overlapText(overlap: Overlap, role: "source" | "target", other: string): string {
-  if (overlap === "same") {
-    return `Quelle und Ziel sind derselbe Ordner. Wähle als ${role === "source" ? "Quelle" : "Ziel"} einen anderen Ordner.`;
-  }
-  if (overlap === "targetInSource") {
-    return role === "target"
-      ? `Dieses Ziel liegt innerhalb der Quelle ${other}. Jeder Lauf würde das Ziel in sich selbst kopieren. Wähle ein Ziel außerhalb der Quelle.`
-      : `Das Ziel ${other} liegt innerhalb dieser Quelle. Jeder Lauf würde das Ziel in sich selbst kopieren. Wähle eine Quelle, die das Ziel nicht enthält.`;
-  }
-  return role === "target"
-    ? `Die Quelle ${other} liegt innerhalb dieses Ziels. Ein Spiegel würde hier alles außer der Quelle löschen. Wähle ein Ziel, das die Quelle nicht enthält.`
-    : `Diese Quelle liegt innerhalb des Ziels ${other}. Ein Spiegel würde im Ziel alles außer der Quelle löschen. Wähle eine Quelle außerhalb des Ziels.`;
+  const t = texts().wizard.overlap;
+  if (overlap === "same") return t.same(role);
+  if (overlap === "targetInSource") return role === "target" ? t.targetInSourceForTarget(other) : t.targetInSourceForSource(other);
+  return role === "target" ? t.sourceInTargetForTarget(other) : t.sourceInTargetForSource(other);
 }
 
 /** The overlap between the end being chosen and the other end, or null. */
@@ -276,10 +273,11 @@ function wholeNumber(text: string): number | null {
 
 /** The problem with the trigger settings, as a sentence, or null. */
 export function triggerProblem(triggers: TriggerDraft): string | null {
-  if (triggers.onChange && wholeNumber(triggers.changeSeconds) === null) return "Die Ruhezeit muss eine ganze Zahl von mindestens einer Sekunde sein.";
-  if (triggers.every && wholeNumber(triggers.everyMinutes) === null) return "Der Abstand muss eine ganze Zahl von mindestens einer Minute sein.";
-  if (triggers.daily && !TIME.test(triggers.dailyAt.trim())) return "Die Uhrzeit ist ungültig.";
-  if (triggers.after && !triggers.afterJob) return "Es ist noch kein Job gewählt, nach dem dieser laufen soll.";
+  const t = texts().wizard.problem;
+  if (triggers.onChange && wholeNumber(triggers.changeSeconds) === null) return t.quietTime;
+  if (triggers.every && wholeNumber(triggers.everyMinutes) === null) return t.interval;
+  if (triggers.daily && !TIME.test(triggers.dailyAt.trim())) return t.time;
+  if (triggers.after && !triggers.afterJob) return t.noAfterJob;
   return null;
 }
 
@@ -325,41 +323,30 @@ export function hasAutomatic(triggers: Triggers): boolean {
   );
 }
 
-/** Words for each active trigger, e.g. "beim Anstecken", "täglich um 02:00 Uhr". */
+/** Words for each active trigger, e.g. "when plugged in", "daily at 02:00". */
 export function triggerWords(triggers: Triggers, config: Config | null): string[] {
+  const t = texts().wizard.words;
   const words: string[] = [];
-  if (triggers.onMount) words.push("beim Anstecken");
-  if (triggers.onChangeAfterSeconds !== null) words.push(`bei Änderungen nach ${seconds(triggers.onChangeAfterSeconds)} Ruhe`);
-  if (triggers.everyMinutes !== null) words.push(everyWords(triggers.everyMinutes));
-  if (triggers.dailyAt !== null) words.push(`täglich um ${triggers.dailyAt} Uhr`);
-  if (triggers.afterJob !== null) {
-    const name = config?.jobs.find((job) => job.id === triggers.afterJob)?.name ?? "einem anderen Job";
-    words.push(`nach „${name}“`);
-  }
+  if (triggers.onMount) words.push(t.onMount);
+  if (triggers.onChangeAfterSeconds !== null) words.push(t.onChange(triggers.onChangeAfterSeconds));
+  if (triggers.everyMinutes !== null) words.push(t.every(triggers.everyMinutes));
+  if (triggers.dailyAt !== null) words.push(t.daily(triggers.dailyAt));
+  if (triggers.afterJob !== null) words.push(t.after(config?.jobs.find((job) => job.id === triggers.afterJob)?.name ?? null));
   return words;
 }
 
-/** A few words for the triggers, for the label on the tape, e.g. "täglich 02:00 +1". */
+/** A few words for the triggers, for the label on the tape, e.g. "daily 02:00 +1". */
 export function triggerTag(triggers: Triggers): string {
+  const { tag, words: every, standalone } = texts().wizard;
   const words: string[] = [];
-  if (triggers.onMount) words.push("Anstecken");
-  if (triggers.onChangeAfterSeconds !== null) words.push("Änderungen");
-  if (triggers.everyMinutes !== null) words.push(everyWords(triggers.everyMinutes));
-  if (triggers.dailyAt !== null) words.push(`täglich ${triggers.dailyAt}`);
-  if (triggers.afterJob !== null) words.push("nach Job");
+  if (triggers.onMount) words.push(tag.onMount);
+  if (triggers.onChangeAfterSeconds !== null) words.push(tag.onChange);
+  if (triggers.everyMinutes !== null) words.push(every.every(triggers.everyMinutes));
+  if (triggers.dailyAt !== null) words.push(tag.daily(triggers.dailyAt));
+  if (triggers.afterJob !== null) words.push(tag.after);
   const [first] = words;
-  if (!first) return "von Hand";
-  return words.length > 1 ? `${first} +${words.length - 1}` : first;
-}
-
-function seconds(value: number): string {
-  return value === 1 ? "einer Sekunde" : `${value} Sekunden`;
-}
-
-function everyWords(minutes: number): string {
-  if (minutes === 1) return "jede Minute";
-  if (minutes % 60 === 0) return minutes === 60 ? "stündlich" : `alle ${minutes / 60} Stunden`;
-  return `alle ${minutes} Minuten`;
+  if (!first) return standalone(tag.manual);
+  return standalone(words.length > 1 ? `${first} +${words.length - 1}` : first);
 }
 
 // ── Two-way sync and archive ────────────────────────────────────────────────
@@ -377,40 +364,33 @@ export function keepDaysOf(text: string): number | null {
 }
 
 export function archiveProblem(archive: ArchiveDraft): string | null {
-  return archive.enabled && keepDaysOf(archive.keepDays) === null ? "Die Aufbewahrungsdauer muss eine ganze Zahl von 1 bis 365 Tagen sein." : null;
+  return archive.enabled && keepDaysOf(archive.keepDays) === null ? texts().wizard.problem.keepDays : null;
 }
-
-export const PERCENT_PROBLEM = "Die Schutzschwelle muss eine Zahl zwischen 0 und 100 sein.";
 
 /** The problem with the mode step, as a sentence, or null. */
 export function modeProblem(draft: Draft): string | null {
-  if (!draft.mode) return "Es ist noch keine Art gewählt.";
-  if (deletesIn(draft.mode) && percentOf(draft.maxDeletePercent) === null) return PERCENT_PROBLEM;
+  if (!draft.mode) return texts().wizard.problem.noMode;
+  if (deletesIn(draft.mode) && percentOf(draft.maxDeletePercent) === null) return texts().wizard.problem.percent;
   return archiveProblem(draft.archive);
 }
 
+/** The order in which the menu shows the winners of a conflict. */
+const PREFER_ORDER: ConflictPrefer[] = ["newer", "older", "larger", "smaller", "source", "target", "none"];
+
 /** The choices for the winner of a conflict, in the order the menu shows them. */
-export const PREFER_CHOICES: { value: ConflictPrefer; label: string; tag: string }[] = [
-  { value: "newer", label: "Neuere Fassung gewinnt", tag: "Neuere gewinnt" },
-  { value: "older", label: "Ältere Fassung gewinnt", tag: "Ältere gewinnt" },
-  { value: "larger", label: "Größere Fassung gewinnt", tag: "Größere gewinnt" },
-  { value: "smaller", label: "Kleinere Fassung gewinnt", tag: "Kleinere gewinnt" },
-  { value: "source", label: "Quelle gewinnt", tag: "Quelle gewinnt" },
-  { value: "target", label: "Ziel gewinnt", tag: "Ziel gewinnt" },
-  { value: "none", label: "Nicht entscheiden – beide behalten", tag: "Beide behalten" },
-];
-
-/** The example name bisync gives a losing copy that is kept. */
-export const CONFLICT_EXAMPLE = "Bericht.pdf.conflict1";
-
-/** The conflict rule in a few words, for the label on the tape, e.g. "Neuere gewinnt". */
-export function conflictTag(conflicts: Conflicts): string {
-  return PREFER_CHOICES.find((choice) => choice.value === conflicts.prefer)?.tag ?? "";
+export function preferChoices(): { value: ConflictPrefer; label: string; tag: string }[] {
+  const prefer = texts().wizard.conflict.prefer;
+  return PREFER_ORDER.map((value) => ({ value, ...prefer[value] }));
 }
 
-/** The winner of a conflict, e.g. "Neuere Fassung gewinnt". */
+/** The conflict rule in a few words, for the label on the tape, e.g. "Newer wins". */
+export function conflictTag(conflicts: Conflicts): string {
+  return texts().wizard.conflict.prefer[conflicts.prefer].tag;
+}
+
+/** The winner of a conflict, e.g. "Newer version wins". */
 export function preferLabel(prefer: ConflictPrefer): string {
-  return PREFER_CHOICES.find((choice) => choice.value === prefer)?.label ?? "";
+  return texts().wizard.conflict.prefer[prefer].label;
 }
 
 // With "none" the loser setting does not apply. The draft still keeps and sends it, so that it is
@@ -419,17 +399,19 @@ export function preferLabel(prefer: ConflictPrefer): string {
 
 /** What happens to the losing copy, as a sentence; it depends on the archive. */
 export function loserSentence(conflicts: Conflicts, archive: boolean): string {
-  if (conflicts.prefer === "none") return "Beide Fassungen bleiben unter neuen Namen erhalten.";
-  if (conflicts.loser === "keep") return `Der Verlierer wird umbenannt, zum Beispiel in „${CONFLICT_EXAMPLE}“.`;
-  return archive ? "Der Verlierer wird ins Archiv verschoben." : "Der Verlierer wird gelöscht.";
+  const t = texts().wizard.conflict;
+  if (conflicts.prefer === "none") return t.bothKept;
+  if (conflicts.loser === "keep") return t.renamed(t.example);
+  return archive ? t.archived : t.deleted;
 }
 
-/** The whole conflict rule in a few words, for the summary, e.g. "Neuere gewinnt, Verlierer umbenannt". */
+/** The whole conflict rule in a few words, for the summary, e.g. "Newer wins, losing copy renamed". */
 export function conflictSummary(conflicts: Conflicts, archive: boolean): string {
+  const t = texts().wizard.conflict;
   const tag = conflictTag(conflicts);
   if (conflicts.prefer === "none") return tag;
-  if (conflicts.loser === "keep") return `${tag}, Verlierer umbenannt`;
-  return `${tag}, Verlierer ${archive ? "archiviert" : "gelöscht"}`;
+  if (conflicts.loser === "keep") return t.summaryRenamed(tag);
+  return archive ? t.summaryArchived(tag) : t.summaryDeleted(tag);
 }
 
 /** The folder at the top of every target (on both sides of a two-way job) that holds the archive. */
@@ -437,27 +419,13 @@ export const ARCHIVE_FOLDER = ".clonq-archiv";
 
 /**
  * Where archived files are kept, in words that go around the folder name: before it and after it.
- * "So lange" refers to the days beside the sentence.
+ * "That long" refers to the days beside the sentence.
  */
 export function archivePlace(mode: Mode | null): [string, string] {
-  return mode === "bidirectional" ? ["clonq hebt sie so lange auf beiden Seiten im Ordner", "auf."] : ["clonq hebt sie so lange im Ordner", "des Ziels auf."];
+  const t = texts().wizard.mode;
+  const words = mode === "bidirectional" ? t.archiveTwoWay : t.archiveOneWay;
+  return [words.before, words.after];
 }
-
-/** "30 Tage", "1 Tag". */
-export function daysWords(days: number): string {
-  return `${days} ${days === 1 ? "Tag" : "Tage"}`;
-}
-
-/** The version the first two-way run keeps where a file differs on both sides, see resync_args in engine.rs. */
-const FIRST_RUN_WINNER: Record<ConflictPrefer, string> = {
-  newer: "die neuere Fassung",
-  older: "die ältere Fassung",
-  larger: "die größere Fassung",
-  smaller: "die kleinere Fassung",
-  source: "die Fassung der Quelle",
-  target: "die Fassung des Ziels",
-  none: "die neuere Fassung",
-};
 
 /**
  * What the first run of a two-way job does. It merges both sides (bisync --resync) and deletes
@@ -465,16 +433,11 @@ const FIRST_RUN_WINNER: Record<ConflictPrefer, string> = {
  * "none" only applies from the second run on.
  */
 export function firstRunSentences(conflicts: Conflicts, archive: boolean): string[] {
-  const kept = `Wo eine Datei auf beiden Seiten verschieden ist, behält er ${FIRST_RUN_WINNER[conflicts.prefer]}`;
-  return [
-    "Der erste Lauf gleicht beide Seiten ab und löscht nichts.",
-    archive ? `${kept}; die andere wird ins Archiv verschoben.` : `${kept} und überschreibt die andere.`,
-    ...(conflicts.prefer === "none" ? ["Beide Fassungen zu behalten gilt erst ab dem zweiten Lauf."] : []),
-  ];
+  // The winner of the first run is the one resync_args in engine.rs picks.
+  const t = texts().wizard.conflict;
+  const winner = t.firstRunWinner[conflicts.prefer];
+  return [t.firstRun, archive ? t.firstRunArchived(winner) : t.firstRunOverwritten(winner), ...(conflicts.prefer === "none" ? [t.firstRunNone] : [])];
 }
-
-/** A two-way job copies what only the target holds into the source, once, on its first run. */
-export const MERGE_NOTICE = "Der erste beidseitige Lauf überträgt auch alles, was nur im Ziel liegt, in die Quelle.";
 
 // ── Saving ──────────────────────────────────────────────────────────────────
 
@@ -533,7 +496,7 @@ export function drivesOf(draft: Draft, config: Config | null): Location[] {
 }
 
 export interface SaveFailure {
-  /** The message, in German where the words are known. */
+  /** The message, in the interface language where the words are known. */
   text: string;
   /** The step where the cause can be fixed, or null. */
   step: Step | null;
@@ -545,28 +508,29 @@ export interface SaveFailure {
 export function saveFailure(message: string, input: JobInput, config: Config | null): SaveFailure {
   const sourceName = locationOf(input.source, config)?.name;
   const targetName = locationOf(input.target, config)?.name;
+  const advice = texts().wizard.advice;
   const sideOf = (name: string | undefined): Step | null => (name === undefined ? null : name === sourceName ? 0 : name === targetName ? 1 : null);
 
   const disconnected = message.match(/^(?:volume )?(.+) is not connected$/);
   if (disconnected) {
-    return { text: `${messageLabel(message)}.`, step: sideOf(disconnected[1]), advice: "Schließe das Laufwerk an, um den Job zu speichern." };
+    return { text: `${messageLabel(message)}.`, step: sideOf(disconnected[1]), advice: advice.connectDrive };
   }
   const untested = message.match(/^(.+) has not been tested yet$/);
-  if (untested) return { text: `${messageLabel(message)}.`, step: sideOf(untested[1]), advice: "Dort lässt sich die Verbindung prüfen." };
+  if (untested) return { text: `${messageLabel(message)}.`, step: sideOf(untested[1]), advice: advice.checkThere };
   const gone = message.match(/^(.+) no longer exists$/);
-  if (gone) return { text: `${messageLabel(message)}.`, step: sideOf(gone[1]), advice: "Wähle dort einen anderen Ort." };
+  if (gone) return { text: `${messageLabel(message)}.`, step: sideOf(gone[1]), advice: advice.otherLocation };
   // "<location>: <reason>" when a server or a cloud could not be reached.
   const failed = message.match(/^(.+?): (.+)$/);
   if (failed && sideOf(failed[1]) !== null) {
-    return { text: `${failed[1]}: ${messageLabel(failed[2] ?? "")}.`, step: sideOf(failed[1]), advice: "Dort lässt sich die Verbindung prüfen." };
+    return { text: `${failed[1]}: ${messageLabel(failed[2] ?? "")}.`, step: sideOf(failed[1]), advice: advice.checkThere };
   }
-  if (/^source /.test(message)) return { text: `${messageLabel(message)}.`, step: 0, advice: "Wähle eine andere Quelle." };
-  if (/^target /.test(message)) return { text: `${messageLabel(message)}.`, step: 1, advice: "Wähle ein anderes Ziel." };
-  if (/same folder|lies inside/.test(message)) return { text: `${messageLabel(message)}.`, step: 1, advice: "Wähle ein anderes Ziel." };
+  if (/^source /.test(message)) return { text: `${messageLabel(message)}.`, step: 0, advice: advice.otherSource };
+  if (/^target /.test(message)) return { text: `${messageLabel(message)}.`, step: 1, advice: advice.otherTarget };
+  if (/same folder|lies inside/.test(message)) return { text: `${messageLabel(message)}.`, step: 1, advice: advice.otherTarget };
   if (/deletion limit/.test(message)) return { text: messageLabel(message), step: 2, advice: null };
   if (/is not a time like/.test(message)) return { text: messageLabel(message), step: 3, advice: null };
   if (/^job .+ does not exist$/.test(message) && input.triggers.afterJob) {
-    return { text: messageLabel(message), step: 3, advice: "Wähle einen anderen Job, nach dem dieser laufen soll." };
+    return { text: messageLabel(message), step: 3, advice: advice.otherAfterJob };
   }
   if (/name is required/.test(message)) return { text: `${messageLabel(message)}.`, step: 4, advice: null };
   return { text: messageLabel(message), step: null, advice: null };

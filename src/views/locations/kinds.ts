@@ -1,6 +1,7 @@
 // The kinds of location a user can add, and the words for them.
 
 import type { CloudField, CloudProvider, Location } from "../../lib/types";
+import { texts } from "../../i18n";
 import { glyphKindOf, type GlyphKind } from "../../ui/UiLocationGlyph";
 
 /** What the add-location flow offers: the location kinds, with WebDAV as its own choice. */
@@ -19,59 +20,27 @@ export interface KindInfo {
   lamps: string[];
 }
 
-export const KINDS: KindInfo[] = [
-  {
-    kind: "folder",
-    title: "Ordner auf dem Mac",
-    short: "Ein Ordner auf der eingebauten SSD",
-    long: "Ein Ordner auf dem Mac selbst, etwa der Schreibtisch oder die Dokumente. Für einen Ordner auf einem externen Laufwerk wähle „Laufwerk“.",
-    needs: "Du brauchst nur den Ordner.",
-    lamps: ["Ordner", "Angelegt"],
-  },
-  {
-    kind: "volume",
-    title: "Laufwerk",
-    short: "Externe SSD, Festplatte oder USB-Stick",
-    long: "clonq erkennt das Laufwerk an seiner Kennung wieder, auch unter einem anderen Namen. Jobs können starten, sobald es angesteckt wird.",
-    needs: "Das Laufwerk muss gerade angeschlossen sein.",
-    lamps: ["Laufwerk", "Angelegt"],
-  },
-  {
-    kind: "ssh",
-    title: "Server (SSH)",
-    short: "Ein Rechner, der per SSH erreichbar ist",
-    long: "Zum Beispiel eine Hetzner Storage Box. clonq meldet sich mit einem eigenen Schlüssel an. Das Passwort wird nur einmal gebraucht, um diesen Schlüssel zu hinterlegen.",
-    needs: "Du brauchst Adresse, Benutzernamen und einmalig das Passwort.",
-    lamps: ["Echtheit", "Hinterlegt", "Getestet", "Ordner"],
-  },
-  {
-    kind: "smb",
-    title: "Netzlaufwerk (SMB/NAS)",
-    short: "Eine Freigabe im lokalen Netzwerk",
-    long: "Eine Freigabe auf einem NAS oder einem anderen Rechner im Netzwerk. Das Passwort bewahrt der Schlüsselbund von macOS auf.",
-    needs: "Du brauchst die Adresse der Freigabe, Benutzernamen und Passwort.",
-    lamps: ["Adresse", "Einhängen", "Angelegt"],
-  },
-  {
-    kind: "cloud",
-    title: "Cloud",
-    short: "S3, B2, Google Drive, OneDrive, Dropbox",
-    long: "Speicher bei einem Cloud-Anbieter. Bei Google Drive, OneDrive und Dropbox meldest du dich im Browser an, S3 und B2 brauchen einen Zugangsschlüssel.",
-    needs: "Du brauchst ein Konto beim Anbieter.",
-    lamps: ["Anbieter", "Zugang", "Angelegt"],
-  },
-  {
-    kind: "webdav",
-    title: "WebDAV",
-    short: "Zum Beispiel eine Nextcloud",
-    long: "Ein Speicher, der über WebDAV erreichbar ist, etwa eine Nextcloud oder ein NAS mit WebDAV-Zugang.",
-    needs: "Du brauchst Adresse, Benutzernamen und Passwort.",
-    lamps: ["Adresse", "Zugang", "Angelegt"],
-  },
-];
+/** The order of the list in "Add location". */
+export const KIND_ORDER: SetupKind[] = ["folder", "volume", "ssh", "smb", "cloud", "webdav"];
+
+/** The kinds with their words in the current language. */
+export function kinds(): KindInfo[] {
+  return KIND_ORDER.map(kindInfo);
+}
 
 export function kindInfo(kind: SetupKind): KindInfo {
-  return KINDS.find((info) => info.kind === kind) ?? (KINDS[0] as KindInfo);
+  const t = texts().locations.kinds;
+  // In the order of the steps, whatever order a catalog lists them in.
+  const lamps: Record<SetupKind, string[]> = {
+    folder: [t.folder.lamps.folder, t.folder.lamps.added],
+    volume: [t.volume.lamps.drive, t.volume.lamps.added],
+    ssh: [t.ssh.lamps.trusted, t.ssh.lamps.installed, t.ssh.lamps.tested, t.ssh.lamps.folder],
+    smb: [t.smb.lamps.address, t.smb.lamps.mount, t.smb.lamps.added],
+    cloud: [t.cloud.lamps.provider, t.cloud.lamps.access, t.cloud.lamps.added],
+    webdav: [t.webdav.lamps.address, t.webdav.lamps.access, t.webdav.lamps.added],
+  };
+  const words = t[kind];
+  return { kind, title: words.title, short: words.short, long: words.long, needs: words.needs, lamps: lamps[kind] };
 }
 
 /** WebDAV is stored as a cloud location but drawn and named as its own kind. */
@@ -79,13 +48,16 @@ export function glyphOf(location: Location): GlyphKind {
   return glyphKindOf(location);
 }
 
-/** The kind of a location in words, the same as in "Ort hinzufügen". */
+/** The kind of a location in words, the same as in "Add location". */
 export function kindTitle(location: Location): string {
   return kindInfo(glyphOf(location)).title;
 }
 
+/** The full name of a provider; read at call time, so it follows the language. */
 export const providerLabel: Record<CloudProvider, string> = {
-  s3: "Amazon S3 oder kompatibler Speicher",
+  get s3() {
+    return texts().locations.provider.s3;
+  },
   b2: "Backblaze B2",
   drive: "Google Drive",
   onedrive: "Microsoft OneDrive",
@@ -110,39 +82,41 @@ interface FieldWords {
 }
 
 // The backend names its fields in the provider's own (English) terms; the form uses these.
-const FIELD_WORDS: Record<string, FieldWords> = {
-  endpoint: {
-    label: "Adresse des Anbieters",
-    placeholder: "z. B. fsn1.your-objectstorage.com",
-    hint: "Ohne Angabe verwendet clonq Amazon S3.",
-  },
-  region: { label: "Region", placeholder: "z. B. eu-central-1" },
-  access_key_id: { label: "Schlüssel-ID" },
-  secret_access_key: { label: "Geheimer Schlüssel" },
-  account: { label: "Schlüssel-ID" },
-  key: { label: "Anwendungsschlüssel" },
-  url: { label: "Adresse", placeholder: "z. B. https://cloud.example.org/remote.php/webdav" },
-  user: { label: "Benutzer" },
-  pass: { label: "Passwort" },
-};
+function knownField(key: string): FieldWords | undefined {
+  const t = texts().locations.fields;
+  const words: Record<string, FieldWords> = {
+    endpoint: { label: t.endpoint, placeholder: t.endpointPlaceholder, hint: t.endpointHint },
+    region: { label: t.region, placeholder: t.regionPlaceholder },
+    access_key_id: { label: t.accessKeyId },
+    secret_access_key: { label: t.secretAccessKey },
+    account: { label: t.account },
+    key: { label: t.key },
+    url: { label: t.url, placeholder: t.urlPlaceholder },
+    user: { label: t.user },
+    pass: { label: t.pass },
+  };
+  return words[key];
+}
 
 /** Label, placeholder and hint of a provider field in the words of the form. */
 export function fieldWords(field: CloudField): { label: string; placeholder: string; hint: string | undefined } {
-  const words = FIELD_WORDS[field.key];
+  const t = texts().locations.fields;
+  const words = knownField(field.key);
   const label = words?.label ?? field.label;
   return {
-    label: field.required ? label : `${label} (optional)`,
-    placeholder: words?.placeholder ?? (field.placeholder ? `z. B. ${field.placeholder}` : ""),
+    label: field.required ? label : t.optional(label),
+    placeholder: words?.placeholder ?? (field.placeholder ? t.example(field.placeholder) : ""),
     hint: words?.hint ?? field.hint ?? undefined,
   };
 }
 
 /** Where on the provider the location starts: a bucket for object storage, a folder otherwise. */
 export function rootWords(provider: CloudProvider): FieldWords {
+  const t = texts().locations.fields;
   if (provider === "s3" || provider === "b2") {
-    return { label: "Bucket und Ordner", placeholder: "z. B. fotos-backup/clonq", hint: "Den Bucket muss es beim Anbieter schon geben." };
+    return { label: t.bucket, placeholder: t.bucketPlaceholder, hint: t.bucketHint };
   }
-  return { label: "Ordner", placeholder: "z. B. Backups/clonq", hint: "Ohne Angabe verwendet clonq die oberste Ebene." };
+  return { label: t.folder, placeholder: t.folderPlaceholder, hint: t.folderHint };
 }
 
 const HOME = /^\/Users\/[^/]+/;
@@ -152,23 +126,13 @@ export function tidyPath(path: string): string {
   return path.replace(HOME, "~");
 }
 
-// Finder shows the standard folders of the home folder under German names.
-const FINDER_NAMES: Record<string, string> = {
-  Desktop: "Schreibtisch",
-  Documents: "Dokumente",
-  Downloads: "Downloads",
-  Pictures: "Bilder",
-  Movies: "Filme",
-  Music: "Musik",
-  Public: "Öffentlich",
-};
-
-/** A name for a folder location, from its path. */
+/** A name for a folder location, from its path; the standard folders of the home folder get the Finder's name for them. */
 export function folderName(path: string): string {
   const parts = path.replace(/\/+$/, "").split("/");
   const last = parts.at(-1) ?? "";
   const inHome = parts.length === 4 && parts[1] === "Users";
-  return (inHome ? FINDER_NAMES[last] : undefined) ?? last;
+  const finder: Record<string, string> = texts().locations.finder;
+  return (inHome && Object.hasOwn(finder, last) ? finder[last] : undefined) ?? last;
 }
 
 const FILE_SYSTEMS: Record<string, string> = {

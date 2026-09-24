@@ -1,5 +1,6 @@
 import { Check, Plug } from "lucide-react";
 import { useState } from "react";
+import { useT } from "../../i18n";
 import { api } from "../../lib/api";
 import { UiField, UiInput, UiNotice, UiText } from "../../ui";
 import { nameTaken, sameShare } from "./duplicates";
@@ -13,6 +14,9 @@ const SHARE = /^smb:\/\/([^/\s]+)\/([^/\s][^\s]*)$/i;
  * mounts the share once; only when that works is the location saved.
  */
 export function useSmbSetup(context: SetupContext): Setup {
+  const t = useT();
+  const ts = t.locations.smb;
+  const tw = t.locations.flow;
   const config = context.state.config;
   const [url, setUrl] = useState("");
   const [user, setUser] = useState("");
@@ -43,27 +47,27 @@ export function useSmbSetup(context: SetupContext): Setup {
   const body = (
     <div className="flex flex-col gap-3.5">
       <UiField
-        label="Adresse der Freigabe"
-        error={url.trim() !== "" && !valid ? "Die Adresse hat die Form smb://server/freigabe." : null}
-        hint="Dieselbe Adresse, die der Finder unter „Gehe zu“ › „Mit Server verbinden …“ erwartet."
+        label={ts.address}
+        error={url.trim() !== "" && !valid ? ts.addressError : null}
+        hint={ts.addressHint}
       >
-        <UiInput value={url} onChange={setUrl} placeholder="z. B. smb://nas.local/Fotos" mono autoFocus disabled={locked} />
+        <UiInput value={url} onChange={setUrl} placeholder={ts.addressPlaceholder} mono autoFocus disabled={locked} />
       </UiField>
       <div className="grid grid-cols-2 gap-3">
-        <UiField label="Benutzer">
-          <UiInput value={user} onChange={setUser} placeholder="Benutzername" disabled={locked} />
+        <UiField label={tw.user}>
+          <UiInput value={user} onChange={setUser} placeholder={ts.userPlaceholder} disabled={locked} />
         </UiField>
-        <UiField label="Passwort" hint="Liegt danach im Schlüsselbund.">
+        <UiField label={tw.password} hint={ts.passwordHint}>
           <UiInput value={password} onChange={setPassword} type="password" disabled={locked} />
         </UiField>
       </div>
-      <NameField value={name} onChange={setName} taken={taken} hint="So erscheint die Freigabe in clonq." disabled={locked} />
-      {existing ? <ExistingNotice subject="Diese Freigabe" location={existing} onOpen={() => context.reveal(existing.id)} /> : null}
+      <NameField value={name} onChange={setName} taken={taken} hint={ts.nameHint} disabled={locked} />
+      {existing ? <ExistingNotice subject={ts.subject} location={existing} onOpen={() => context.reveal(existing.id)} /> : null}
       {add.error ? (
         <UiNotice tone="danger">{add.error}</UiNotice>
       ) : (
         <UiText variant="caption" tone="neutral">
-          clonq hängt die Freigabe zur Probe ein und legt den Ort erst an, wenn das gelingt.
+          {ts.trial}
         </UiText>
       )}
     </div>
@@ -79,25 +83,25 @@ export function useSmbSetup(context: SetupContext): Setup {
       lampOf({ done: !!added, ready: false }),
     ],
     status: added
-      ? "Hinzugefügt"
+      ? tw.added
       : add.busy
-        ? "Freigabe wird eingehängt …"
+        ? ts.mounting
         : add.error
-          ? "Die Freigabe ließ sich nicht einhängen"
+          ? ts.mountFailed
           : existing
-            ? "Schon als Ort angelegt"
+            ? tw.alreadyAdded
             : ready
-              ? "Bereit zum Verbinden"
-              : "Nicht verbunden",
+              ? tw.readyToConnect
+              : tw.notConnected,
     tone: added ? ("ok" as const) : add.error ? ("danger" as const) : ("neutral" as const),
   };
 
   const base = { body, plate, dirty: url.trim() !== "" || user.trim() !== "" || password !== "" || edited, busy: add.busy };
-  if (added) return { ...base, final: true, action: { label: "Hinzugefügt", icon: Check, run: () => {}, disabled: true } };
+  if (added) return { ...base, final: true, action: { label: tw.added, icon: Check, run: () => {}, disabled: true } };
   return {
     ...base,
     action: {
-      label: add.busy ? "Freigabe wird eingehängt …" : "Verbinden und hinzufügen",
+      label: add.busy ? ts.mounting : tw.connectAndAdd,
       icon: add.busy ? undefined : Plug,
       run: () => void submit(),
       disabled: add.busy || !ready,

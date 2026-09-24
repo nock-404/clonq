@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { clearError, useClonq, useNow } from "../hooks/useClonq";
 import { useHotkeys } from "../hooks/useHotkeys";
 import { api } from "../lib/api";
+import { useT } from "../i18n";
 import { formatBytes } from "../lib/format";
 import { messageLabel, placeLabel } from "../lib/labels";
 import { isRunning, jobActions, jobLine, jobReady } from "../lib/jobs";
@@ -20,6 +21,7 @@ import { Disc3, ShieldAlert } from "lucide-react";
 export function Popover() {
   const state = useClonq();
   const now = useNow();
+  const t = useT();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -91,9 +93,9 @@ export function Popover() {
     <div className="relative flex h-full flex-col bg-canvas text-ink">
       <div className="flex items-center pr-2">
         <div className="min-w-0 flex-1">
-          <UiSearchField ref={search} value={query} onChange={(value) => { setQuery(value); setSelected(0); }} placeholder="Job suchen oder starten …" onKeyDown={onSearchKey} autoFocus />
+          <UiSearchField ref={search} value={query} onChange={(value) => { setQuery(value); setSelected(0); }} placeholder={t.shell.popover.search} onKeyDown={onSearchKey} autoFocus />
         </div>
-        <UiIconButton icon={AppWindow} label="clonq öffnen (⌘O)" onPress={() => void api.openMainWindow(job?.id)} />
+        <UiIconButton icon={AppWindow} label={t.shell.popover.openMain} onPress={() => void api.openMainWindow(job?.id)} />
       </div>
       <div className="hairline-t" />
 
@@ -106,18 +108,18 @@ export function Popover() {
       ) : null}
       <UpdateSlot />
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2" role="listbox" aria-label="Jobs">
-        <div className="px-2.5 pt-1 pb-1.5 text-[0.6875rem] font-medium text-ink-faint">Jobs</div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2" role="listbox" aria-label={t.shell.popover.jobs}>
+        <div className="px-2.5 pt-1 pb-1.5 text-[0.6875rem] font-medium text-ink-faint">{t.shell.popover.jobs}</div>
         {jobs.length === 0 ? (
           <div className="flex flex-col items-center gap-3">
             <UiEmpty
               icon={Disc3}
-              title={query ? "Kein Job passt" : "Noch keine Jobs"}
-              detail={query ? undefined : "Orte und Jobs werden im Hauptfenster eingerichtet."}
+              title={query ? t.shell.popover.noMatch : t.shell.popover.noJobs}
+              detail={query ? undefined : t.shell.popover.noJobsDetail}
             />
             {query ? null : (
               <UiButton variant="primary" onPress={() => void api.openMainWindow()}>
-                In clonq einrichten
+                {t.shell.popover.setUp}
               </UiButton>
             )}
           </div>
@@ -156,7 +158,7 @@ export function Popover() {
               actions={
                 latest.status === "blocked" && ready ? (
                   <UiButton variant="danger" icon={ShieldAlert} onPress={() => void jobActions.force(job.id)}>
-                    Trotzdem ausführen
+                    {t.shell.popover.runAnyway}
                   </UiButton>
                 ) : undefined
               }
@@ -174,18 +176,18 @@ export function Popover() {
             <span className={`size-1.5 shrink-0 rounded-full bg-current ${toneText[summary.tone]}`} />
             <span className="truncate" title={summary.text}>
               {summary.short}
-              {today > 0 ? ` · heute ${formatBytes(today)}` : ""}
+              {today > 0 ? ` · ${t.shell.popover.today(formatBytes(today))}` : ""}
             </span>
           </>
         }
         primary={
           job
             ? running
-              ? { label: "Abbrechen", keys: ["⌘", "."], onPress: () => void jobActions.cancel(job.id) }
-              : { label: "Jetzt syncen", keys: ["↵"], onPress: () => void jobActions.run(job.id), disabled: !ready }
+              ? { label: t.common.cancel, keys: ["⌘", "."], onPress: () => void jobActions.cancel(job.id) }
+              : { label: t.shell.popover.syncNow, keys: ["↵"], onPress: () => void jobActions.run(job.id), disabled: !ready }
             : undefined
         }
-        secondary={{ label: "Aktionen", keys: ["⌘", "K"], onPress: () => setActionsOpen(true), disabled: !job }}
+        secondary={{ label: t.shell.popover.actions, keys: ["⌘", "K"], onPress: () => setActionsOpen(true), disabled: !job }}
       />
 
       {job ? (

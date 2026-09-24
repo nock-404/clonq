@@ -1,6 +1,7 @@
 import { Pencil, Trash } from "lucide-react";
 import { useState, type KeyboardEvent, type ReactNode } from "react";
 import { reportError } from "../../hooks/useClonq";
+import { texts, useT } from "../../i18n";
 import { api } from "../../lib/api";
 import { messageLabel, modeLabel, placeLabel } from "../../lib/labels";
 import { navigate, openSheet } from "../../lib/nav";
@@ -16,13 +17,14 @@ const fail = (error: unknown) => reportError(messageLabel(String(error)));
 
 /** The job's triggers in words, with the switch that turns them on and off. */
 function JobAutomation({ job, config }: { job: Job; config: Config | null }) {
+  const t = useT().wizard;
   if (!hasAutomatic(job.triggers)) {
-    return <span className="text-xs text-ink-faint">Startet nur von Hand</span>;
+    return <span className="text-xs text-ink-faint">{t.header.manualOnly}</span>;
   }
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5">
-      <UiToggle label="Automatik" checked={job.enabled} onChange={(enabled) => void api.setJobEnabled(job.id, enabled).catch(fail)} />
-      <span className={`text-xs ${job.enabled ? "text-ink-faint" : "text-ink-faint/60"}`}>{triggerWords(job.triggers, config).join(", ")}</span>
+      <UiToggle label={t.trigger.automation} checked={job.enabled} onChange={(enabled) => void api.setJobEnabled(job.id, enabled).catch(fail)} />
+      <span className={`text-xs ${job.enabled ? "text-ink-faint" : "text-ink-faint/60"}`}>{t.standalone(triggerWords(job.triggers, config).join(", "))}</span>
     </div>
   );
 }
@@ -37,6 +39,7 @@ interface JobHeaderProps {
 
 /** Name, places and triggers of a job, with edit, delete and the run buttons. Deleting asks once, in place. */
 export function JobHeader({ job, config, running, children }: JobHeaderProps) {
+  const t = useT().wizard.header;
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -45,11 +48,12 @@ export function JobHeader({ job, config, running, children }: JobHeaderProps) {
     try {
       await api.deleteJob(job.id);
       navigate({ kind: "overview" });
+      const words = texts().wizard.header;
       showJobToast({
-        text: `„${job.name}“ ist gelöscht.`,
+        text: words.deleted(job.name),
         duration: 8000,
         action: {
-          label: "Rückgängig",
+          label: words.undo,
           onPress: () =>
             void api
               .saveJob(inputOf(job))
@@ -84,11 +88,11 @@ export function JobHeader({ job, config, running, children }: JobHeaderProps) {
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <UiButton variant="ghost" icon={Pencil} onPress={() => openSheet({ kind: "jobWizard", jobId: job.id })}>
-            Bearbeiten
+            {t.edit}
           </UiButton>
           <UiIconButton
             icon={Trash}
-            label={running ? "Während eines Laufs lässt sich der Job nicht löschen" : "Job löschen"}
+            label={running ? t.deleteWhileRunning : t.delete}
             disabled={running}
             onPress={() => setConfirming(true)}
           />
@@ -98,15 +102,15 @@ export function JobHeader({ job, config, running, children }: JobHeaderProps) {
       </div>
       {confirming ? (
         <UiConfirmBar
-          title={`„${job.name}“ löschen?`}
-          cancelLabel="Behalten"
-          confirmLabel="Job löschen"
+          title={t.confirmDelete(job.name)}
+          cancelLabel={t.keep}
+          confirmLabel={t.delete}
           confirmIcon={Trash}
           busy={busy}
           onCancel={() => setConfirming(false)}
           onConfirm={() => void remove()}
         >
-          Die Dateien in Quelle und Ziel bleiben unberührt, die bisherigen Läufe bleiben im Verlauf. Gelöscht werden nur die Einstellungen des Jobs.
+          {t.deleteBody}
         </UiConfirmBar>
       ) : null}
     </header>

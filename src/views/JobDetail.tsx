@@ -2,6 +2,7 @@ import { FlaskConical, Play, ShieldAlert, Square } from "lucide-react";
 import type { KeyboardEvent } from "react";
 import type { ClonqState } from "../hooks/useClonq";
 import { useHotkeys } from "../hooks/useHotkeys";
+import { texts, useT } from "../i18n";
 import {
   formatBytes,
   formatCount,
@@ -56,6 +57,9 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
   const blockerReach = readiness.blocker ? reachLabel(state.locations[readiness.blocker]?.reach).text : "";
   const blocked = !running && latest?.status === "blocked";
   const ring = ringOf(job.ring, index);
+  const t = useT();
+  const d = t.detail;
+  const j = d.job;
 
   useHotkeys({
     Enter: () => !running && !remote && void jobActions.run(job.id),
@@ -78,15 +82,15 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
       <JobHeader job={job} config={state.config} running={running}>
         {running ? (
           <UiButton variant="danger" icon={Square} keys={["⌘", "."]} onPress={() => void jobActions.cancel(job.id)}>
-            Abbrechen
+            {t.common.cancel}
           </UiButton>
         ) : (
           <>
             <UiButton variant="ghost" icon={FlaskConical} keys={["⌘", "↵"]} disabled={remote} onPress={() => void jobActions.dryRun(job.id)}>
-              Probelauf
+              {d.dryRun}
             </UiButton>
             <UiButton variant="primary" icon={Play} keys={["↵"]} disabled={remote} onPress={() => void jobActions.run(job.id)}>
-              Jetzt starten
+              {j.runNow}
             </UiButton>
           </>
         )}
@@ -94,7 +98,7 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
 
       {remote ? (
         <UiNotice tone="neutral">
-          {blockerName ?? "Ein Ort"} ist gerade {blockerReach}. Sobald er erreichbar ist, kann dieser Job laufen.
+          {j.waiting(blockerName, blockerReach)}
         </UiNotice>
       ) : null}
       {!running && latest?.message && latest.status !== "succeeded" ? (
@@ -104,10 +108,10 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
             blocked ? (
               <>
                 <UiButton variant="danger" icon={ShieldAlert} onPress={() => void jobActions.force(job.id)}>
-                  Trotzdem ausführen
+                  {j.runAnyway}
                 </UiButton>
                 <UiButton variant="ghost" icon={FlaskConical} onPress={() => void jobActions.dryRun(job.id)}>
-                  Probelauf ansehen
+                  {j.showDryRun}
                 </UiButton>
               </>
             ) : undefined
@@ -121,18 +125,18 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
         {/* Fixed width: the three reel styles differ a little in proportion, and switching must not shift the page. */}
         <section className="flex w-44 flex-col items-center gap-3">
           <div className="h-64">
-            <UiReelPair ring={ring} progress={running ? live.percent : latest ? 100 : 0} running={running} label={running ? "Band läuft" : "Band steht"} />
+            <UiReelPair ring={ring} progress={running ? live.percent : latest ? 100 : 0} running={running} label={running ? j.tapeRunning : j.tapeStopped} />
           </div>
           {state.config?.ui.lamps ? <UiLamps active={running && live.phase === "transferring"} /> : null}
         </section>
 
         <div className="flex min-w-0 flex-col gap-4">
-          <UiPanel title={running ? (live.dryRun ? "Probelauf läuft" : "Läuft gerade") : "Stand der Kopie"} aside={running ? progressLine(live) : undefined}>
+          <UiPanel title={running ? (live.dryRun ? j.dryRunning : j.running) : j.copyState} aside={running ? progressLine(live) : undefined}>
             {running ? (
               <div className="flex flex-col gap-3">
                 <div className="flex items-end justify-between gap-4">
                   <span className="text-4xl font-semibold tracking-tight tabular">
-                    {live.phase === "checking" ? "prüft" : formatPercent(live.percent)}
+                    {live.phase === "checking" ? j.checking : formatPercent(live.percent)}
                   </span>
                   <span className="text-sm text-ink-soft tabular">{formatRate(live.bytesPerSecond)}</span>
                 </div>
@@ -144,31 +148,31 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
             )}
           </UiPanel>
 
-          <UiPanel title={running ? "Durchsatz, letzte Minute" : "Durchsatz im letzten Lauf"} aside={peak > 0 ? `Spitze ${formatRate(peak)}` : undefined}>
+          <UiPanel title={running ? j.throughputLive : j.throughputLast} aside={peak > 0 ? j.peak(formatRate(peak)) : undefined}>
             <div className="h-16">
               {curve.length > 1 ? (
-                <UiSparkline values={curve} slots={running ? 60 : undefined} label="Durchsatz" />
+                <UiSparkline values={curve} slots={running ? 60 : undefined} label={j.throughput} />
               ) : (
-                <span className="text-xs text-ink-faint">Noch keine Messwerte. Die Kurve entsteht beim nächsten Lauf.</span>
+                <span className="text-xs text-ink-faint">{j.noSamples}</span>
               )}
             </div>
           </UiPanel>
 
           <div className="grid grid-cols-4 gap-4">
-            <UiStat label="Neu" value={formatCount(counts.created)} tone={counts.created > 0 ? "ok" : "ink"} />
-            <UiStat label="Geändert" value={formatCount(counts.changed)} tone={counts.changed > 0 ? "accent" : "ink"} />
-            <UiStat label="Gelöscht" value={formatCount(counts.deleted)} tone={counts.deleted > 0 ? "danger" : "ink"} />
+            <UiStat label={d.counts.created} value={formatCount(counts.created)} tone={counts.created > 0 ? "ok" : "ink"} />
+            <UiStat label={d.counts.changed} value={formatCount(counts.changed)} tone={counts.changed > 0 ? "accent" : "ink"} />
+            <UiStat label={d.counts.deleted} value={formatCount(counts.deleted)} tone={counts.deleted > 0 ? "danger" : "ink"} />
             <UiStat
-              label={running ? "Dateien/s" : "Gespart"}
+              label={running ? j.filesPerSecond : j.saved}
               value={running ? formatCount(Math.round(live.filesPerSecond)) : saved === null ? "–" : formatPercent(saved, saved > 99 ? 2 : 0)}
-              detail={!running && last ? `von ${formatBytes(last.sourceBytes)} nicht übertragen` : undefined}
+              detail={!running && last ? j.notTransferred(formatBytes(last.sourceBytes)) : undefined}
             />
           </div>
         </div>
       </div>
 
       {running && live.recentPaths.length > 0 ? (
-        <UiPanel title="Zuletzt übertragen">
+        <UiPanel title={j.recent}>
           <ul className="flex flex-col gap-1">
             {live.recentPaths.map((path) => (
               <li key={path} className="truncate font-mono text-[0.6875rem] text-ink-soft">
@@ -180,27 +184,27 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
       ) : null}
 
       <div className="grid grid-cols-2 gap-4">
-        <UiPanel title="Änderungen, letzte 30 Tage" aside={formatBytes(lastThirty)}>
+        <UiPanel title={j.changes30} aside={formatBytes(lastThirty)}>
           <div className="h-20">
             <UiBars
-              label="Geänderte Daten pro Tag"
+              label={j.changesPerDay}
               bars={(stats?.daily ?? []).map((day) => ({
                 key: day.day,
                 value: day.bytes,
                 highlight: day.day === todayKey && day.bytes > 0,
-                title: `${formatDay(day.day)}: ${formatBytes(day.bytes)}, ${formatCount(day.files)} Dateien, ${day.runs} Läufe`,
+                title: j.dayBar(formatDay(day.day), formatBytes(day.bytes), day.files, formatCount(day.files), day.runs),
               }))}
             />
           </div>
         </UiPanel>
 
-        <UiPanel title="Ändert sich am meisten" aside="7 Tage">
+        <UiPanel title={j.changesMost} aside={j.sevenDays}>
           {stats && stats.topFolders.length > 0 ? (
             <ul className="flex flex-col gap-2">
               {stats.topFolders.map((folder) => (
                 <li key={folder.folder} className="flex flex-col gap-1">
                   <div className="flex items-baseline justify-between gap-3 text-xs">
-                    <span className="truncate font-mono text-ink">{folder.folder === "." ? "(oberste Ebene)" : folder.folder}</span>
+                    <span className="truncate font-mono text-ink">{folder.folder === "." ? j.topLevel : folder.folder}</span>
                     <span className="shrink-0 text-ink-faint tabular">
                       {formatBytes(folder.bytes)} · {formatCount(folder.files)}
                     </span>
@@ -212,49 +216,49 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
               ))}
             </ul>
           ) : (
-            <span className="text-xs text-ink-faint">Noch keine Änderungen aufgezeichnet.</span>
+            <span className="text-xs text-ink-faint">{j.noChanges}</span>
           )}
         </UiPanel>
 
-        <UiPanel title="Gesamt bewegt" aside={stats ? `${formatCount(stats.totals.runs)} Läufe` : undefined}>
+        <UiPanel title={j.movedTotal} aside={stats ? d.runs(stats.totals.runs, formatCount(stats.totals.runs)) : undefined}>
           <div className="flex items-end justify-between gap-4">
             <UiCounter value={stats?.totals.files ?? 0} digits={6} />
             <div className="flex flex-col items-end">
               <span className="text-lg font-semibold tabular">{formatBytes(stats?.totals.bytes ?? 0)}</span>
-              <span className="text-[0.6875rem] text-ink-faint">≈ {formatReels(stats?.totals.bytes ?? 0)} Magnetband</span>
+              <span className="text-[0.6875rem] text-ink-faint">{j.ofTape(formatReels(stats?.totals.bytes ?? 0))}</span>
             </div>
           </div>
         </UiPanel>
 
-        <UiPanel title="Zuverlässigkeit">
+        <UiPanel title={j.reliability}>
           <div className="grid grid-cols-3 gap-4">
-            <UiStat label="Serie" value={formatCount(stats?.streak ?? 0)} detail="ohne Fehler" size="md" />
+            <UiStat label={j.streak} value={formatCount(stats?.streak ?? 0)} detail={j.withoutErrors} size="md" />
             <UiStat
-              label="Erfolgreich"
+              label={j.succeeded}
               value={stats && stats.runsTotal > 0 ? `${stats.runsCompleted}/${stats.runsTotal}` : "–"}
               size="md"
             />
-            <UiStat label="Ø Dauer" value={stats?.averageSeconds ? formatDuration(stats.averageSeconds) : "–"} detail="30 Tage" size="md" />
+            <UiStat label={j.averageDuration} value={stats?.averageSeconds ? formatDuration(stats.averageSeconds) : "–"} detail={j.thirtyDays} size="md" />
           </div>
         </UiPanel>
       </div>
 
       {latest ? (
         <span className="text-[0.6875rem] text-ink-faint">
-          Letzter Lauf: {statusLabel(latest.status)} · {formatRelative(latest.startedAt, now)}
+          {j.lastRun(statusLabel(latest.status))} · {formatRelative(latest.startedAt, now)}
           {durationSeconds(latest) !== null ? ` · ${formatDuration(durationSeconds(latest) ?? 0)}` : ""}
         </span>
       ) : null}
 
       {/* ↵ on a link, list, field or button in the archive belongs to it; it never starts the job. */}
       <div onKeyDown={keepEnter}>
-        <UiPanel title="Archiv">
+        <UiPanel title={j.archive}>
           <div className="flex min-w-0 items-center gap-2">
-            <UiBadge>{job.archive.enabled ? "An" : "Aus"}</UiBadge>
+            <UiBadge>{job.archive.enabled ? j.on : j.off}</UiBadge>
             <UiText tone="neutral" truncate>
               {archiveSentence(job)}
             </UiText>
-            <UiLinkButton onPress={() => openSheet({ kind: "jobWizard", jobId: job.id })}>Ändern</UiLinkButton>
+            <UiLinkButton onPress={() => openSheet({ kind: "jobWizard", jobId: job.id })}>{j.change}</UiLinkButton>
           </div>
           <ArchivePanel
             job={job}
@@ -277,7 +281,7 @@ function keepEnter(event: KeyboardEvent<HTMLElement>) {
 /** The archive setting as one sentence. A two-way job keeps an archive on both sides. */
 function archiveSentence(job: Job): string {
   const { enabled, keepDays } = job.archive;
-  if (!enabled) return "Gelöschtes und Überschriebenes wird nicht aufbewahrt.";
-  const days = keepDays === 1 ? "einen Tag" : `${formatCount(keepDays)} Tage`;
-  return `Gelöschtes und Überschriebenes bleibt ${days} lang ${job.mode === "bidirectional" ? "auf beiden Seiten" : "im Ziel"} erhalten.`;
+  const t = texts().detail.job;
+  if (!enabled) return t.archiveOff;
+  return t.archiveOn(keepDays, formatCount(keepDays), job.mode === "bidirectional");
 }

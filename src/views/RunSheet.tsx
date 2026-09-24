@@ -2,6 +2,7 @@ import { CircleAlert, FileMinus, FilePen, FilePlus } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { ClonqState } from "../hooks/useClonq";
+import { useT } from "../i18n";
 import { api } from "../lib/api";
 import { formatBytes, formatCount, formatDateTime, formatDuration } from "../lib/format";
 import { messageLabel, statusLabel, statusTone } from "../lib/labels";
@@ -25,15 +26,6 @@ const PAGE = 300;
 const kindIcon: Record<EntryKind, LucideIcon> = { new: FilePlus, changed: FilePen, deleted: FileMinus, error: CircleAlert };
 const kindTone: Record<EntryKind, Tone> = { new: "ok", changed: "accent", deleted: "danger", error: "danger" };
 
-const triggerLabel: Record<string, string> = {
-  manual: "per Knopf",
-  schedule: "nach Zeitplan",
-  daily: "täglich",
-  mount: "beim Anstecken",
-  change: "nach einer Änderung",
-  chain: "nach einem anderen Job",
-};
-
 /** Everything one run did, file by file; for a dry run, everything it would do. */
 export function RunSheet({ open, runId, state, onClose }: RunSheetProps) {
   const run = state.recent.find((item) => item.id === runId);
@@ -43,6 +35,10 @@ export function RunSheet({ open, runId, state, onClose }: RunSheetProps) {
   const [entries, setEntries] = useState<RunEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const t = useT();
+  const r = t.detail.run;
+  const c = t.detail.counts;
+  const triggers: Record<string, string> = r.triggers;
 
   useEffect(() => {
     if (!open || !runId) return;
@@ -71,44 +67,44 @@ export function RunSheet({ open, runId, state, onClose }: RunSheetProps) {
 
   const would = run?.dryRun ?? false;
   const filters: UiSegment<Filter>[] = [
-    { value: "all", label: "Alle" },
-    { value: "new", label: would ? "Würde neu" : "Neu" },
-    { value: "changed", label: would ? "Würde ändern" : "Geändert" },
-    { value: "deleted", label: would ? "Würde löschen" : "Gelöscht" },
-    { value: "error", label: "Fehler" },
+    { value: "all", label: r.all },
+    { value: "new", label: would ? c.wouldCreate : c.created },
+    { value: "changed", label: would ? c.wouldChange : c.changed },
+    { value: "deleted", label: would ? c.wouldDelete : c.deleted },
+    { value: "error", label: r.errors },
   ];
   const seconds = run ? durationSeconds(run) : null;
 
   return (
     <UiSheet
       open={open}
-      title={`${job?.name ?? "Lauf"}${would ? " · Probelauf" : ""}`}
-      subtitle={run ? `${formatDateTime(run.startedAt)} · ${triggerLabel[run.trigger] ?? run.trigger}${seconds !== null ? ` · ${formatDuration(seconds)}` : ""}` : undefined}
+      title={`${job?.name ?? r.fallbackTitle}${would ? r.dryRunSuffix : ""}`}
+      subtitle={run ? `${formatDateTime(run.startedAt)} · ${triggers[run.trigger] ?? run.trigger}${seconds !== null ? ` · ${formatDuration(seconds)}` : ""}` : undefined}
       onClose={onClose}
     >
       {run ? (
         <div className="flex flex-col gap-4">
           <div className="flex items-center gap-2">
             <UiBadge tone={statusTone[run.status]}>{statusLabel(run.status)}</UiBadge>
-            {would ? <UiBadge tone="accent">Nichts wurde verändert</UiBadge> : null}
+            {would ? <UiBadge tone="accent">{r.nothingChanged}</UiBadge> : null}
           </div>
           {run.message ? <UiNotice tone={run.status === "failed" ? "danger" : "warn"}>{messageLabel(run.message)}</UiNotice> : null}
           <div className="grid grid-cols-4 gap-4">
-            <UiStat size="md" label={would ? "Würde neu" : "Neu"} value={formatCount(run.filesNew)} tone={run.filesNew > 0 ? "ok" : "ink"} />
-            <UiStat size="md" label={would ? "Würde ändern" : "Geändert"} value={formatCount(run.filesChanged)} tone={run.filesChanged > 0 ? "accent" : "ink"} />
-            <UiStat size="md" label={would ? "Würde löschen" : "Gelöscht"} value={formatCount(run.filesDeleted)} tone={run.filesDeleted > 0 ? "danger" : "ink"} />
-            <UiStat size="md" label="Menge" value={formatBytes(run.bytesNew + run.bytesChanged)} />
+            <UiStat size="md" label={would ? c.wouldCreate : c.created} value={formatCount(run.filesNew)} tone={run.filesNew > 0 ? "ok" : "ink"} />
+            <UiStat size="md" label={would ? c.wouldChange : c.changed} value={formatCount(run.filesChanged)} tone={run.filesChanged > 0 ? "accent" : "ink"} />
+            <UiStat size="md" label={would ? c.wouldDelete : c.deleted} value={formatCount(run.filesDeleted)} tone={run.filesDeleted > 0 ? "danger" : "ink"} />
+            <UiStat size="md" label={t.detail.data} value={formatBytes(run.bytesNew + run.bytesChanged)} />
           </div>
           <div className="flex items-center gap-3">
-            <UiSegmented label="Filter" segments={filters} value={filter} onChange={setFilter} />
+            <UiSegmented label={r.filter} segments={filters} value={filter} onChange={setFilter} />
             <div className="flex-1">
-              <UiInput value={query} onChange={setQuery} placeholder="Pfad suchen …" />
+              <UiInput value={query} onChange={setQuery} placeholder={r.search} />
             </div>
           </div>
           {error ? <UiNotice tone="danger">{messageLabel(error)}</UiNotice> : null}
           <ul className="hairline flex flex-col overflow-hidden rounded-[var(--radius-panel)] bg-well">
             {entries.length === 0 ? (
-              <li className="px-3 py-6 text-center text-xs text-ink-faint">{query || filter !== "all" ? "Nichts passt zum Filter." : "Dieser Lauf hat keine Dateien bewegt."}</li>
+              <li className="px-3 py-6 text-center text-xs text-ink-faint">{query || filter !== "all" ? r.noMatch : r.noFiles}</li>
             ) : (
               entries.map((entry, index) => {
                 const Icon = kindIcon[entry.kind];
@@ -126,17 +122,17 @@ export function RunSheet({ open, runId, state, onClose }: RunSheetProps) {
           </ul>
           <div className="flex items-center justify-between">
             <span className="text-[0.6875rem] text-ink-faint tabular">
-              {formatCount(entries.length)} von {formatCount(total)} Einträgen
+              {r.shown(formatCount(entries.length), formatCount(total))}
             </span>
             {entries.length < total ? (
               <UiButton variant="ghost" onPress={loadMore}>
-                Weitere laden
+                {r.loadMore}
               </UiButton>
             ) : null}
           </div>
         </div>
       ) : (
-        <span className="text-xs text-ink-faint">Dieser Lauf ist nicht mehr im Verlauf.</span>
+        <span className="text-xs text-ink-faint">{r.gone}</span>
       )}
     </UiSheet>
   );

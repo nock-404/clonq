@@ -1,6 +1,7 @@
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { ArrowUp, ChevronRight, Download, Eye, EyeOff, History, Pencil, RotateCw, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { texts, useT } from "../i18n";
 import { api } from "../lib/api";
 import { formatBytes, formatCount } from "../lib/format";
 import type { BrowseEntry, FilePreview, Location } from "../lib/types";
@@ -77,6 +78,9 @@ export function FileBrowser({ location, now, connected = true }: FileBrowserProp
   const [outcome, setOutcome] = useState<Outcome>(null);
   const [snapshots, setSnapshots] = useState<number | "none" | null>(null);
   const listbox = useRef<HTMLDivElement>(null);
+  const t = useT();
+  const b = t.detail.browser;
+  const q = t.detail.quote;
   // Where the view is headed; an answer that arrives later only touches the list if it is still there.
   const here = useRef(path);
 
@@ -95,7 +99,7 @@ export function FileBrowser({ location, now, connected = true }: FileBrowserProp
         });
         setCameFrom(null);
       })
-      .catch((reason) => alive && setListing({ path, entries: null, state: "failed", failure: failureOf("Dieser Ordner ließ sich nicht lesen", reason) }));
+      .catch((reason) => alive && setListing({ path, entries: null, state: "failed", failure: failureOf(texts().detail.browser.readFailed, reason) }));
     return () => {
       alive = false;
     };
@@ -161,7 +165,7 @@ export function FileBrowser({ location, now, connected = true }: FileBrowserProp
   };
 
   // Inside the snapshots the crumbs read "Snapshots › 22.09.2026, 02:00 › …" instead of ".zfs › snapshot › <name> › …".
-  const segments = inSnapshots ? ["Snapshots", ...parts.slice(2).map((part, index) => (index === 0 ? snapshotLabel(part) : part))] : parts;
+  const segments = inSnapshots ? [b.snapshots, ...parts.slice(2).map((part, index) => (index === 0 ? snapshotLabel(part) : part))] : parts;
   const jump = (depth: number) => {
     if (depth === 0) go("", inSnapshots ? null : (parts[0] ?? null));
     else if (inSnapshots) go(parts.slice(0, depth + 1).join("/"), parts[depth + 1] ?? null);
@@ -175,7 +179,7 @@ export function FileBrowser({ location, now, connected = true }: FileBrowserProp
       .browsePreview(location.id, full)
       .then((value) => setPreview((current) => (current?.path === full ? { ...current, load: { state: "ready", value } } : current)))
       .catch((reason) =>
-        setPreview((current) => (current?.path === full ? { ...current, load: { state: "failed", failure: failureOf("Eine Vorschau ließ sich nicht laden", reason, false) } } : current)),
+        setPreview((current) => (current?.path === full ? { ...current, load: { state: "failed", failure: failureOf(b.previewFailed, reason, false) } } : current)),
       );
   };
 
@@ -188,11 +192,11 @@ export function FileBrowser({ location, now, connected = true }: FileBrowserProp
 
   const download = (entry: BrowseEntry) => {
     if (working) return;
-    setOutcome({ state: "busy", text: `„${entry.name}“ wird nach Downloads kopiert …` });
+    setOutcome({ state: "busy", text: b.copying(q(entry.name)) });
     api
       .browseDownload(location.id, joinPath(folder, entry.name))
-      .then((copy) => setOutcome({ state: "done", text: `Kopiert nach ${tidyHome(copy)}`, reveal: copy }))
-      .catch((reason) => setOutcome({ state: "failed", failure: failureOf(`„${entry.name}“ ließ sich nicht kopieren`, reason, false) }));
+      .then((copy) => setOutcome({ state: "done", text: b.copied(tidyHome(copy)), reveal: copy }))
+      .catch((reason) => setOutcome({ state: "failed", failure: failureOf(b.copyFailed(q(entry.name)), reason, false) }));
   };
 
   const startRename = (entry: BrowseEntry) => {
@@ -224,7 +228,7 @@ export function FileBrowser({ location, now, connected = true }: FileBrowserProp
       .browseRename(location.id, before, wanted)
       .then(() => {
         setRenaming(null);
-        setOutcome({ state: "done", text: `Umbenannt in „${wanted}“.` });
+        setOutcome({ state: "done", text: b.renamed(q(wanted)) });
         setPreview((current) => (current?.path === before ? null : current));
         if (here.current === at) {
           setCameFrom(wanted);
@@ -233,7 +237,7 @@ export function FileBrowser({ location, now, connected = true }: FileBrowserProp
         focusList();
       })
       // The field keeps the focus, so the name can be corrected right away.
-      .catch((reason) => setRenaming((current) => (current ? { ...current, busy: false, error: failureOf("Das Umbenennen ist fehlgeschlagen", reason).text } : current)));
+      .catch((reason) => setRenaming((current) => (current ? { ...current, busy: false, error: failureOf(b.renameFailed, reason).text } : current)));
   };
 
   const askDelete = (entry: BrowseEntry) => {
@@ -265,7 +269,7 @@ export function FileBrowser({ location, now, connected = true }: FileBrowserProp
           setReload((count) => count + 1);
         }
       })
-      .catch((reason) => setOutcome({ state: "failed", failure: failureOf(`„${entry.name}“ ließ sich nicht löschen`, reason, false) }));
+      .catch((reason) => setOutcome({ state: "failed", failure: failureOf(b.deleteFailed(q(entry.name)), reason, false) }));
   };
 
   // ↵ in here opens or answers; it never reaches the location view, where it would check the location.
@@ -306,18 +310,18 @@ export function FileBrowser({ location, now, connected = true }: FileBrowserProp
   });
 
   const count = visible.length;
-  const hiddenNote = hiddenCount > 0 && !showHidden ? (hiddenCount === 1 ? "ein versteckter" : `${formatCount(hiddenCount)} versteckte`) : null;
+  const hiddenNote = hiddenCount > 0 && !showHidden;
   const summary =
     listing.state === "failed"
-      ? "Nicht lesbar"
+      ? b.unreadable
       : count === 0
         ? hiddenNote
-          ? `Nur ${hiddenCount === 1 ? "ein versteckter Eintrag" : `${formatCount(hiddenCount)} versteckte Einträge`}`
-          : "Leer"
-        : `${count === 1 ? "Ein Eintrag" : `${formatCount(count)} Einträge`}${hiddenNote ? `, dazu ${hiddenNote}` : ""}`;
-  const heading = path === SNAPSHOT_ROOT ? "Snapshots" : path.startsWith(`${SNAPSHOT_ROOT}/`) && path.split("/").length === 3 ? snapshotLabel(path.split("/")[2] ?? "") : path.split("/").at(-1) || location.name;
+          ? b.onlyHidden(hiddenCount, formatCount(hiddenCount))
+          : b.empty
+        : b.items(count, formatCount(count), hiddenNote ? hiddenCount : 0, formatCount(hiddenCount));
+  const heading = path === SNAPSHOT_ROOT ? b.snapshots : path.startsWith(`${SNAPSHOT_ROOT}/`) && path.split("/").length === 3 ? snapshotLabel(path.split("/")[2] ?? "") : path.split("/").at(-1) || location.name;
   const loadingLine =
-    listing.state !== "loading" ? null : listing.entries === null || path === folder ? "Wird gelesen …" : `„${heading}“ wird geöffnet …`;
+    listing.state !== "loading" ? null : listing.entries === null || path === folder ? t.detail.reading : b.opening(q(heading));
 
   const status = outcome ? (
     outcome.state === "failed" ? (
@@ -330,7 +334,7 @@ export function FileBrowser({ location, now, connected = true }: FileBrowserProp
         title={outcome.text}
         action={
           outcome.state === "done" && outcome.reveal ? (
-            <UiLinkButton onPress={() => void revealItemInDir(outcome.reveal ?? "").catch(() => undefined)}>Im Finder zeigen</UiLinkButton>
+            <UiLinkButton onPress={() => void revealItemInDir(outcome.reveal ?? "").catch(() => undefined)}>{t.detail.showInFinder}</UiLinkButton>
           ) : undefined
         }
       >
@@ -352,7 +356,7 @@ export function FileBrowser({ location, now, connected = true }: FileBrowserProp
         <span className="min-w-0 flex-1">
           <UiInput
             value={renaming.value}
-            placeholder="Neuer Name"
+            placeholder={b.newName}
             autoFocus
             onChange={(value) => !renaming.busy && setRenaming({ ...renaming, value, error: null })}
             onKeyDown={(event) => {
@@ -369,9 +373,9 @@ export function FileBrowser({ location, now, connected = true }: FileBrowserProp
           />
         </span>
         <UiButton variant="secondary" keys={["↵"]} disabled={renaming.busy} onPress={submitRename}>
-          {renaming.busy ? "Wird umbenannt …" : "Umbenennen"}
+          {renaming.busy ? b.renaming : b.rename}
         </UiButton>
-        <UiIconButton icon={X} label="Abbrechen" onPress={cancelRename} />
+        <UiIconButton icon={X} label={t.common.cancel} onPress={cancelRename} />
       </div>
       {renaming.error ? (
         <span className="pl-5.5">
@@ -387,13 +391,13 @@ export function FileBrowser({ location, now, connected = true }: FileBrowserProp
       {chosen && !deleting ? (
         <>
           <UiButton variant="ghost" keys={["↵"]} disabled={!settled} onPress={() => open(chosen.name)}>
-            {chosen.dir ? "Öffnen" : "Vorschau"}
+            {chosen.dir ? b.open : b.preview}
           </UiButton>
-          <UiIconButton icon={Download} label="In Downloads kopieren" disabled={!settled || working} onPress={() => download(chosen)} />
+          <UiIconButton icon={Download} label={b.copyToDownloads} disabled={!settled || working} onPress={() => download(chosen)} />
           {readOnly ? null : (
             <>
-              <UiIconButton icon={Pencil} label="Umbenennen" disabled={!settled} onPress={() => startRename(chosen)} />
-              <UiIconButton icon={Trash2} label="Löschen …" disabled={!settled || working} onPress={() => askDelete(chosen)} />
+              <UiIconButton icon={Pencil} label={b.rename} disabled={!settled} onPress={() => startRename(chosen)} />
+              <UiIconButton icon={Trash2} label={b.delete} disabled={!settled || working} onPress={() => askDelete(chosen)} />
             </>
           )}
         </>
@@ -408,7 +412,7 @@ export function FileBrowser({ location, now, connected = true }: FileBrowserProp
       <div className="flex min-h-7 items-center gap-2">
         <div className="min-w-0 flex-1">
           <UiBreadcrumb
-            label="Geöffneter Ordner"
+            label={b.currentFolder}
             root={
               <>
                 <UiLocationGlyph kind={glyphOf(location)} size="xs" connected={connected} />
@@ -419,15 +423,15 @@ export function FileBrowser({ location, now, connected = true }: FileBrowserProp
             onJump={jump}
           />
         </div>
-        {readOnly ? <UiBadge>{atSnapshotList ? "Nur lesbar" : "Snapshot, nur lesbar"}</UiBadge> : null}
+        {readOnly ? <UiBadge>{atSnapshotList ? b.readOnly : b.snapshotReadOnly}</UiBadge> : null}
         {snapshotCount !== null && !inSnapshots ? (
-          <UiButton variant="ghost" icon={History} onPress={() => go(SNAPSHOT_ROOT)} title={`${formatCount(snapshotCount)} Snapshots, nur lesbar`}>
-            Snapshots · {formatCount(snapshotCount)}
+          <UiButton variant="ghost" icon={History} onPress={() => go(SNAPSHOT_ROOT)} title={b.snapshotsTitle(formatCount(snapshotCount))}>
+            {b.snapshotsButton(formatCount(snapshotCount))}
           </UiButton>
         ) : null}
         <UiIconButton
           icon={showHidden ? Eye : EyeOff}
-          label={showHidden ? "Versteckte Einträge ausblenden" : hiddenCount > 0 ? `${formatCount(hiddenCount)} versteckte Einträge zeigen` : "Keine versteckten Einträge"}
+          label={showHidden ? b.hideHidden : hiddenCount > 0 ? b.showHidden(hiddenCount, formatCount(hiddenCount)) : b.noHidden}
           tone={showHidden ? "accent" : "neutral"}
           disabled={hiddenCount === 0 && !showHidden}
           onPress={() => setShowHidden((value) => !value)}
@@ -437,13 +441,13 @@ export function FileBrowser({ location, now, connected = true }: FileBrowserProp
       {storageBox && folder === "" && (snapshots === "none" || !boxTop) ? (
         <UiText variant="caption" tone="neutral">
           {boxTop
-            ? "Die Snapshots dieser Storage Box sind nicht sichtbar. In der Hetzner Console lässt sich bei der Storage Box unter „Snapshots“ das Snapshot-Verzeichnis einblenden."
-            : "Die Snapshots der Storage Box liegen oberhalb dieses Ordners und lassen sich hier nicht öffnen."}
+            ? b.boxSnapshotsHidden
+            : b.boxSnapshotsAbove}
         </UiText>
       ) : null}
 
       <div className={preview ? "grid grid-cols-[minmax(0,1fr)_19rem] gap-3" : "flex flex-col"}>
-        <UiWell size="lg" label={`Inhalt von ${[location.name, ...segments].join("/")}`} footer={footer}>
+        <UiWell size="lg" label={b.contents([location.name, ...segments].join("/"))} footer={footer}>
           {listing.state === "failed" && listing.failure ? (
             <div className="p-1.5">
               <UiNotice
@@ -451,11 +455,11 @@ export function FileBrowser({ location, now, connected = true }: FileBrowserProp
                 actions={
                   <>
                     <UiButton variant="ghost" icon={RotateCw} onPress={() => setReload((value) => value + 1)}>
-                      Erneut versuchen
+                      {t.detail.retry}
                     </UiButton>
                     {parts.length > 0 ? (
                       <UiButton variant="ghost" icon={ArrowUp} onPress={up}>
-                        Eine Ebene höher
+                        {b.up}
                       </UiButton>
                     ) : null}
                   </>
@@ -468,7 +472,7 @@ export function FileBrowser({ location, now, connected = true }: FileBrowserProp
           ) : (
             <UiItemList
               ref={listbox}
-              label={`Inhalt von ${[location.name, ...segments].join("/")}`}
+              label={b.contents([location.name, ...segments].join("/"))}
               items={items}
               selected={chosen?.name ?? null}
               onSelect={setSelected}
@@ -479,9 +483,9 @@ export function FileBrowser({ location, now, connected = true }: FileBrowserProp
                 settled ? (
                   <span className="flex items-center gap-2 px-2.5 py-2">
                     <UiText variant="caption" tone="neutral">
-                      {hiddenCount > 0 ? "Hier liegen nur versteckte Einträge." : "Dieser Ordner ist leer."}
+                      {hiddenCount > 0 ? b.onlyHiddenHere : b.emptyFolder}
                     </UiText>
-                    {hiddenCount > 0 ? <UiLinkButton onPress={() => setShowHidden(true)}>Zeigen</UiLinkButton> : null}
+                    {hiddenCount > 0 ? <UiLinkButton onPress={() => setShowHidden(true)}>{b.show}</UiLinkButton> : null}
                   </span>
                 ) : null
               }
@@ -497,7 +501,7 @@ export function FileBrowser({ location, now, connected = true }: FileBrowserProp
       {deleting && question ? (
         <UiConfirmBar
           title={question.title}
-          cancelLabel="Behalten"
+          cancelLabel={b.keep}
           confirmLabel={question.confirm}
           confirmIcon={Trash2}
           tone={question.tone}
@@ -514,11 +518,12 @@ export function FileBrowser({ location, now, connected = true }: FileBrowserProp
 /** The file next to the list: text or picture, its size and when it last changed. It takes the height of the list. */
 function PreviewPane({ entry, load, now, onClose, onDownload }: { entry: BrowseEntry; load: Load<FilePreview>; now: number; onClose: () => void; onDownload: () => void }) {
   const Icon = fileIcon(entry.name);
+  const b = useT().detail.browser;
   return (
     <UiWell
       follow
       inset="text"
-      label={`Vorschau von ${entry.name}`}
+      label={b.previewOf(entry.name)}
       header={
         <>
           <Icon className="size-4 shrink-0 text-ink-faint" strokeWidth={1.9} />
@@ -527,7 +532,7 @@ function PreviewPane({ entry, load, now, onClose, onDownload }: { entry: BrowseE
               {entry.name}
             </UiText>
           </span>
-          <UiIconButton icon={X} label="Vorschau schließen" onPress={onClose} />
+          <UiIconButton icon={X} label={b.closePreview} onPress={onClose} />
         </>
       }
       footer={
@@ -540,7 +545,7 @@ function PreviewPane({ entry, load, now, onClose, onDownload }: { entry: BrowseE
           {entry.modified ? (
             <span className="pr-1.5">
               <UiText variant="caption" tone="neutral">
-                Geändert {momentWords(new Date(entry.modified), now)}
+                {b.modified(momentWords(new Date(entry.modified), now))}
               </UiText>
             </span>
           ) : null}
@@ -548,14 +553,14 @@ function PreviewPane({ entry, load, now, onClose, onDownload }: { entry: BrowseE
       }
     >
       {load.state === "loading" ? (
-        <UiStatusLine state="busy">Vorschau wird geladen …</UiStatusLine>
+        <UiStatusLine state="busy">{b.loadingPreview}</UiStatusLine>
       ) : load.state === "failed" ? (
         <div className="flex flex-col items-start gap-2">
           <UiText variant="caption" tone="neutral">
             {load.failure.text}
           </UiText>
           <UiButton variant="secondary" icon={Download} onPress={onDownload}>
-            In Downloads kopieren
+            {b.copyToDownloads}
           </UiButton>
         </div>
       ) : load.value.base64 ? (
@@ -583,47 +588,21 @@ interface DeleteWords {
  * Drive and OneDrive use their bin, B2 hides a file but purges a folder with all its versions.
  */
 function deleteWords(location: Location, entry: BrowseEntry, snapshots: boolean): DeleteWords {
-  const name = `„${entry.name}“`;
-  const it = entry.dir
-    ? { subject: "Der Ordner", object: "der Ordner", all: " mit allem darin", nominative: "er", accusative: "ihn" }
-    : { subject: "Die Datei", object: "die Datei", all: "", nominative: "sie", accusative: "sie" };
-  const gone = { busy: `${name} wird gelöscht …`, done: `${name} ist gelöscht.` };
+  const t = texts().detail.browser.remove;
+  const name = texts().detail.quote(entry.name);
+  const dir = entry.dir;
+  const gone = { busy: t.busy(name), done: t.done(name) };
   const kind = location.kind;
   switch (kind.type) {
     case "folder":
     case "volume":
-      return {
-        tone: "warn",
-        title: `${name} in den Papierkorb legen?`,
-        body: `Aus dem Papierkorb lässt sich ${it.object}${it.all} im Finder mit „Zurücklegen“ wiederherstellen.`,
-        confirm: "In den Papierkorb",
-        busy: `${name} wird in den Papierkorb gelegt …`,
-        done: `${name} liegt im Papierkorb.`,
-      };
+      return { tone: "warn", title: t.trash.title(name), body: t.trash.body(dir), confirm: t.trash.confirm, busy: t.trash.busy(name), done: t.trash.done(name) };
     case "smb":
-      return {
-        tone: "danger",
-        title: `${name} löschen?`,
-        body: `Eine Netzwerkfreigabe hat nicht immer einen Papierkorb. Rechne damit, dass ${it.object}${it.all} sofort und endgültig gelöscht wird.`,
-        confirm: "Löschen",
-        ...gone,
-      };
+      return { tone: "danger", title: t.title(name), body: t.share(dir), confirm: t.confirm, ...gone };
     case "ssh":
       return snapshots
-        ? {
-            tone: "danger",
-            title: `${name} löschen?`,
-            body: `Auf dem Server gibt es keinen Papierkorb, ${it.object} wird${it.all} sofort gelöscht. Ältere Snapshots der Storage Box enthalten ${it.accusative} weiterhin, sofern ${it.nominative} damals schon dort lag.`,
-            confirm: "Löschen",
-            ...gone,
-          }
-        : {
-            tone: "danger",
-            title: `${name} endgültig löschen?`,
-            body: `Auf dem Server gibt es keinen Papierkorb. ${it.subject} wird${it.all} sofort und unwiderruflich gelöscht.`,
-            confirm: "Endgültig löschen",
-            ...gone,
-          };
+        ? { tone: "danger", title: t.title(name), body: t.serverWithSnapshots(dir), confirm: t.confirm, ...gone }
+        : { tone: "danger", title: t.titleForever(name), body: t.server(dir), confirm: t.confirmForever, ...gone };
     case "cloud": {
       const provider = providerLabel[kind.provider];
       switch (kind.provider) {
@@ -631,52 +610,22 @@ function deleteWords(location: Location, entry: BrowseEntry, snapshots: boolean)
         case "onedrive":
           return {
             tone: "warn",
-            title: `${name} in den Papierkorb von ${provider} legen?`,
-            body: `Dort lässt sich ${it.object}${it.all} wiederherstellen, solange ${provider} ${it.accusative} aufbewahrt.`,
-            confirm: "In den Papierkorb",
-            busy: `${name} wird in den Papierkorb von ${provider} gelegt …`,
-            done: `${name} liegt im Papierkorb von ${provider}.`,
+            title: t.cloudTrash.title(name, provider),
+            body: t.cloudTrash.body(dir, provider),
+            confirm: t.trash.confirm,
+            busy: t.cloudTrash.busy(name, provider),
+            done: t.cloudTrash.done(name, provider),
           };
         case "dropbox":
-          return {
-            tone: "warn",
-            title: `${name} löschen?`,
-            body: "Dropbox bewahrt Gelöschtes je nach Tarif eine Zeit lang auf. Wiederherstellen lässt es sich auf dropbox.com.",
-            confirm: "Löschen",
-            ...gone,
-          };
+          return { tone: "warn", title: t.title(name), body: t.dropbox, confirm: t.confirm, ...gone };
         case "b2":
-          return entry.dir
-            ? {
-                tone: "danger",
-                title: `${name} endgültig löschen?`,
-                body: "Der Ordner wird mit allem darin gelöscht, auch mit allen früheren Versionen in Backblaze B2.",
-                confirm: "Endgültig löschen",
-                ...gone,
-              }
-            : {
-                tone: "warn",
-                title: `${name} löschen?`,
-                body: "Backblaze B2 blendet die Datei nur aus. Ihre früheren Versionen bleiben erhalten, solange die Regeln des Buckets sie aufbewahren.",
-                confirm: "Löschen",
-                ...gone,
-              };
+          return dir
+            ? { tone: "danger", title: t.titleForever(name), body: t.b2Folder, confirm: t.confirmForever, ...gone }
+            : { tone: "warn", title: t.title(name), body: t.b2File, confirm: t.confirm, ...gone };
         case "s3":
-          return {
-            tone: "danger",
-            title: `${name} löschen?`,
-            body: `${it.subject} wird${it.all} im Bucket gelöscht. Zurückholen lässt ${it.nominative} sich nur, wenn der Bucket frühere Versionen aufbewahrt.`,
-            confirm: "Löschen",
-            ...gone,
-          };
+          return { tone: "danger", title: t.title(name), body: t.s3(dir), confirm: t.confirm, ...gone };
         default:
-          return {
-            tone: "danger",
-            title: `${name} löschen?`,
-            body: `${it.subject} wird${it.all} auf dem Server gelöscht. Ob ${it.nominative} sich zurückholen lässt, hängt vom Server ab; Nextcloud etwa führt einen eigenen Papierkorb.`,
-            confirm: "Löschen",
-            ...gone,
-          };
+          return { tone: "danger", title: t.title(name), body: t.other(dir), confirm: t.confirm, ...gone };
       }
     }
   }
@@ -688,11 +637,12 @@ function deleteWords(location: Location, entry: BrowseEntry, snapshots: boolean)
  */
 function nameProblem(wanted: string, current: string, siblings: BrowseEntry[], ignoreCase: boolean): string | null {
   if (wanted === current) return "same";
-  if (!wanted) return "Der Name darf nicht leer sein.";
-  if (wanted.includes("/")) return "Der Name darf keinen Schrägstrich enthalten.";
-  if (wanted === "." || wanted === "..") return "Dieser Name ist nicht erlaubt.";
-  if (ignoreCase && wanted.toLowerCase() === current.toLowerCase()) return "Groß- und Kleinschreibung allein lassen sich hier nicht ändern. Im Finder geht das.";
+  const t = texts().detail.browser.name;
+  if (!wanted) return t.empty;
+  if (wanted.includes("/")) return t.slash;
+  if (wanted === "." || wanted === "..") return t.notAllowed;
+  if (ignoreCase && wanted.toLowerCase() === current.toLowerCase()) return t.caseOnly;
   const same = (name: string) => (ignoreCase ? name.toLowerCase() === wanted.toLowerCase() : name === wanted);
-  if (siblings.some((entry) => entry.name !== current && same(entry.name))) return `„${wanted}“ gibt es in diesem Ordner schon.`;
+  if (siblings.some((entry) => entry.name !== current && same(entry.name))) return t.taken(texts().detail.quote(wanted));
   return null;
 }

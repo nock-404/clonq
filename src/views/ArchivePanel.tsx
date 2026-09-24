@@ -2,6 +2,7 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { ArchiveRestore, RefreshCw, RotateCw } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { refreshLocations } from "../hooks/useClonq";
+import { texts, useT } from "../i18n";
 import { api } from "../lib/api";
 import { formatBytes, formatCount } from "../lib/format";
 import { navigate } from "../lib/nav";
@@ -53,6 +54,8 @@ export function ArchivePanel({ job, revision, target, reach, now }: ArchivePanel
   const [query, setQuery] = useState("");
   const [restore, setRestore] = useState<Restore>({ state: "idle" });
   const fileList = useRef<HTMLDivElement>(null);
+  const t = useT();
+  const a = t.detail.archive;
 
   // A check run from here counts until the app reports the location anew.
   useEffect(() => setProbe({ state: "idle" }), [reach?.state]);
@@ -76,7 +79,7 @@ export function ArchivePanel({ job, revision, target, reach, now }: ArchivePanel
         setList({ state: "ready", value: snapshots });
         setOpen((before) => (before && snapshots.some((item) => item.stamp === before) ? before : (snapshots[0]?.stamp ?? null)));
       })
-      .catch((reason) => current && setList({ state: "failed", failure: failureOf("Das Archiv ließ sich nicht lesen", reason) }));
+      .catch((reason) => current && setList({ state: "failed", failure: failureOf(texts().detail.archive.readFailed, reason) }));
     return () => {
       current = false;
     };
@@ -93,7 +96,7 @@ export function ArchivePanel({ job, revision, target, reach, now }: ArchivePanel
     api
       .archiveFiles(job.id, open)
       .then((value) => current && setFiles({ state: "ready", value }))
-      .catch((reason) => current && setFiles({ state: "failed", failure: failureOf("Die Dateien dieses Laufs ließen sich nicht lesen", reason) }));
+      .catch((reason) => current && setFiles({ state: "failed", failure: failureOf(texts().detail.archive.filesFailed, reason) }));
     return () => {
       current = false;
     };
@@ -132,11 +135,11 @@ export function ArchivePanel({ job, revision, target, reach, now }: ArchivePanel
         setRestore({ state: "done", folder });
         void revealItemInDir(folder).catch(() => undefined);
       })
-      .catch((reason) => setRestore({ state: "failed", failure: failureOf("Das Wiederherstellen ist fehlgeschlagen", reason, false) }));
+      .catch((reason) => setRestore({ state: "failed", failure: failureOf(texts().detail.archive.restoreFailed, reason, false) }));
   };
 
   if (!target) {
-    return job.archive.enabled ? <UiText tone="neutral">Das Ziel dieses Jobs ist nicht mehr eingerichtet, darum lässt sich das Archiv nicht lesen.</UiText> : null;
+    return job.archive.enabled ? <UiText tone="neutral">{a.targetGone}</UiText> : null;
   }
 
   if (unknown) {
@@ -144,10 +147,10 @@ export function ArchivePanel({ job, revision, target, reach, now }: ArchivePanel
     return (
       <div className="flex items-center gap-4">
         <span className="min-w-0 flex-1">
-          <UiText tone="neutral">Ob {target.name} erreichbar ist, steht noch nicht fest. Das Archiv erscheint hier, sobald die Verbindung geprüft ist.</UiText>
+          <UiText tone="neutral">{a.unknown(target.name)}</UiText>
         </span>
         <UiButton icon={probe.state === "busy" ? undefined : RefreshCw} disabled={probe.state === "busy"} onPress={() => void runProbe()}>
-          {probe.state === "busy" ? "Wird geprüft …" : "Verbindung prüfen"}
+          {probe.state === "busy" ? a.checking : a.checkConnection}
         </UiButton>
       </div>
     );
@@ -158,7 +161,7 @@ export function ArchivePanel({ job, revision, target, reach, now }: ArchivePanel
     return (
       <p>
         <UiText tone="neutral">{unreachableSentence(target, known)}</UiText>{" "}
-        <UiLinkButton onPress={() => navigate({ kind: "location", locationId: target.id })}>{target.name} ansehen</UiLinkButton>
+        <UiLinkButton onPress={() => navigate({ kind: "location", locationId: target.id })}>{a.viewLocation(target.name)}</UiLinkButton>
       </p>
     );
   }
@@ -166,7 +169,7 @@ export function ArchivePanel({ job, revision, target, reach, now }: ArchivePanel
   const snapshots = list.state === "ready" ? list.value : [];
   if (!job.archive.enabled && snapshots.length === 0) return null;
 
-  if (list.state === "loading") return <UiStatusLine state="busy">Das Archiv wird gelesen …</UiStatusLine>;
+  if (list.state === "loading") return <UiStatusLine state="busy">{a.loading}</UiStatusLine>;
 
   if (list.state === "failed") {
     return (
@@ -174,7 +177,7 @@ export function ArchivePanel({ job, revision, target, reach, now }: ArchivePanel
         tone="danger"
         actions={
           <UiButton variant="ghost" icon={RotateCw} onPress={() => setAttempt((count) => count + 1)}>
-            Erneut versuchen
+            {t.detail.retry}
           </UiButton>
         }
       >
@@ -187,14 +190,14 @@ export function ArchivePanel({ job, revision, target, reach, now }: ArchivePanel
   const twoWayNote =
     job.mode === "bidirectional" ? (
       <UiText variant="caption" tone="neutral">
-        Die Liste zeigt nur das Archiv im Ziel. Was in der Quelle aufbewahrt wird, liegt dort im Ordner {ARCHIVE_FOLDER}.
+        {a.twoWayNote(ARCHIVE_FOLDER)}
       </UiText>
     ) : null;
 
   if (snapshots.length === 0) {
     return (
       <div className="flex flex-col gap-1">
-        <UiText tone="neutral">Bisher ist nichts aufbewahrt. Sobald ein Lauf im Ziel etwas löscht oder überschreibt, erscheint die vorige Fassung hier.</UiText>
+        <UiText tone="neutral">{a.empty}</UiText>
         {twoWayNote}
       </div>
     );
@@ -212,11 +215,11 @@ export function ArchivePanel({ job, revision, target, reach, now }: ArchivePanel
         <>
           {capitalize(filesWord(snapshot.files, formatCount))}, {formatBytes(snapshot.bytes)}
           {job.archive.enabled ? (
-            <span className={days <= 2 ? "text-warn" : undefined}> · {days <= 0 ? "abgelaufen" : days === 1 ? "noch ein Tag" : `noch ${formatCount(days)} Tage`}</span>
+            <span className={days <= 2 ? "text-warn" : undefined}> · {a.daysLeft(days, formatCount(days))}</span>
           ) : null}
         </>
       ),
-      hint: job.archive.enabled && days <= 0 ? "Die Frist ist abgelaufen. Der nächste Lauf räumt diesen Stand auf." : undefined,
+      hint: job.archive.enabled && days <= 0 ? a.expiredHint : undefined,
     };
   });
 
@@ -232,7 +235,7 @@ export function ArchivePanel({ job, revision, target, reach, now }: ArchivePanel
       id: file.path,
       leading: <Icon className="size-4 shrink-0 text-ink-faint" strokeWidth={1.9} />,
       title: name,
-      detail: folder ? <span className="font-mono">{folder}</span> : "Oberste Ebene",
+      detail: folder ? <span className="font-mono">{folder}</span> : a.topLevel,
       meta: formatBytes(file.size),
     };
   });
@@ -256,32 +259,32 @@ export function ArchivePanel({ job, revision, target, reach, now }: ArchivePanel
     <div className="flex flex-col gap-2.5">
       {!job.archive.enabled ? (
         <UiText variant="caption" tone="neutral">
-          Diese Fassungen stammen aus der Zeit, als das Archiv eingeschaltet war. Solange es aus ist, räumt clonq sie nicht auf.
+          {a.fromBefore}
         </UiText>
       ) : null}
       {twoWayNote}
 
       <div className="grid grid-cols-[16rem_minmax(0,1fr)] gap-3">
-        <UiWell size="md" label="Aufbewahrt, nach Lauf">
-          <UiItemList label="Aufbewahrt, nach Lauf" items={snapshotItems} selected={open} onSelect={(stamp) => stamp && setOpen(stamp)} deselectable={false} />
+        <UiWell size="md" label={a.byRun}>
+          <UiItemList label={a.byRun} items={snapshotItems} selected={open} onSelect={(stamp) => stamp && setOpen(stamp)} deselectable={false} />
         </UiWell>
 
         <UiWell
           size="md"
-          label="Aufbewahrte Dateien"
+          label={a.keptFiles}
           header={
             <>
               <div className="flex min-w-0 flex-1 flex-col">
                 <UiText variant="label" truncate>
-                  {openAt ? `Vor dem Lauf von ${momentWords(openAt, now)}` : (open ?? "")}
+                  {openAt ? a.beforeRun(momentWords(openAt, now)) : (open ?? "")}
                 </UiText>
                 <UiText variant="caption" tone="neutral" truncate>
-                  {openSnapshot ? `${capitalize(filesWord(openSnapshot.files, formatCount))} (${formatBytes(openSnapshot.bytes)}), ersetzt oder gelöscht` : ""}
+                  {openSnapshot ? a.replaced(capitalize(filesWord(openSnapshot.files, formatCount)), formatBytes(openSnapshot.bytes)) : ""}
                 </UiText>
               </div>
               {all.length >= SEARCH_FROM ? (
                 <span className="w-40 shrink-0">
-                  <UiInput value={query} onChange={setQuery} placeholder="Datei suchen …" onKeyDown={searchKeys} />
+                  <UiInput value={query} onChange={setQuery} placeholder={a.search} onKeyDown={searchKeys} />
                 </span>
               ) : null}
             </>
@@ -291,30 +294,30 @@ export function ArchivePanel({ job, revision, target, reach, now }: ArchivePanel
               <span className="min-w-0 flex-1">
                 {needle && files.state === "ready" ? (
                   <UiText variant="caption" tone="neutral" truncate>
-                    {formatCount(shown.length)} von {formatCount(all.length)} Dateien
+                    {a.matches(formatCount(shown.length), formatCount(all.length))}
                   </UiText>
                 ) : null}
               </span>
               {pickedFile ? (
                 <UiButton icon={ArchiveRestore} disabled={busy} onPress={() => runRestore(pickedFile.path)}>
-                  Datei wiederherstellen
+                  {a.restoreFile}
                 </UiButton>
               ) : null}
               <UiButton
                 variant={pickedFile ? "ghost" : "secondary"}
                 icon={pickedFile ? undefined : ArchiveRestore}
                 disabled={busy || all.length === 0}
-                title={needle ? `Alle ${formatCount(all.length)} Dateien dieses Laufs, nicht nur die gefundenen` : undefined}
+                title={needle ? a.restoreRunTitle(formatCount(all.length)) : undefined}
                 onPress={() => runRestore(null)}
               >
-                {needle ? "Ganzen Lauf wiederherstellen" : all.length === 1 ? "Wiederherstellen" : `Alle ${formatCount(all.length)} wiederherstellen`}
+                {needle ? a.restoreRun : all.length === 1 ? a.restore : a.restoreAll(formatCount(all.length))}
               </UiButton>
             </>
           }
         >
           {files.state === "loading" ? (
             <span className="px-2.5 py-2">
-              <UiStatusLine state="busy">Wird gelesen …</UiStatusLine>
+              <UiStatusLine state="busy">{t.detail.reading}</UiStatusLine>
             </span>
           ) : files.state === "failed" ? (
             <div className="p-1.5">
@@ -325,14 +328,14 @@ export function ArchivePanel({ job, revision, target, reach, now }: ArchivePanel
           ) : (
             <UiItemList
               ref={fileList}
-              label="Aufbewahrte Dateien"
+              label={a.keptFiles}
               items={fileItems}
               selected={picked}
               onSelect={setPicked}
               empty={
                 <span className="px-2.5 py-2">
                   <UiText variant="caption" tone="neutral">
-                    {needle ? "Keine Datei passt zur Suche." : "Zu diesem Lauf liegen keine Dateien mehr im Archiv."}
+                    {needle ? a.noMatch : a.noFiles}
                   </UiText>
                 </span>
               }
@@ -348,17 +351,18 @@ export function ArchivePanel({ job, revision, target, reach, now }: ArchivePanel
 
 /** Under the lists: where restored files go, and what the last restore did. */
 function RestoreStatus({ restore }: { restore: Restore }) {
+  const t = useT().detail;
   switch (restore.state) {
     case "busy":
-      return <UiStatusLine state="busy">{restore.name ? `„${restore.name}“ wird wiederhergestellt …` : "Der ganze Lauf wird wiederhergestellt …"}</UiStatusLine>;
+      return <UiStatusLine state="busy">{restore.name ? t.archive.restoring(t.quote(restore.name)) : t.archive.restoringRun}</UiStatusLine>;
     case "done":
       return (
         <UiStatusLine
           state="done"
           title={tidyHome(restore.folder)}
-          action={<UiLinkButton onPress={() => void revealItemInDir(restore.folder).catch(() => undefined)}>Im Finder zeigen</UiLinkButton>}
+          action={<UiLinkButton onPress={() => void revealItemInDir(restore.folder).catch(() => undefined)}>{t.showInFinder}</UiLinkButton>}
         >
-          Wiederhergestellt in {tidyHome(restore.folder)}
+          {t.archive.restoredTo(tidyHome(restore.folder))}
         </UiStatusLine>
       );
     case "failed":
@@ -370,7 +374,7 @@ function RestoreStatus({ restore }: { restore: Restore }) {
     default:
       return (
         <UiText variant="caption" tone="neutral">
-          Wiederhergestellte Dateien werden in einem neuen Ordner unter Downloads/clonq-wiederhergestellt abgelegt; vorhandene Dateien bleiben unberührt.
+          {t.archive.whereTo}
         </UiText>
       );
   }
@@ -378,19 +382,20 @@ function RestoreStatus({ restore }: { restore: Restore }) {
 
 /** Why the archive cannot be looked at right now, in one sentence. */
 function unreachableSentence(target: Location, reach: Reach | undefined): string {
+  const t = texts().detail.archive.unreachable;
   switch (reach?.state) {
     case "missing":
-      return `Das Archiv liegt im Zielordner auf ${target.name}, doch dieser Ordner fehlt zurzeit.`;
+      return t.missing(target.name);
     case "failed":
-      return `Das Archiv liegt auf ${target.name}, und dorthin besteht zurzeit keine Verbindung.`;
+      return t.failed(target.name);
     default:
       switch (target.kind.type) {
         case "volume":
-          return `Das Archiv liegt auf ${target.name}. Sobald das Laufwerk angeschlossen ist, lässt es sich hier durchsehen.`;
+          return t.volume(target.name);
         case "smb":
-          return `Das Archiv liegt auf ${target.name}. Sobald die Freigabe verbunden ist, lässt es sich hier durchsehen.`;
+          return t.smb(target.name);
         default:
-          return `Das Archiv liegt auf ${target.name}. Sobald der Ort erreichbar ist, lässt es sich hier durchsehen.`;
+          return t.other(target.name);
       }
   }
 }

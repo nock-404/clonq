@@ -1,4 +1,5 @@
 import type { ClonqState } from "../hooks/useClonq";
+import { texts } from "../i18n";
 import type { Tone } from "../lib/labels";
 
 export interface Summary {
@@ -10,19 +11,20 @@ export interface Summary {
 
 /** One line about everything. */
 export function overallSummary(state: ClonqState): Summary {
+  const t = texts().shell.summary;
   const running = Object.values(state.live).filter((live) => live.phase !== "finished").length;
   if (running > 0) {
-    return { text: running === 1 ? "Ein Job läuft" : `${running} Jobs laufen`, short: `${running} läuft`, tone: "accent" };
+    return { text: t.running(running), short: t.runningShort(running), tone: "accent" };
   }
   const latest = Object.values(state.latest);
   const failed = latest.filter((run) => run.status === "failed").length;
   const blocked = latest.filter((run) => run.status === "blocked").length;
   if (failed > 0) {
-    return { text: failed === 1 ? "Ein Job ist fehlgeschlagen" : `${failed} Jobs fehlgeschlagen`, short: `${failed} Fehler`, tone: "danger" };
+    return { text: t.failed(failed), short: t.failedShort(failed), tone: "danger" };
   }
   if (blocked > 0) {
-    return { text: blocked === 1 ? "Ein Job wartet auf dich" : `${blocked} Jobs warten auf dich`, short: `${blocked} wartet`, tone: "warn" };
+    return { text: t.blocked(blocked), short: t.blockedShort(blocked), tone: "warn" };
   }
-  if (latest.length === 0) return { text: "Noch kein Lauf", short: "Noch kein Lauf", tone: "neutral" };
-  return { text: "Alles aktuell", short: "Aktuell", tone: "ok" };
+  if (latest.length === 0) return { text: t.noRunYet, short: t.noRunYet, tone: "neutral" };
+  return { text: t.upToDate, short: t.upToDateShort, tone: "ok" };
 }

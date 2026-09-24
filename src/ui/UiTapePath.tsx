@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type AnimationEvent } from "react";
+import { useT } from "../i18n";
 import type { Tone } from "../lib/labels";
 import type { LocationKind, Ring } from "../lib/types";
 import { toneSoft } from "./tone";
@@ -41,6 +42,7 @@ interface UiTapePathProps {
   pulse?: string | number;
   /** The reels spool, the tape runs and the lamp on the head glows, e.g. once a job is saved. */
   spooling?: boolean;
+  /** The words over the sockets; "Source" and "Target" by default. */
   sourceLabel?: string;
   targetLabel?: string;
   /** Shown in an empty socket. */
@@ -171,11 +173,13 @@ export function UiTapePath({
   twoWay = false,
   pulse,
   spooling = false,
-  sourceLabel = "Quelle",
-  targetLabel = "Ziel",
-  emptyText = "noch offen",
-  wholeText = "ganzer Ort",
+  ...words
 }: UiTapePathProps) {
+  const t = useT().wizard;
+  const sourceLabel = words.sourceLabel ?? t.steps.source;
+  const targetLabel = words.targetLabel ?? t.steps.target;
+  const emptyText = words.emptyText ?? t.tape.empty;
+  const wholeText = words.wholeText ?? t.tape.whole;
   const oneWayTurning = useTurns(pulse, !twoWay);
   const twoWayTurns = useTwoWayTurns(pulse, twoWay, spooling);
   const turning = oneWayTurning || twoWayTurns.spinning;
@@ -199,7 +203,7 @@ export function UiTapePath({
   return (
     <div
       role="img"
-      aria-label={`${sourceLabel}: ${describe(source, emptyText)}, ${targetLabel}: ${describe(target, emptyText)}${twoWay ? ", in beide Richtungen" : ""}`}
+      aria-label={`${sourceLabel}: ${describe(source, emptyText)}, ${targetLabel}: ${describe(target, emptyText)}${twoWay ? t.tape.bothWays : ""}`}
       className="hairline-b bg-well px-5 pt-1.5 pb-2.5"
     >
       <div className="relative flex h-[5.5rem] min-w-0">

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useT } from "../../i18n";
 import type { CloudProviderInfo } from "../../lib/types";
 import { UiField, UiInput } from "../../ui";
 import { fieldWords, rootWords } from "./kinds";
@@ -14,8 +15,10 @@ interface CloudFieldsProps {
   aside?: ReactNode;
 }
 
-/** The inputs a cloud provider asks for, in German, then where on it the location starts. */
+/** The inputs a cloud provider asks for, in the interface language, then where on it the location starts. */
 export function CloudFields({ provider, values, onValue, root, onRoot, disabled, aside }: CloudFieldsProps) {
+  // Subscribes to the language; the words below are read from the catalog when rendering.
+  useT();
   const start = rootWords(provider.id);
   return (
     <div className="grid grid-cols-2 gap-x-3 gap-y-3.5">

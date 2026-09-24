@@ -1,6 +1,7 @@
 import { Plug, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { refreshLocations, type ClonqState } from "../../hooks/useClonq";
+import { texts, useT } from "../../i18n";
 import { api } from "../../lib/api";
 import { formatBytes, formatRelative } from "../../lib/format";
 import { isRunning } from "../../lib/jobs";
@@ -34,6 +35,8 @@ interface LocationDetailProps {
  * check, rename, repair and remove. ↵ checks, ⌘E renames.
  */
 export function LocationDetail({ state, location, now }: LocationDetailProps) {
+  const t = useT();
+  const td = t.locations.detail;
   const status = state.locations[location.id];
   const { at: checkedAt, reach } = useCheck(location, status?.reach);
   const kind = location.kind;
@@ -138,7 +141,7 @@ export function LocationDetail({ state, location, now }: LocationDetailProps) {
     return () => window.removeEventListener("keydown", listener);
   }, []);
 
-  // The question takes the focus, on "Entfernen", so ↵ answers it.
+  // The question takes the focus, on "Remove", so ↵ answers it.
   useEffect(() => {
     if (confirming) confirmBox.current?.querySelector<HTMLButtonElement>("button:last-of-type")?.focus();
   }, [confirming]);
@@ -151,10 +154,10 @@ export function LocationDetail({ state, location, now }: LocationDetailProps) {
   const faulty = reach?.state === "failed" || reach?.state === "missing";
   const lamp: GlyphLamp = check.busy ? "busy" : unloading ? "off" : connected ? "on" : faulty ? "fault" : "off";
   const lamps: UiDriveLamp[] = [
-    { key: "ready", label: "Bereit", state: connected ? "done" : "off" },
-    { key: "check", label: "Prüft", state: check.busy ? "busy" : "off" },
-    { key: "run", label: "Läuft", state: running ? "busy" : "off" },
-    { key: "fault", label: "Störung", state: faulty && !check.busy ? "failed" : "off" },
+    { key: "ready", label: td.lamps.ready, state: connected ? "done" : "off" },
+    { key: "check", label: td.lamps.check, state: check.busy ? "busy" : "off" },
+    { key: "run", label: td.lamps.run, state: running ? "busy" : "off" },
+    { key: "fault", label: td.lamps.fault, state: faulty && !check.busy ? "failed" : "off" },
   ];
   const facts = factsOf(location, volume);
   const subtitle = subtitleOf(location, volume);
@@ -182,7 +185,7 @@ export function LocationDetail({ state, location, now }: LocationDetailProps) {
           <header className="flex flex-col gap-1">
             <div className="flex items-center gap-4">
               <div className="min-w-0 flex-1">
-                <UiInlineEdit value={location.name} onSave={rename} label="Umbenennen" keys={["⌘", "E"]} editing={renaming} onEditingChange={setRenaming}>
+                <UiInlineEdit value={location.name} onSave={rename} label={td.rename} keys={["⌘", "E"]} editing={renaming} onEditingChange={setRenaming}>
                   <h1 className="min-w-0">
                     <UiText variant="title" truncate>
                       {location.name}
@@ -192,7 +195,7 @@ export function LocationDetail({ state, location, now }: LocationDetailProps) {
               </div>
               {renaming ? null : (
                 <UiButton icon={check.busy ? undefined : connect ? Plug : RefreshCw} keys={check.busy ? undefined : ["↵"]} disabled={check.busy} onPress={() => void runCheck()}>
-                  {check.busy ? (connect ? "Wird verbunden …" : "Wird geprüft …") : connect ? "Verbinden" : local ? "Erneut prüfen" : "Verbindung prüfen"}
+                  {check.busy ? (connect ? td.connecting : td.checking) : connect ? td.connect : local ? td.checkAgain : td.checkConnection}
                 </UiButton>
               )}
             </div>
@@ -206,7 +209,7 @@ export function LocationDetail({ state, location, now }: LocationDetailProps) {
             </div>
           </header>
 
-          <UiPanel title="Zustand" aside={checkedAt ? `Zuletzt geprüft ${formatRelative(new Date(checkedAt).toISOString(), now)}` : undefined}>
+          <UiPanel title={td.state} aside={checkedAt ? td.lastChecked(formatRelative(new Date(checkedAt).toISOString(), now)) : undefined}>
             <UiText variant="heading" tone={words.tone}>
               {words.headline}
             </UiText>
@@ -228,7 +231,7 @@ export function LocationDetail({ state, location, now }: LocationDetailProps) {
           </UiPanel>
 
           {facts.length > 0 ? (
-            <UiPanel title="Angaben">
+            <UiPanel title={td.facts}>
               <dl className="flex flex-col">
                 {facts.map((fact, index) => (
                   <div key={fact.label} className={`grid grid-cols-[9rem_minmax(0,1fr)] items-baseline pb-1.5 ${index > 0 ? "hairline-t pt-1.5" : ""}`}>
@@ -250,7 +253,7 @@ export function LocationDetail({ state, location, now }: LocationDetailProps) {
         </div>
       </div>
 
-      <UiPanel title="Jobs mit diesem Ort" aside={inUse ? String(jobs.length) : undefined}>
+      <UiPanel title={td.jobs} aside={inUse ? String(jobs.length) : undefined}>
         {inUse ? (
           <div className="-mx-2 flex flex-col gap-0.5">
             {jobs.map(({ job, index }) => {
@@ -264,7 +267,7 @@ export function LocationDetail({ state, location, now }: LocationDetailProps) {
                   subtitle={`${placeLabel(job.source, state.config)} → ${placeLabel(job.target, state.config)}`}
                   accessory={
                     <>
-                      <UiBadge tone={source ? "accent" : "neutral"}>{source ? "Quelle" : "Ziel"}</UiBadge>
+                      <UiBadge tone={source ? "accent" : "neutral"}>{source ? td.source : td.target}</UiBadge>
                       <span className="w-16">
                         <UiText variant="caption" tone="neutral">
                           {modeLabel(job.mode)}
@@ -272,7 +275,7 @@ export function LocationDetail({ state, location, now }: LocationDetailProps) {
                       </span>
                       <span className="w-28 text-right">
                         <UiText variant="caption" tone={latest ? statusTone[latest.status] : "neutral"} title={latest ? statusLabel(latest.status) : undefined}>
-                          {latest ? formatRelative(latest.startedAt, now) : "noch nie gelaufen"}
+                          {latest ? formatRelative(latest.startedAt, now) : td.neverRun}
                         </UiText>
                       </span>
                     </>
@@ -285,20 +288,20 @@ export function LocationDetail({ state, location, now }: LocationDetailProps) {
           </div>
         ) : (
           <div className="flex items-center justify-between gap-4">
-            <UiText tone="neutral">Noch kein Job benutzt diesen Ort.</UiText>
+            <UiText tone="neutral">{td.noJobs}</UiText>
             <UiButton icon={Plus} onPress={() => openSheet({ kind: "jobWizard" })}>
-              Job anlegen
+              {td.createJob}
             </UiButton>
           </div>
         )}
       </UiPanel>
 
-      <UiPanel title="Dateien">
+      <UiPanel title={td.files}>
         {showFiles ? (
           <>
             {connected ? null : (
               <UiNotice tone="neutral">
-                Die letzte Prüfung hat {location.name} nicht erreicht. Die Liste zeigt den Stand von vorher; Aktionen können scheitern, bis die Verbindung wieder steht.
+                {td.staleFiles(location.name)}
               </UiNotice>
             )}
             <FileBrowser key={location.id} location={location} now={now} connected={connected} />
@@ -311,22 +314,23 @@ export function LocationDetail({ state, location, now }: LocationDetailProps) {
             </div>
             {unloading || renaming ? null : (
               <UiButton icon={check.busy ? undefined : connect ? Plug : RefreshCw} disabled={check.busy} onPress={() => void runCheck()}>
-                {check.busy ? (connect ? "Wird verbunden …" : "Wird geprüft …") : connect ? "Verbinden" : local ? "Erneut prüfen" : "Verbindung prüfen"}
+                {check.busy ? (connect ? td.connecting : td.checking) : connect ? td.connect : local ? td.checkAgain : td.checkConnection}
               </UiButton>
             )}
           </div>
         )}
       </UiPanel>
 
-      <UiPanel title="Ort entfernen">
+      <UiPanel title={td.removeTitle}>
         <div className="flex items-center gap-4">
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             {inUse ? (
-              <UiText tone="neutral">Dieser Ort lässt sich erst entfernen, wenn kein Job ihn mehr benutzt.</UiText>
+              <UiText tone="neutral">{td.removeInUse}</UiText>
             ) : (
               <UiText tone={confirming ? "ink" : "neutral"}>
-                {confirming ? `„${location.name}“ wird aus clonq entfernt. ` : ""}
-                Die Daten am Ort selbst bleiben, wie sie sind.{removalExtra(location)}
+                {confirming ? td.removeConfirm(location.name) : ""}
+                {td.dataStays}
+                {removalExtra(location)}
               </UiText>
             )}
             {remove.error ? (
@@ -338,15 +342,15 @@ export function LocationDetail({ state, location, now }: LocationDetailProps) {
           {confirming && !inUse ? (
             <div ref={confirmBox} className="flex shrink-0 items-center gap-2">
               <UiButton variant="ghost" keys={["esc"]} onPress={() => setConfirming(false)}>
-                Behalten
+                {td.keep}
               </UiButton>
               <UiButton variant="danger" icon={unloading ? undefined : Trash2} keys={unloading ? undefined : ["↵"]} disabled={unloading} onPress={() => void runRemove()}>
-                {unloading ? "Wird entfernt …" : "Entfernen"}
+                {unloading ? td.removing : td.remove}
               </UiButton>
             </div>
           ) : (
             <UiButton variant="ghost" icon={Trash2} disabled={inUse} onPress={() => setConfirming(true)}>
-              Entfernen …
+              {td.removeAsk}
             </UiButton>
           )}
         </div>
@@ -357,35 +361,33 @@ export function LocationDetail({ state, location, now }: LocationDetailProps) {
 
 /** Why the files cannot be shown right now, in one sentence. */
 function filesUnavailable(location: Location, reach: Reach | undefined, unloading: boolean): string {
+  const t = texts().locations.detail;
   const kind = location.kind.type;
-  if (unloading) return "Der Ort wird entfernt.";
+  if (unloading) return t.filesRemoving;
   switch (reach?.state) {
     case "disconnected":
-      return kind === "volume"
-        ? "Die Dateien sind hier zu sehen, sobald das Laufwerk angeschlossen ist."
-        : kind === "smb"
-          ? "Die Dateien sind hier zu sehen, sobald die Freigabe verbunden ist."
-          : "Die Dateien sind hier zu sehen, sobald der Ort wieder erreichbar ist.";
+      return kind === "volume" ? t.filesDrive : kind === "smb" ? t.filesShare : t.filesReachable;
     case "missing":
-      return "Den Ordner gibt es an dieser Stelle nicht mehr, darum lassen sich keine Dateien zeigen.";
+      return t.filesMissing;
     case "failed":
-      return "Ohne Verbindung lassen sich die Dateien nicht zeigen.";
+      return t.filesFailed;
     case "untested":
-      return "Die Dateien sind hier zu sehen, sobald die erste Prüfung gelungen ist.";
+      return t.filesUntested;
     default:
-      return "Die Dateien sind hier zu sehen, sobald der Zustand des Orts bekannt ist.";
+      return t.filesUnknown;
   }
 }
 
 /** What else goes when the location is removed. */
 function removalExtra(location: Location): string {
+  const t = texts().locations.detail;
   switch (location.kind.type) {
     case "ssh":
-      return " Den Schlüssel, den clonq für diesen Server erzeugt hat, löscht clonq dabei.";
+      return t.removeSsh;
     case "smb":
-      return " Das Passwort wird aus dem Schlüsselbund gelöscht.";
+      return t.removeSmb;
     case "cloud":
-      return " Die Verbindung zum Anbieter wird aus clonq gelöscht.";
+      return t.removeCloud;
     default:
       return "";
   }
@@ -400,7 +402,7 @@ function subtitleOf(location: Location, volume: MountedVolume | undefined): { te
     case "volume":
       return volume ? { text: volume.mountPoint, mono: true } : null;
     case "ssh":
-      return { text: `${kind.user}@${kind.host}, Port ${kind.port}`, mono: true };
+      return { text: texts().locations.detail.sshLine(`${kind.user}@${kind.host}`, kind.port), mono: true };
     case "smb":
       return { text: kind.url, mono: true };
     case "cloud":
@@ -417,79 +419,48 @@ interface Words {
 
 /** The state in words, for this kind of location. */
 function stateWords(location: Location, reach: Reach | undefined, checking: boolean, connecting: boolean): Words {
+  const t = texts().locations.detail;
   const kind = location.kind.type;
   const remote = kind === "ssh" || kind === "cloud";
   if (checking) {
-    const sentence = connecting
-      ? "clonq hängt die Freigabe mit dem Passwort aus dem Schlüsselbund ein."
-      : kind === "ssh"
-        ? "clonq meldet sich mit dem Schlüssel an."
-        : kind === "cloud"
-          ? "clonq fragt den Speicher an."
-          : null;
-    return { headline: connecting ? "Wird verbunden …" : "Wird geprüft …", tone: "accent", sentence, sentenceTone: "neutral" };
+    const sentence = connecting ? t.checkingShare : kind === "ssh" ? t.checkingServer : kind === "cloud" ? t.checkingCloud : null;
+    return { headline: connecting ? t.connecting : t.checking, tone: "accent", sentence, sentenceTone: "neutral" };
   }
   switch (reach?.state) {
     case "connected": {
-      const headline = kind === "folder" ? "Vorhanden" : kind === "volume" ? "Angeschlossen" : "Verbunden";
-      const sentence =
-        kind === "ssh"
-          ? "Die Anmeldung mit dem Schlüssel funktioniert. clonq prüft sie alle zehn Minuten."
-          : kind === "cloud"
-            ? "Der Speicher antwortet. clonq prüft ihn alle zehn Minuten."
-            : kind === "smb" && reach.path
-              ? `Eingehängt unter ${reach.path}.`
-              : null;
+      const headline = kind === "folder" ? t.present : kind === "volume" ? t.pluggedIn : t.connected;
+      const sentence = kind === "ssh" ? t.serverOk : kind === "cloud" ? t.cloudOk : kind === "smb" && reach.path ? t.mountedAt(reach.path) : null;
       return { headline, tone: "ok", sentence, sentenceTone: "neutral" };
     }
     case "disconnected":
       if (kind === "volume") {
-        return {
-          headline: "Nicht angeschlossen",
-          tone: "neutral",
-          sentence: "Jobs mit diesem Ort warten, bis das Laufwerk wieder angeschlossen ist. clonq bemerkt das sofort.",
-          sentenceTone: "neutral",
-        };
+        return { headline: t.notPluggedIn, tone: "neutral", sentence: t.driveWaits, sentenceTone: "neutral" };
       }
       if (kind === "smb") {
-        return {
-          headline: "Nicht verbunden",
-          tone: "neutral",
-          sentence: "Die Freigabe ist gerade nicht eingehängt. „Verbinden“ hängt sie mit dem Passwort aus dem Schlüsselbund ein.",
-          sentenceTone: "neutral",
-        };
+        return { headline: t.notConnected, tone: "neutral", sentence: t.shareOff, sentenceTone: "neutral" };
       }
-      return { headline: "Nicht erreichbar", tone: "neutral", sentence: "Jobs mit diesem Ort warten, bis er wieder erreichbar ist.", sentenceTone: "neutral" };
+      return { headline: t.unreachable, tone: "neutral", sentence: t.jobsWait, sentenceTone: "neutral" };
     case "missing":
-      return {
-        headline: "Ordner fehlt",
-        tone: "danger",
-        sentence: "An dieser Stelle gibt es den Ordner nicht mehr. Wurde er verschoben oder umbenannt, wähle ihn unten neu aus.",
-        sentenceTone: "neutral",
-      };
+      return { headline: t.folderMissing, tone: "danger", sentence: t.folderMissingText, sentenceTone: "neutral" };
     case "untested":
-      return {
-        headline: "Noch nicht geprüft",
-        tone: "neutral",
-        sentence: remote ? "Die erste Prüfung nach dem Start von clonq läuft noch." : "Der Zustand ist noch nicht bekannt.",
-        sentenceTone: "neutral",
-      };
+      return { headline: t.untested, tone: "neutral", sentence: remote ? t.firstCheck : t.stateUnknown, sentenceTone: "neutral" };
     case "failed":
-      return { headline: "Keine Verbindung", tone: "danger", sentence: messageLabel(reach.message), sentenceTone: "danger" };
+      return { headline: t.noConnection, tone: "danger", sentence: messageLabel(reach.message), sentenceTone: "danger" };
     default:
-      return { headline: "Unbekannt", tone: "neutral", sentence: "Der Zustand ist noch nicht bekannt.", sentenceTone: "neutral" };
+      return { headline: t.unknown, tone: "neutral", sentence: t.stateUnknown, sentenceTone: "neutral" };
   }
 }
 
 /** Free space where the location reports it; for a folder that is the space of the whole internal SSD. */
 function capacityOf(location: Location, reach: Reach | undefined): { share: number; text: string; caption: string } | null {
   if (reach?.state !== "connected" || reach.totalBytes === null || reach.freeBytes === null || reach.totalBytes <= 0) return null;
-  const where = location.kind.type === "folder" ? "auf der eingebauten SSD" : location.kind.type === "volume" ? "auf dem Laufwerk" : "auf der Freigabe";
+  const t = texts().locations.detail;
+  const where = location.kind.type === "folder" ? t.onSsd : location.kind.type === "volume" ? t.onDrive : t.onShare;
   const used = Math.max(0, reach.totalBytes - reach.freeBytes);
   return {
     share: used / reach.totalBytes,
-    text: `${formatBytes(reach.freeBytes)} frei von ${formatBytes(reach.totalBytes)} ${where}`,
-    caption: `Belegter Platz ${where}`,
+    text: t.capacity(formatBytes(reach.freeBytes), formatBytes(reach.totalBytes), where),
+    caption: t.usedSpace(where),
   };
 }
 
@@ -501,35 +472,39 @@ interface Fact {
 
 /** What the location is beyond the line under its name, like the type plate on a device. */
 function factsOf(location: Location, volume: MountedVolume | undefined): Fact[] {
+  const all = texts().locations;
+  const t = all.detail;
   const kind = location.kind;
   switch (kind.type) {
     case "folder":
       return [];
     case "volume":
       return [
-        ...(volume ? [{ label: "Dateisystem", value: fileSystemLabel(volume.fileSystem), mono: false }] : []),
-        ...(kind.volumeName !== location.name ? [{ label: "Name des Laufwerks", value: kind.volumeName, mono: false }] : []),
-        { label: "Kennung", value: kind.volumeUuid, mono: true },
+        ...(volume ? [{ label: t.fileSystem, value: fileSystemLabel(volume.fileSystem), mono: false }] : []),
+        ...(kind.volumeName !== location.name ? [{ label: t.driveName, value: kind.volumeName, mono: false }] : []),
+        { label: t.identifier, value: kind.volumeUuid, mono: true },
       ];
     case "ssh":
       return [
-        { label: "Ordner auf dem Server", value: kind.basePath || "Anmeldeordner", mono: kind.basePath !== "" },
-        { label: "Schlüsseldatei", value: tidyPath(kind.identityFile), mono: true },
+        { label: all.server.baseFolder, value: kind.basePath || all.server.loginFolder, mono: kind.basePath !== "" },
+        { label: t.keyFile, value: tidyPath(kind.identityFile), mono: true },
       ];
     case "smb":
       return [
-        { label: "Benutzer", value: kind.user, mono: true },
-        { label: "Passwort", value: "im Schlüsselbund von macOS", mono: false },
+        { label: all.flow.user, value: kind.user, mono: true },
+        { label: all.flow.password, value: t.inKeychain, mono: false },
       ];
-    case "cloud":
+    case "cloud": {
+      const bucket = kind.provider === "s3" || kind.provider === "b2";
       return kind.provider === "webdav"
         ? [
-            { label: "Ordner", value: kind.root || "oberste Ebene", mono: kind.root !== "" },
-            { label: "Zugang", value: "Benutzer und Passwort", mono: false },
+            { label: t.folder, value: kind.root || t.topLevel, mono: kind.root !== "" },
+            { label: t.access, value: t.userAndPassword, mono: false },
           ]
         : [
-            { label: kind.provider === "s3" || kind.provider === "b2" ? "Bucket und Ordner" : "Ordner", value: kind.root || "oberste Ebene", mono: kind.root !== "" },
-            { label: "Zugang", value: kind.provider === "s3" || kind.provider === "b2" ? "mit Zugangsschlüssel" : "Anmeldung im Browser", mono: false },
+            { label: bucket ? all.fields.bucket : t.folder, value: kind.root || t.topLevel, mono: kind.root !== "" },
+            { label: t.access, value: bucket ? t.withAccessKey : all.cloud.browserLogin, mono: false },
           ];
+    }
   }
 }

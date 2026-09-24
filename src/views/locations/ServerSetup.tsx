@@ -1,5 +1,6 @@
 import { ArrowRight, Check, CircleCheck, CircleX, FolderPlus, Plus, RotateCw, ShieldCheck, Upload, type LucideIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
+import { texts, useT } from "../../i18n";
 import { api } from "../../lib/api";
 import type { HostKey, Location, ServerDraft, ServerInput } from "../../lib/types";
 import { UiBadge, UiField, UiInput, UiNotice, UiPanel, UiText } from "../../ui";
@@ -42,13 +43,16 @@ const focusOnMount = (node: HTMLElement | null) => {
  * After saving it looks for the folder on the server and offers to create it.
  */
 export function useServerSetup(context: SetupContext): Setup {
+  const t = useT();
+  const tr = t.locations.server;
+  const tw = t.locations.flow;
   const config = context.state.config;
   const [host, setHost] = useState("");
   const [customUser, setUser] = useState<string | null>(null);
   const [customPort, setPort] = useState<string | null>(null);
   const [basePath, setBasePath] = useState("");
   const [draft, setDraft] = useState<ServerDraft | null>(null);
-  // Once the key exists the address is shown as a summary; "Adresse ändern" opens it again.
+  // Once the key exists the address is shown as a summary; "Change address" opens it again.
   const [locked, setLocked] = useState(false);
   const [password, setPassword] = useState("");
   // Host and port of the last reading that worked; the draft's host keys belong to it.
@@ -101,7 +105,6 @@ export function useServerSetup(context: SetupContext): Setup {
   const fresh = draft !== null && readFor === address && !unrecognised;
   const hostKeys: HostKey[] = fresh && draft ? draft.hostKeys : [];
   const noKeys = fresh && hostKeys.length === 0;
-  const one = hostKeys.length === 1;
   const changed = hostKeys.length > 0 && baseline?.address === address && baseline.prints !== printsOf(hostKeys);
   // The backend still holds what it read for this address, so it can be pinned.
   const canConfirm = hostKeys.length > 0 && scannedFor === address;
@@ -130,7 +133,7 @@ export function useServerSetup(context: SetupContext): Setup {
 
   const next = async () => {
     if (!addressReady) return;
-    // The key belongs to this location, not to an address: after "Adresse ändern" it is used again.
+    // The key belongs to this location, not to an address: after "Change address" it is used again.
     // The host keys belong to the address: one that is confirmed, or read and waiting, is not read again.
     if (!draft || (trustedFor !== address && scannedFor !== address)) {
       if (!(await readHostKeys())) return;
@@ -241,30 +244,31 @@ export function useServerSetup(context: SetupContext): Setup {
       onChange={stage === "saved" || busy ? undefined : unlock}
     />
   );
-  const confirmWords = one ? "Fingerabdruck stimmt" : "Fingerabdrücke stimmen";
-  const asking = "clonq fragt den Server nach seinen Fingerabdrücken. Das kann einige Sekunden dauern.";
+  const keyCount = hostKeys.length;
+  const confirmWords = tr.confirm(keyCount);
+  const asking = tr.asking;
 
   let body;
   if (stage === "address") {
     body = (
       <div className="flex flex-col gap-3.5">
-        <UiField label="Adresse" hint={storageBox ? <StorageBoxHint /> : "Name oder IP-Adresse des Servers"}>
-          <UiInput value={host} onChange={setHost} placeholder="z. B. u123456.your-storagebox.de" mono autoFocus disabled={busy} />
+        <UiField label={tr.address} hint={storageBox ? <StorageBoxHint /> : tr.addressHint}>
+          <UiInput value={host} onChange={setHost} placeholder={tr.addressPlaceholder} mono autoFocus disabled={busy} />
         </UiField>
         <div className="grid grid-cols-[1fr_5rem] gap-3">
-          <UiField label="Benutzer">
-            <UiInput value={user} onChange={setUser} placeholder="z. B. u123456" mono disabled={busy} />
+          <UiField label={tw.user}>
+            <UiInput value={user} onChange={setUser} placeholder={tr.userPlaceholder} mono disabled={busy} />
           </UiField>
-          <UiField label="Port" error={portValid ? null : "1 bis 65535"}>
+          <UiField label={tr.port} error={portValid ? null : tr.portRange}>
             <UiInput value={port} onChange={setPort} mono disabled={busy} />
           </UiField>
         </div>
-        <UiField label="Ordner auf dem Server" hint="Ohne Angabe verwendet clonq den Anmeldeordner.">
-          <UiInput value={basePath} onChange={setBasePath} placeholder="z. B. backups" mono disabled={busy} />
+        <UiField label={tr.baseFolder} hint={tr.baseFolderHint}>
+          <UiInput value={basePath} onChange={setBasePath} placeholder={tr.baseFolderPlaceholder} mono disabled={busy} />
         </UiField>
-        <NameField value={name} onChange={setName} taken={taken} hint="So erscheint der Server in clonq." disabled={busy} />
+        <NameField value={name} onChange={setName} taken={taken} hint={tr.nameHint} disabled={busy} />
         {existing ? (
-          <ExistingNotice subject="Dieser Benutzer auf diesem Server" location={existing} onOpen={() => context.reveal(existing.id)} />
+          <ExistingNotice subject={tr.subject} location={existing} onOpen={() => context.reveal(existing.id)} />
         ) : keyTask.error ? (
           <UiNotice tone="danger">{keyTask.error}</UiNotice>
         ) : (
@@ -272,12 +276,12 @@ export function useServerSetup(context: SetupContext): Setup {
             {keyTask.busy
               ? asking
               : !draft
-                ? "Mit „Weiter“ liest clonq die Fingerabdrücke des Servers und erzeugt einen eigenen Schlüssel für ihn."
+                ? tr.firstRead
                 : trusted
-                  ? "Die Fingerabdrücke dieses Servers sind schon bestätigt."
+                  ? tr.alreadyTrusted
                   : scannedFor === address
-                    ? "Die Fingerabdrücke dieses Servers sind gelesen, aber noch nicht bestätigt."
-                    : "Mit „Weiter“ liest clonq die Fingerabdrücke des Servers."}
+                    ? tr.readNotTrusted
+                    : tr.readAgain}
           </UiText>
         )}
       </div>
@@ -290,7 +294,7 @@ export function useServerSetup(context: SetupContext): Setup {
         <div className="flex flex-col gap-1.5">
           <div ref={focusOnMount} tabIndex={-1} className="outline-none">
             <UiText variant="label" tone="neutral">
-              {one ? "Fingerabdruck des Servers" : "Fingerabdrücke des Servers"}
+              {tr.fingerprints(keyCount)}
             </UiText>
           </div>
           {keyTask.busy ? (
@@ -303,14 +307,13 @@ export function useServerSetup(context: SetupContext): Setup {
             <UiNotice tone="danger">{keyTask.error}</UiNotice>
           ) : unrecognised ? (
             <UiNotice tone="danger">
-              Der Server hat sich mit einem Schlüssel gemeldet, den clonq für diese Adresse nicht kennt. Vielleicht wurde er neu eingerichtet, vielleicht antwortet
-              unter dieser Adresse ein fremder Rechner. Lies die Fingerabdrücke neu und vergleiche sie, bevor du weitermachst.
+              {tr.unrecognised}
             </UiNotice>
           ) : noKeys ? (
-            <UiNotice tone="danger">Der Server hat keinen Schlüssel genannt, den clonq lesen kann. Ohne Fingerabdruck lässt sich seine Echtheit nicht prüfen.</UiNotice>
+            <UiNotice tone="danger">{tr.noKeys}</UiNotice>
           ) : (
             <UiCopyList
-              label={one ? "Fingerabdruck des Servers" : "Fingerabdrücke des Servers"}
+              label={tr.fingerprints(keyCount)}
               items={hostKeys.map((key) => {
                 const [prefix, value] = splitFingerprint(key.fingerprint);
                 return { key: `${key.kind}-${key.fingerprint}`, label: key.kind, prefix, value };
@@ -320,8 +323,8 @@ export function useServerSetup(context: SetupContext): Setup {
         </div>
         {hostKeys.length > 0 && !keyTask.busy ? (
           <div className="flex flex-col gap-2.5">
-            {changed ? <UiNotice tone="warn">{changedSentence(baseline?.confirmed ?? false, one)}</UiNotice> : null}
-            <UiText variant="body">{compareSentence(draft.storageBox, one)}</UiText>
+            {changed ? <UiNotice tone="warn">{baseline?.confirmed ? tr.changedConfirmed(keyCount) : tr.changedRead(keyCount)}</UiNotice> : null}
+            <UiText variant="body">{compareSentence(draft.storageBox, keyCount)}</UiText>
             {/* After a failed attempt there is nothing to confirm until the fingerprints are read again; a changed
                 reading carries its own advice in the warning above. */}
             {trustTask.error ? (
@@ -329,12 +332,10 @@ export function useServerSetup(context: SetupContext): Setup {
             ) : changed ? null : (
               <>
                 <Outcome icon={CircleCheck} tone="ok">
-                  {one
-                    ? "Stimmt er überein, bestätige. clonq merkt sich den Schlüssel und lehnt den Server ab, falls er sich ändert."
-                    : "Stimmen alle überein, bestätige. clonq merkt sich die Schlüssel und lehnt den Server ab, falls sie sich ändern."}
+                  {tr.ifMatch(keyCount)}
                 </Outcome>
                 <Outcome icon={CircleX} tone="danger">
-                  Weicht auch nur ein Zeichen ab, bestätige nicht und brich ab. Unter dieser Adresse antwortet dann vielleicht ein fremder Rechner.
+                  {tr.ifDiffers}
                 </Outcome>
               </>
             )}
@@ -346,25 +347,25 @@ export function useServerSetup(context: SetupContext): Setup {
     body = (
       <div className="flex flex-col gap-3.5">
         {summary}
-        <NameField value={name} onChange={setName} taken={taken} hint="So erscheint der Server in clonq." disabled={busy} />
+        <NameField value={name} onChange={setName} taken={taken} hint={tr.nameHint} disabled={busy} />
         <div className="flex flex-col gap-1.5">
           <UiText variant="label" tone="neutral">
-            Öffentlicher Schlüssel
+            {tr.publicKey}
           </UiText>
-          <UiCopyBlock value={draft.publicKey} label="Öffentlicher Schlüssel" />
+          <UiCopyBlock value={draft.publicKey} label={tr.publicKey} />
           <UiText variant="caption" tone="neutral">
-            Diesen Schlüssel überträgt clonq im nächsten Schritt auf den Server.
+            {tr.publicKeyHint}
           </UiText>
         </div>
-        <UiField label={`Passwort für ${user.trim()}`} error={installTask.error} hint="Nur für diese eine Anmeldung. clonq speichert das Passwort nicht.">
+        <UiField label={tw.passwordFor(user.trim())} error={installTask.error} hint={tr.passwordHint}>
           <UiInput value={password} onChange={setPassword} type="password" autoFocus disabled={busy} />
         </UiField>
         {testTask.error ? (
           <UiNotice tone="danger">{testTask.error}</UiNotice>
         ) : (
           <span className="flex">
-            <UiLinkButton onPress={() => void test()} title="Testet sofort, ohne Passwort.">
-              Schlüssel ist schon eingetragen – nur testen
+            <UiLinkButton onPress={() => void test()} title={tr.testOnlyTitle}>
+              {tr.testOnly}
             </UiLinkButton>
           </span>
         )}
@@ -374,19 +375,19 @@ export function useServerSetup(context: SetupContext): Setup {
     body = (
       <div className="flex flex-col gap-3.5">
         {summary}
-        <NameField value={name} onChange={setName} taken={taken} hint="So erscheint der Server in clonq." disabled={busy || stage === "saved"} />
+        <NameField value={name} onChange={setName} taken={taken} hint={tr.nameHint} disabled={busy || stage === "saved"} />
         <UiPanel>
           <UiText variant="heading" tone="ok">
-            Die Anmeldung funktioniert.
+            {tr.loginWorks}
           </UiText>
           <UiText variant="caption" tone="neutral">
-            Anmeldeordner ist {testedFolder || "/"}.
-            {cleanBase && stage === "tested" ? ` Nach dem Hinzufügen prüft clonq, ob es den Ordner „${cleanBase}“ gibt.` : ""}
+            {tr.loginFolderIs(testedFolder || "/")}
+            {cleanBase && stage === "tested" ? tr.checksFolder(cleanBase) : ""}
           </UiText>
         </UiPanel>
         {folder === "missing" ? (
           <UiNotice tone="warn">
-            clonq konnte den Ordner „{cleanBase}“ auf dem Server nicht öffnen. Wenn es ihn noch nicht gibt, legt clonq ihn jetzt an.
+            {tr.folderMissing(cleanBase)}
             {folderTask.error ? <UiText variant="label" tone="danger">{folderTask.error}</UiText> : null}
           </UiNotice>
         ) : null}
@@ -401,7 +402,7 @@ export function useServerSetup(context: SetupContext): Setup {
     lamp: busy ? ("busy" as const) : lit ? ("on" as const) : testTask.error || unrecognised ? ("fault" as const) : ("off" as const),
     threaded: testedFolder !== null || created !== null,
     steps: [
-      // Echtheit: the fingerprints are read (blinking), wait for the user (outlined), and are confirmed (green).
+      // Trusted: the fingerprints are read (blinking), wait for the user (outlined), and are confirmed (green).
       lampOf({
         done: trusted,
         busy: keyTask.busy || trustTask.busy,
@@ -417,46 +418,46 @@ export function useServerSetup(context: SetupContext): Setup {
         ready: folder === "missing" || testedFolder !== null,
       }),
     ],
-    // The status line is 13 rem wide: every text fits on one line, and a no-break space keeps "…" with its word.
+    // The status line is 13 rem wide: every text in the catalog fits on one line.
     status: added
-      ? "Hinzugefügt"
+      ? tw.added
       : keyTask.busy
-        ? "Fingerabdrücke werden gelesen …"
+        ? tr.status.reading
         : trustTask.busy
-          ? "Bestätigung wird gespeichert …"
+          ? tr.status.savingTrust
           : installTask.busy
-            ? "Schlüssel wird hinterlegt …"
+            ? tr.status.installing
             : testTask.busy
-              ? "Verbindung wird getestet …"
+              ? tr.status.testing
               : addTask.busy
-                ? "Wird hinzugefügt …"
+                ? tr.status.adding
                 : folder === "checking"
-                  ? "Ordner wird geprüft …"
+                  ? tr.status.checkingFolder
                   : folder === "creating"
-                    ? "Ordner wird angelegt …"
+                    ? tr.status.creatingFolder
                     : folder === "missing"
-                      ? "Angelegt, Ordner nicht gefunden"
+                      ? tr.status.folderNotFound
                       : keyTask.error
-                        ? "Server nicht erreicht"
+                        ? tr.status.unreachable
                         : unrecognised
-                          ? "Server nicht wiedererkannt"
+                          ? tr.status.unrecognised
                           : noKeys
-                            ? "Kein lesbarer Schlüssel"
+                            ? tr.status.noKey
                             : trustTask.error
-                              ? "Bestätigung nicht gespeichert"
+                              ? tr.status.trustFailed
                               : testTask.error
-                                ? "Anmeldung fehlgeschlagen"
+                                ? tr.status.loginFailed
                                 : installTask.error
-                                  ? "Schlüssel nicht hinterlegt"
+                                  ? tr.status.notInstalled
                                   : testedFolder !== null
-                                    ? "Verbunden"
+                                    ? tr.status.connected
                                     : stage === "trust"
                                       ? changed
-                                        ? "Abweichende Fingerabdrücke"
-                                        : "Echtheit noch nicht bestätigt"
+                                        ? tr.status.printsDiffer
+                                        : tr.status.notTrusted
                                       : stage === "key"
-                                        ? "Schlüssel bereit, noch nicht hinterlegt"
-                                        : "Nicht verbunden",
+                                        ? tr.status.keyReady
+                                        : tw.notConnected,
     tone:
       added || (testedFolder !== null && !busy && folder !== "missing")
         ? ("ok" as const)
@@ -470,15 +471,15 @@ export function useServerSetup(context: SetupContext): Setup {
   let action: SetupAction;
   let secondary: Setup["secondary"];
   if (added) {
-    action = { label: "Hinzugefügt", icon: Check, run: () => {}, disabled: true };
+    action = { label: tw.added, icon: Check, run: () => {}, disabled: true };
   } else if (stage === "address") {
-    action = { label: keyTask.busy ? "Wird gelesen …" : "Weiter", icon: keyTask.busy ? undefined : ArrowRight, run: () => void next(), disabled: busy || !addressReady };
+    action = { label: keyTask.busy ? tr.reading : t.locations.sheet.next, icon: keyTask.busy ? undefined : ArrowRight, run: () => void next(), disabled: busy || !addressReady };
   } else if (stage === "trust") {
     // Pinning uses up what was read; after a failed attempt, a failed reading or a refused login the fingerprints are read again.
     action =
       canConfirm && !keyTask.busy
         ? {
-            label: trustTask.busy ? "Wird gespeichert …" : confirmWords,
+            label: trustTask.busy ? t.common.saving : confirmWords,
             icon: trustTask.busy ? undefined : ShieldCheck,
             run: () => void trust(),
             disabled: busy,
@@ -486,7 +487,7 @@ export function useServerSetup(context: SetupContext): Setup {
             enter: false,
           }
         : {
-            label: keyTask.busy ? "Wird gelesen …" : one ? "Fingerabdruck neu lesen" : "Fingerabdrücke neu lesen",
+            label: keyTask.busy ? tr.reading : tr.reread(keyCount),
             icon: keyTask.busy ? undefined : RotateCw,
             run: () => void readHostKeys(),
             disabled: busy,
@@ -494,20 +495,20 @@ export function useServerSetup(context: SetupContext): Setup {
   } else if (stage === "key") {
     action =
       installed && testTask.error
-        ? { label: testTask.busy ? "Verbindung wird getestet …" : "Erneut testen", icon: testTask.busy ? undefined : RotateCw, run: () => void test(), disabled: busy }
+        ? { label: testTask.busy ? tr.status.testing : tr.testAgain, icon: testTask.busy ? undefined : RotateCw, run: () => void test(), disabled: busy }
         : {
-            label: installTask.busy ? "Schlüssel wird hinterlegt …" : testTask.busy ? "Verbindung wird getestet …" : "Schlüssel hinterlegen",
+            label: installTask.busy ? tr.status.installing : testTask.busy ? tr.status.testing : tr.installKey,
             icon: busy ? undefined : Upload,
             run: () => void install(),
             disabled: busy || password === "",
           };
   } else if (stage === "tested") {
-    action = { label: addTask.busy ? "Wird hinzugefügt …" : "Hinzufügen", icon: addTask.busy ? undefined : Plus, run: () => void submit(), disabled: busy || name.trim() === "" || !!taken };
+    action = { label: addTask.busy ? tw.adding : tw.add, icon: addTask.busy ? undefined : Plus, run: () => void submit(), disabled: busy || name.trim() === "" || !!taken };
   } else if (folder === "missing") {
-    action = { label: "Ordner anlegen", icon: FolderPlus, run: () => void createFolder(), disabled: busy };
-    secondary = { label: "Ohne Ordner abschließen", run: () => created && done(created), disabled: busy };
+    action = { label: tr.createFolder, icon: FolderPlus, run: () => void createFolder(), disabled: busy };
+    secondary = { label: tr.finishWithout, run: () => created && done(created), disabled: busy };
   } else {
-    action = { label: folder === "creating" ? "Ordner wird angelegt …" : "Ordner wird geprüft …", run: () => {}, disabled: true };
+    action = { label: folder === "creating" ? tr.status.creatingFolder : tr.status.checkingFolder, run: () => {}, disabled: true };
   }
 
   return {
@@ -520,7 +521,7 @@ export function useServerSetup(context: SetupContext): Setup {
     // Escape leads from the fingerprints, or from key and password, back to the address.
     back: (stage === "trust" || stage === "key") && !busy ? unlock : undefined,
     final: created !== null,
-    discardNote: draft && !created ? "Der schon erzeugte Schlüssel bleibt ungenutzt in clonq liegen." : undefined,
+    discardNote: draft && !created ? tr.discardNote : undefined,
   };
 }
 
@@ -532,31 +533,18 @@ function splitFingerprint(fingerprint: string): [string | undefined, string] {
 
 /**
  * What to compare with, and where the user finds it: Hetzner's documentation, or whoever runs the server.
- * "Zeichen für Zeichen" is left to the rule below it, so that three fingerprints still fit without scrolling.
+ * "Character by character" is left to the rule below it, so that three fingerprints still fit without scrolling.
  */
-function compareSentence(storageBox: boolean, one: boolean): ReactNode {
-  const which = one ? "den Fingerabdruck" : "jeden Fingerabdruck";
-  if (!storageBox) return `Vergleiche ${which} mit den Angaben des Anbieters oder Verwalters des Servers.`;
+function compareSentence(storageBox: boolean, count: number): ReactNode {
+  const t = texts().locations.server;
+  if (!storageBox) return t.compare(count);
   return (
     <>
-      Vergleiche {which} mit Hetzners Dokumentation: Seite „Storage Box Überblick“, Abschnitt{" "}
+      {t.compareBox(count)}{" "}
       {/* The section name stays on one line, so it is not split at a hyphen. */}
-      <span className="whitespace-nowrap">„SSH-Host-Keys“.</span>
+      <span className="whitespace-nowrap">{t.compareBoxSection}</span>
     </>
   );
-}
-
-/** A new reading at the same address that differs from the one before, with what to do about it; three lines at most. */
-function changedSentence(confirmed: boolean, one: boolean): string {
-  const stranger = "brich ab, denn dann antwortet vielleicht ein fremder Rechner.";
-  if (confirmed) {
-    return one
-      ? `Dieser Fingerabdruck weicht vom bestätigten ab. Bestätige nur, wenn du den Grund kennst, etwa eine Neuinstallation. Sonst ${stranger}`
-      : `Diese Fingerabdrücke weichen von den bestätigten ab. Bestätige nur, wenn du den Grund kennst, etwa eine Neuinstallation. Sonst ${stranger}`;
-  }
-  return one
-    ? `Dieser Fingerabdruck weicht von dem ab, den clonq vorhin gelesen hat. Vergleiche ihn erneut. Weicht ein Zeichen ab, ${stranger}`
-    : `Diese Fingerabdrücke weichen von denen ab, die clonq vorhin gelesen hat. Vergleiche sie erneut. Weicht ein Zeichen ab, ${stranger}`;
 }
 
 /** One possible result of comparing, with what to do then. */
@@ -581,6 +569,7 @@ interface AddressSummaryProps {
 
 /** The address as one line once the key exists, with a way back to the fields. */
 function AddressSummary({ login, port, folder, onChange }: AddressSummaryProps) {
+  const t = useT().locations.server;
   return (
     <div className="hairline flex items-center gap-3 rounded-[var(--radius-control)] bg-well py-2 pr-2 pl-3">
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -588,19 +577,20 @@ function AddressSummary({ login, port, folder, onChange }: AddressSummaryProps) 
           {login}
         </UiText>
         <UiText variant="caption" tone="neutral">
-          Port {port} · {folder ? `Ordner ${folder}` : "Anmeldeordner"}
+          {t.summaryLine(port, folder)}
         </UiText>
       </div>
-      {onChange ? <UiLinkButton onPress={onChange}>Adresse ändern</UiLinkButton> : null}
+      {onChange ? <UiLinkButton onPress={onChange}>{t.changeAddress}</UiLinkButton> : null}
     </div>
   );
 }
 
 function StorageBoxHint() {
+  const t = useT().locations.server;
   return (
     <span className="flex items-center gap-1.5">
       <UiBadge tone="accent">Hetzner Storage Box</UiBadge>
-      Port 23 und Benutzer sind vorbelegt.
+      {t.storageBoxHint}
     </span>
   );
 }

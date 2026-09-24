@@ -1,6 +1,7 @@
 import { Check, Plus } from "lucide-react";
 import { useState } from "react";
 import type { ClonqState } from "../../hooks/useClonq";
+import { useT } from "../../i18n";
 import { api } from "../../lib/api";
 import { formatBytes } from "../../lib/format";
 import type { MountedVolume } from "../../lib/types";
@@ -24,6 +25,9 @@ export function newDrives(state: ClonqState): MountedVolume[] {
 
 /** An external drive: picked from the drives macOS has mounted, remembered by its volume UUID. */
 export function useVolumeSetup(context: SetupContext): Setup {
+  const t = useT();
+  const tv = t.locations.volume;
+  const tw = t.locations.flow;
   const { state } = context;
   const drives = newDrives(state);
   const known = volumeIds(state);
@@ -62,13 +66,13 @@ export function useVolumeSetup(context: SetupContext): Setup {
   const body =
     !drive && !added ? (
       <div className="flex flex-col gap-2 pt-1">
-        <UiText variant="heading">Kein neues Laufwerk angeschlossen</UiText>
+        <UiText variant="heading">{tv.noneTitle}</UiText>
         <UiText tone="neutral">
-          Schließe eine SSD, eine Festplatte oder einen USB-Stick an. Sobald macOS das Laufwerk eingehängt hat, erscheint es hier.
+          {tv.noneText}
         </UiText>
         {alreadyAdded.length > 0 ? (
           <UiText variant="caption" tone="neutral">
-            Schon als Ort angelegt: {alreadyAdded.join(", ")}.
+            {tv.alreadyAdded(alreadyAdded.join(", "))}
           </UiText>
         ) : null}
       </div>
@@ -92,7 +96,7 @@ export function useVolumeSetup(context: SetupContext): Setup {
             </div>
           </UiPanel>
         ) : (
-          <div role="radiogroup" aria-label="Laufwerk" className="flex flex-col gap-1.5">
+          <div role="radiogroup" aria-label={tv.group} className="flex flex-col gap-1.5">
             {shown.map((item) => (
               <UiChoiceCard
                 key={item.uuid}
@@ -110,7 +114,7 @@ export function useVolumeSetup(context: SetupContext): Setup {
           value={name}
           onChange={setName}
           taken={taken}
-          hint="Der Name gilt nur in clonq; das Laufwerk selbst behält seinen."
+          hint={tv.nameHint}
           disabled={add.busy || !!added}
         />
         {add.error ? <UiNotice tone="danger">{add.error}</UiNotice> : null}
@@ -124,31 +128,32 @@ export function useVolumeSetup(context: SetupContext): Setup {
     empty: !drive && !added,
     steps: [lampOf({ done: drive !== undefined || !!added, ready: true }), lampOf({ done: !!added, busy: add.busy, failed: !!add.error, ready })],
     status: added
-      ? "Hinzugefügt"
+      ? tw.added
       : add.busy
-        ? "Wird hinzugefügt …"
+        ? tw.adding
         : add.error
-          ? "Nicht hinzugefügt"
+          ? tw.notAdded
           : !drive
-            ? "Kein Laufwerk angeschlossen"
+            ? tv.noDrive
             : taken
-              ? "Der Name ist schon vergeben"
+              ? tw.nameTaken
               : name.trim() === ""
-                ? "Der Name fehlt noch"
-                : "Bereit zum Hinzufügen",
+                ? tw.nameMissing
+                : tw.readyToAdd,
     tone: added ? ("ok" as const) : add.error ? ("danger" as const) : ("neutral" as const),
   };
 
   const base = { body, plate, dirty: edited || picked !== null, busy: add.busy, onArrow: move };
-  if (added) return { ...base, final: true, action: { label: "Hinzugefügt", icon: Check, run: () => {}, disabled: true } };
+  if (added) return { ...base, final: true, action: { label: tw.added, icon: Check, run: () => {}, disabled: true } };
   return {
     ...base,
-    action: { label: add.busy ? "Wird hinzugefügt …" : "Hinzufügen", icon: add.busy ? undefined : Plus, run: () => void submit(), disabled: add.busy || !ready },
+    action: { label: add.busy ? tw.adding : tw.add, icon: add.busy ? undefined : Plus, run: () => void submit(), disabled: add.busy || !ready },
   };
 }
 
 /** Used and free space as a block meter, with the numbers under it. */
 function DriveSummary({ drive, selected }: { drive: MountedVolume; selected: boolean }) {
+  const t = useT().locations.volume;
   const used = Math.max(0, drive.totalBytes - drive.freeBytes);
   return (
     <span className="flex flex-col gap-1.5 pt-1">
@@ -157,10 +162,10 @@ function DriveSummary({ drive, selected }: { drive: MountedVolume; selected: boo
         size="sm"
         segments={40}
         tone={selected ? "ink" : "oxide"}
-        label={`${drive.name}: belegter Platz`}
+        label={t.usedSpace(drive.name)}
       />
       <UiText variant="caption" tone="neutral">
-        {formatBytes(used)} belegt · {formatBytes(drive.freeBytes)} frei von {formatBytes(drive.totalBytes)}
+        {t.summary(formatBytes(used), formatBytes(drive.freeBytes), formatBytes(drive.totalBytes))}
       </UiText>
     </span>
   );

@@ -75,6 +75,13 @@ mockIPC(
       case "delete_job":
         return jobWizardChange(command, (args ?? {}) as { id?: string; enabled?: boolean });
       // --- end Job wizard ---
+      // --- Settings: saving the interface settings, e.g. switching the language ---
+      case "set_ui_settings": {
+        scene.config = { ...scene.config, ui: (args as { settings: typeof scene.config.ui }).settings };
+        void emit("config-changed", scene.config);
+        return scene.config;
+      }
+      // --- end Settings ---
       default:
         return null;
     }
@@ -1072,39 +1079,49 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
     | ["scrollEnd"]
     | ["step", string];
 
-  const toArt: ModusStep[] = [
-    ["radio", "Schreibtisch"],
-    ["option", "Fotos"],
-    ["button", "Weiter"],
-    ["step", "Ziel"],
-    ["radio", "M2mini"],
-    ["option", "Fotos"],
-    ["button", "Weiter"],
-    ["step", "Art"],
-  ];
-  const twoWay: ModusStep[] = [...toArt, ["radio", "Beidseitig"]];
-  const toName: ModusStep[] = [["button", "Weiter"], ["step", "Auslöser"], ["button", "Weiter"], ["step", "Name"]];
-  const CONFLICT_ROW = "Wenn eine Datei auf beiden Seiten geändert wurde";
-  const ARCHIVE_ROW = "Gelöschtes und Überschriebenes aufheben";
-  const scenarios: Record<string, ModusStep[]> = {
-    art: toArt,
-    spiegel: [...toArt, ["radio", "Spiegel"]],
-    backup: [...toArt, ["radio", "Backup"]],
-    beidseitig: twoWay,
-    // Conflict rules and archive are folded rows; the first click on their title opens them.
-    "beidseitig-offen": [...twoWay, ["button", CONFLICT_ROW], ["button", ARCHIVE_ROW]],
-    "beide-behalten": [...twoWay, ["button", CONFLICT_ROW], ["select", "Welche Fassung bei einem Konflikt gewinnt", "none"]],
-    "verlierer-loeschen": [...twoWay, ["button", CONFLICT_ROW], ["radio", "Verlierer löschen"]],
-    // The second click finds the switch inside, whose label is exactly the row's title.
-    "archiv-aus": [...twoWay, ["button", ARCHIVE_ROW], ["button", ARCHIVE_ROW], ["scrollEnd"]],
-    "archiv-tage": [...toArt, ["radio", "Spiegel"], ["button", ARCHIVE_ROW], ["fill", "30", "7"]],
-    "archiv-ungueltig": [...toArt, ["radio", "Backup"], ["button", ARCHIVE_ROW], ["fill", "30", "400"]],
-    zusammenfassung: [...twoWay, ...toName],
-    angelegt: [...twoWay, ...toName, ["button", "Anlegen"], ["step", "angelegt"]],
-    bearbeiten: [["stepper", "Art"], ["step", "Art"]],
-    "bearbeiten-unten": [["stepper", "Art"], ["step", "Art"], ["scrollEnd"]],
-    "bearbeiten-beidseitig": [["stepper", "Art"], ["step", "Art"], ["radio", "Beidseitig"]],
-    "bearbeiten-beidseitig-name": [["stepper", "Art"], ["step", "Art"], ["radio", "Beidseitig"], ["stepper", "Name"], ["step", "Name"]],
+  // The words come from the catalog of the language the wizard shows (?lang=), read once the dialog is open.
+  const { texts } = await import("../src/i18n");
+  /** The "step" that is reached once the job is created. */
+  const CREATED = "created";
+  const scenariosFor = (t: ReturnType<typeof texts>): Record<string, ModusStep[]> => {
+    const w = t.wizard;
+    const toArt: ModusStep[] = [
+      ["radio", "Schreibtisch"],
+      ["option", "Fotos"],
+      ["button", w.footer.next],
+      ["step", w.steps.target],
+      ["radio", "M2mini"],
+      ["option", "Fotos"],
+      ["button", w.footer.next],
+      ["step", w.steps.mode],
+    ];
+    const twoWay: ModusStep[] = [...toArt, ["radio", t.common.mode.bidirectional]];
+    const toName: ModusStep[] = [["button", w.footer.next], ["step", w.steps.triggers], ["button", w.footer.next], ["step", w.steps.name]];
+    const CONFLICT_ROW = w.mode.conflictTitle;
+    const ARCHIVE_ROW = w.mode.archiveTitle;
+    const mirror = t.common.mode.mirror;
+    const backup = t.common.mode.backup;
+    const toModeStep: ModusStep[] = [["stepper", w.steps.mode], ["step", w.steps.mode]];
+    return {
+      art: toArt,
+      spiegel: [...toArt, ["radio", mirror]],
+      backup: [...toArt, ["radio", backup]],
+      beidseitig: twoWay,
+      // Conflict rules and archive are folded rows; the first click on their title opens them.
+      "beidseitig-offen": [...twoWay, ["button", CONFLICT_ROW], ["button", ARCHIVE_ROW]],
+      "beide-behalten": [...twoWay, ["button", CONFLICT_ROW], ["select", w.mode.preferLabel, "none"]],
+      "verlierer-loeschen": [...twoWay, ["button", CONFLICT_ROW], ["radio", w.mode.deleteLoser]],
+      // The second click finds the switch inside, whose label is exactly the row's title.
+      "archiv-aus": [...twoWay, ["button", ARCHIVE_ROW], ["button", ARCHIVE_ROW], ["scrollEnd"]],
+      "archiv-tage": [...toArt, ["radio", mirror], ["button", ARCHIVE_ROW], ["fill", "30", "7"]],
+      "archiv-ungueltig": [...toArt, ["radio", backup], ["button", ARCHIVE_ROW], ["fill", "30", "400"]],
+      zusammenfassung: [...twoWay, ...toName],
+      angelegt: [...twoWay, ...toName, ["button", w.footer.create], ["step", CREATED]],
+      bearbeiten: toModeStep,
+      "bearbeiten-unten": [...toModeStep, ["scrollEnd"]],
+      "bearbeiten-beidseitig": [...toModeStep, ["radio", t.common.mode.bidirectional]],
+      "bearbeiten-beidseitig-name": [...toModeStep, ["radio", t.common.mode.bidirectional], ["stepper", w.steps.name], ["step", w.steps.name]],
+    };
   };
 
   const scope = (): ParentNode => document.querySelector("[role=dialog]") ?? document;
@@ -1163,17 +1180,20 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
       case "step": {
         // The current step of the stepper, or the title of the sheet once the job is created.
         const current = scope().querySelector("nav [aria-current=step]");
-        const reached = (current && words(current).endsWith(step[1])) || (step[1] === "angelegt" && (scope().textContent ?? "").includes("ist angelegt"));
+        const reached = (current && words(current).endsWith(step[1])) || (step[1] === CREATED && (scope().textContent ?? "").includes(texts().wizard.title.done));
         return reached ? () => true : null;
       }
     }
   };
 
   const name = params.get("modus");
-  const steps = name ? scenarios[name] : undefined;
-  if (steps) {
+  if (name) {
     void (async () => {
       const frame = () => new Promise((resolve) => setTimeout(resolve, 50));
+      // The language is known once the config has arrived, which is before the wizard opens.
+      const opened = performance.now() + 5000;
+      while (!document.querySelector("[role=dialog]") && performance.now() < opened) await frame();
+      const steps = scenariosFor(texts())[name] ?? [];
       for (const step of steps) {
         const until = performance.now() + 5000;
         let run = targetOf(step);

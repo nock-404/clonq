@@ -1,5 +1,6 @@
 import { motion } from "motion/react";
 import { useEffect, useState, type ReactNode } from "react";
+import { useT } from "../i18n";
 import type { Tone } from "../lib/labels";
 import type { Ring } from "../lib/types";
 import { LocationShape, type GlyphKind, type GlyphLamp } from "./LocationShape";
@@ -203,15 +204,6 @@ const lens: Record<UiLampState, string> = {
   failed: "bg-danger glow-danger",
 };
 
-/** What a lamp says to a screen reader. */
-const spoken: Record<UiLampState, string> = {
-  off: "aus",
-  active: "wartet",
-  busy: "läuft",
-  done: "erledigt",
-  failed: "Fehler",
-};
-
 const word: Record<UiLampState, string> = {
   off: "text-ink-faint",
   active: "text-ink",
@@ -222,6 +214,8 @@ const word: Record<UiLampState, string> = {
 
 /** Panel lamps side by side; in a sequence they sit on a tape that is written up to the last finished step. */
 function LampRow({ lamps, sequence }: { lamps: UiDriveLamp[]; sequence: boolean }) {
+  // What a lamp says to a screen reader.
+  const spoken = useT().locations.lamp;
   const lastDone = lamps.findLastIndex((item) => item.state === "done");
   return (
     <ol className="flex">

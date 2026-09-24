@@ -1,5 +1,6 @@
 import { Archive, ListFilter, ShieldAlert, Zap } from "lucide-react";
 import { useEffect, useEffectEvent, useId, useState, type KeyboardEvent, type ReactNode } from "react";
+import { texts, useT } from "../../i18n";
 import { modeLabel } from "../../lib/labels";
 import type { Conflicts, Mode } from "../../lib/types";
 import { UiInput } from "../../ui";
@@ -15,14 +16,12 @@ import { UiSettingRow } from "../../ui/UiSettingRow";
 import { UiSwitch } from "../../ui/UiSwitch";
 import {
   ARCHIVE_FOLDER,
-  CONFLICT_EXAMPLE,
-  PERCENT_PROBLEM,
-  PREFER_CHOICES,
   archivePlace,
   archiveProblem,
   deletesIn,
   keepDaysOf,
   percentOf,
+  preferChoices,
   conflictTag,
   sortExcludes,
   type ArchiveDraft,
@@ -47,43 +46,61 @@ interface ModeStepProps {
 
 type ShownMode = "mirror" | "backup" | "bidirectional";
 
-// Each description fits two lines of a card, so the three cards keep the height of two.
-const options: { mode: ShownMode; key: string; description: string; extra: string }[] = [
-  { mode: "mirror", key: "1", description: "Das Ziel wird zur genauen Kopie; Überzähliges wird gelöscht.", extra: "gelöscht" },
-  { mode: "backup", key: "2", description: "Neues und Geändertes kommt ins Ziel; gelöscht wird nie.", extra: "bleibt" },
-  { mode: "bidirectional", key: "3", description: "Jede Seite übernimmt Neues, Geändertes und Gelöschtes.", extra: "Konflikt" },
+const SHORTCUTS: { mode: ShownMode; key: string }[] = [
+  { mode: "mirror", key: "1" },
+  { mode: "backup", key: "2" },
+  { mode: "bidirectional", key: "3" },
 ];
 
-const loserSegments: UiRadioSegment<Conflicts["loser"]>[] = [
-  { value: "keep", label: "Verlierer umbenennen" },
-  { value: "delete", label: "Verlierer löschen" },
-];
+/** The three cards; each description fits two lines of a card, so the three cards keep the height of two. */
+function modeOptions(): { mode: ShownMode; key: string; description: string; extra: string }[] {
+  const t = texts().wizard.mode;
+  const words: Record<ShownMode, [string, string]> = {
+    mirror: [t.mirror, t.mirrorCaption],
+    backup: [t.backup, t.backupCaption],
+    bidirectional: [t.bidirectional, t.bidirectionalCaption],
+  };
+  return SHORTCUTS.map((option) => ({ ...option, description: words[option.mode][0], extra: words[option.mode][1] }));
+}
+
+function loserSegments(): UiRadioSegment<Conflicts["loser"]>[] {
+  const t = texts().wizard.mode;
+  return [
+    { value: "keep", label: t.renameLoser },
+    { value: "delete", label: t.deleteLoser },
+  ];
+}
 
 /** What becomes of the losing copy, or why nobody loses. */
 function loserReason(conflicts: Conflicts, archive: boolean): ReactNode {
-  if (conflicts.prefer === "none") return "Ohne Gewinner gibt es keinen Verlierer; beide Fassungen bleiben unter neuen Namen erhalten.";
+  const { mode: t, conflict, quote } = texts().wizard;
+  if (conflicts.prefer === "none") return t.noLoser;
   if (conflicts.loser === "keep") {
     return (
       <>
-        Er heißt danach zum Beispiel <span className="font-mono">„{CONFLICT_EXAMPLE}“</span>.
+        {t.renamedBefore}
+        <span className="font-mono">{quote(conflict.example)}</span>
+        {t.renamedAfter}
       </>
     );
   }
-  return archive ? "Er wird ins Archiv verschoben." : "Ohne Archiv lässt er sich nicht wiederherstellen.";
+  return archive ? t.loserArchived : t.loserLost;
 }
 
 /** The conflict rule in a few words, for the folded row. */
 function conflictSummary(conflicts: Conflicts): string {
+  const t = texts().wizard.mode;
   const winner = conflictTag(conflicts);
   if (conflicts.prefer === "none") return winner;
-  return `${winner} · Verlierer ${conflicts.loser === "keep" ? "umbenennen" : "löschen"}`;
+  return `${winner} · ${conflicts.loser === "keep" ? t.renameLoser : t.deleteLoser}`;
 }
 
 /** The first patterns and how many more, for the folded row. */
 function excludesSummary(excludes: string[]): string {
-  if (excludes.length === 0) return "keine";
+  const t = texts().wizard.mode;
+  if (excludes.length === 0) return t.excludesNone;
   const shown = excludes.slice(0, 2).join(", ");
-  return excludes.length > 2 ? `${shown} und ${excludes.length - 2} weitere` : shown;
+  return excludes.length > 2 ? t.excludesMore(shown, excludes.length - 2) : shown;
 }
 
 /** Step 3: how the two ends follow each other, what a conflict does, how much a run may delete, what it keeps, and what stays out. */
@@ -101,6 +118,9 @@ export function ModeStep({
   onSubmit,
   shortcuts,
 }: ModeStepProps) {
+  const t = useT();
+  const m = t.wizard.mode;
+  const options = modeOptions();
   const [pattern, setPattern] = useState("");
   // Conflict rules and archive stay folded until needed, so the step fits without scrolling.
   const [openConflicts, setOpenConflicts] = useState(false);
@@ -119,7 +139,7 @@ export function ModeStep({
     if (!shortcuts || event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
     const target = event.target instanceof Element ? event.target : null;
     if (target?.closest("input, textarea, select")) return;
-    const option = options.find((item) => item.key === event.key);
+    const option = SHORTCUTS.find((item) => item.key === event.key);
     if (option) onMode(option.mode);
   });
   useEffect(() => {
@@ -146,7 +166,7 @@ export function ModeStep({
 
   return (
     <div className="flex flex-col gap-3">
-      <UiRadioGroup label="Art der Kopie" columns={3}>
+      <UiRadioGroup label={m.groupLabel} columns={3}>
         {options.map((option) => (
           <UiOptionCard
             key={option.mode}
@@ -165,23 +185,23 @@ export function ModeStep({
         {twoWay ? (
           <UiDisclosureRow
             icon={Zap}
-            title="Wenn eine Datei auf beiden Seiten geändert wurde"
+            title={m.conflictTitle}
             summary={conflictSummary(conflicts)}
             open={openConflicts}
             onToggle={() => setOpenConflicts((value) => !value)}
           >
             <span className="flex w-64">
               <UiSelect
-                label="Welche Fassung bei einem Konflikt gewinnt"
+                label={m.preferLabel}
                 value={conflicts.prefer}
-                options={PREFER_CHOICES}
+                options={preferChoices()}
                 onChange={(prefer) => onConflicts({ ...conflicts, prefer })}
               />
             </span>
             <div className="flex items-center gap-3">
               <UiRadioSegments
-                label="Was mit dem Verlierer geschieht"
-                segments={loserSegments}
+                label={m.loserLabel}
+                segments={loserSegments()}
                 value={conflicts.loser}
                 onChange={(loser) => onConflicts({ ...conflicts, loser })}
                 disabled={noWinner}
@@ -197,19 +217,13 @@ export function ModeStep({
         {deletesIn(mode) ? (
           <UiSettingRow
             icon={ShieldAlert}
-            title="Schutzschwelle"
-            description={
-              percentBad
-                ? PERCENT_PROBLEM
-                : twoWay
-                  ? "Löscht ein Lauf auf einer Seite mehr als diesen Anteil der Dateien, hält clonq vorher an und fragt nach."
-                  : "Löscht ein Lauf mehr als diesen Anteil der Einträge im Ziel, hält clonq vorher an und fragt nach."
-            }
+            title={m.limitTitle}
+            description={percentBad ? t.wizard.problem.percent : twoWay ? m.limitTwoWay : m.limitOneWay}
             descriptionId={`${ids}-percent`}
             invalid={percentBad}
             control={
               <UiNumberField
-                label="Schutzschwelle in Prozent"
+                label={m.limitLabel}
                 value={maxDeletePercent}
                 onChange={onMaxDeletePercent}
                 after="%"
@@ -224,20 +238,20 @@ export function ModeStep({
 
         <UiDisclosureRow
           icon={Archive}
-          title="Gelöschtes und Überschriebenes aufheben"
-          summary={daysProblem ?? (archive.enabled ? `An · ${archive.keepDays} ${keepDaysOf(archive.keepDays) === 1 ? "Tag" : "Tage"}` : "Aus")}
+          title={m.archiveTitle}
+          summary={daysProblem ?? (archive.enabled ? m.archiveOn(archive.keepDays, keepDaysOf(archive.keepDays)) : m.archiveOff)}
           invalid={daysProblem !== null}
           // An invalid number must stay in sight until it is fixed.
           open={openArchive || daysProblem !== null}
           onToggle={() => setOpenArchive((value) => !value)}
         >
           <div className="flex items-center gap-3">
-            <UiSwitch checked={archive.enabled} onChange={(enabled) => onArchive({ ...archive, enabled })} label="Gelöschtes und Überschriebenes aufheben" />
+            <UiSwitch checked={archive.enabled} onChange={(enabled) => onArchive({ ...archive, enabled })} label={m.archiveTitle} />
             <div className={`flex items-center gap-1.5 text-xs transition-opacity ${archive.enabled ? "text-ink-soft" : "text-ink-faint opacity-60"}`}>
               <UiNumberField
-                label="Aufbewahrungsdauer in Tagen"
-                before="für"
-                after={keepDaysOf(archive.keepDays) === 1 ? "Tag" : "Tage"}
+                label={m.keepLabel}
+                before={m.keepBefore}
+                after={m.dayUnit(keepDaysOf(archive.keepDays))}
                 value={archive.keepDays}
                 onChange={(keepDays) => onArchive({ ...archive, keepDays })}
                 disabled={!archive.enabled}
@@ -255,30 +269,30 @@ export function ModeStep({
                   {beforeFolder} <span className="font-mono">{ARCHIVE_FOLDER}</span> {afterFolder}
                 </>
               ) : (
-                "Was ein Lauf löscht oder überschreibt, lässt sich danach nicht wiederherstellen."
+                m.archiveNone
               ))}
           </span>
         </UiDisclosureRow>
 
         <UiDisclosureRow
           icon={ListFilter}
-          title="Ausschlüsse"
+          title={m.excludesTitle}
           summary={excludesSummary(excludes)}
           open={openExcludes}
           onToggle={() => setOpenExcludes((value) => !value)}
         >
           <div className="flex flex-wrap items-center gap-1.5">
             {excludes.map((item) => (
-              <UiChip key={item} mono onRemove={() => onExcludes(excludes.filter((other) => other !== item))} removeLabel={`${item} entfernen`}>
+              <UiChip key={item} mono onRemove={() => onExcludes(excludes.filter((other) => other !== item))} removeLabel={m.removeExclude(item)}>
                 {item}
               </UiChip>
             ))}
             <span className="min-w-[10rem] flex-1" data-own-enter>
-              <UiInput value={pattern} onChange={setPattern} onKeyDown={onPatternKey} placeholder="Muster, zum Beispiel .DS_Store" mono />
+              <UiInput value={pattern} onChange={setPattern} onKeyDown={onPatternKey} placeholder={m.patternPlaceholder} mono />
             </span>
           </div>
           <span className="text-[0.6875rem] leading-snug text-ink-faint">
-            Endet ein Muster auf /, gilt es nur für Ordner; beginnt es mit /, nur für die oberste Ebene.
+            {m.patternHint}
           </span>
         </UiDisclosureRow>
       </div>

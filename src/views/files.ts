@@ -2,6 +2,7 @@
 // times and failures read.
 
 import { File, FileCode, FileImage, FileText, Folder, type LucideIcon } from "lucide-react";
+import { locale, texts } from "../i18n";
 import { messageLabel } from "../lib/labels";
 
 const imageExt = /\.(png|jpe?g|gif|webp|svg|heic|tiff?)$/i;
@@ -28,11 +29,26 @@ export const joinPath = (base: string, name: string) => (base ? `${base}/${name}
 export const tidyHome = (path: string) => path.replace(/^\/Users\/[^/]+/, "~");
 
 const DAY = 86_400_000;
-const time = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" });
-const weekday = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "numeric", month: "short" });
-const dayMonth = new Intl.DateTimeFormat("de-DE", { day: "numeric", month: "short" });
-const full = new Intl.DateTimeFormat("de-DE", { day: "numeric", month: "short", year: "numeric" });
-const fixed = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
+type Formats = { time: Intl.DateTimeFormat; weekday: Intl.DateTimeFormat; dayMonth: Intl.DateTimeFormat; full: Intl.DateTimeFormat; fixed: Intl.DateTimeFormat };
+const formatCache = new Map<string, Formats>();
+
+/** The date formats of the interface language, built on first use and kept per locale. */
+function formats(): Formats {
+  const tag = locale();
+  let found = formatCache.get(tag);
+  if (!found) {
+    found = {
+      time: new Intl.DateTimeFormat(tag, { timeStyle: "short" }),
+      weekday: new Intl.DateTimeFormat(tag, { weekday: "short", day: "numeric", month: "short" }),
+      dayMonth: new Intl.DateTimeFormat(tag, { day: "numeric", month: "short" }),
+      full: new Intl.DateTimeFormat(tag, { day: "numeric", month: "short", year: "numeric" }),
+      fixed: new Intl.DateTimeFormat(tag, { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }),
+    };
+    formatCache.set(tag, found);
+  }
+  return found;
+}
 
 function startOfDay(at: number): number {
   const date = new Date(at);
@@ -40,23 +56,24 @@ function startOfDay(at: number): number {
   return date.getTime();
 }
 
-/** "heute", "gestern", "Mo., 21. Sept.", "12. Sept.", "3. Feb. 2025": the day, as near as it is. */
+/** "today", "yesterday", "Mon, Sep 21", "Sep 12", "Feb 3, 2025": the day, as near as it is. */
 export function dayWords(at: Date, now: number): string {
+  const t = texts().detail.time;
   const days = Math.round((startOfDay(now) - startOfDay(at.getTime())) / DAY);
-  if (days === 0) return "heute";
-  if (days === 1) return "gestern";
-  if (days < 7) return weekday.format(at);
-  if (at.getFullYear() === new Date(now).getFullYear()) return dayMonth.format(at);
-  return full.format(at);
+  if (days === 0) return t.today;
+  if (days === 1) return t.yesterday;
+  if (days < 7) return formats().weekday.format(at);
+  if (at.getFullYear() === new Date(now).getFullYear()) return formats().dayMonth.format(at);
+  return formats().full.format(at);
 }
 
-/** "heute, 14:05". */
+/** "today at 2:05 PM". */
 export function momentWords(at: Date, now: number): string {
-  return `${dayWords(at, now)}, ${time.format(at)}`;
+  return texts().detail.time.moment(dayWords(at, now), formats().time.format(at));
 }
 
-/** "23.09.2026, 14:05": one width for every date, for a column that is read top to bottom. */
-export const fixedMoment = (at: Date) => fixed.format(at);
+/** "09/23/2026, 02:05 PM": one width for every date, for a column that is read top to bottom. */
+export const fixedMoment = (at: Date) => formats().fixed.format(at);
 
 export const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
@@ -80,29 +97,29 @@ export function snapshotDate(name: string): Date | null {
   return Number.isNaN(at.getTime()) ? null : at;
 }
 
-/** "Datei" or "Dateien", with the number. */
+/** "1 file" or "12 files". */
 export function filesWord(count: number, format: (value: number) => string): string {
-  return count === 1 ? "eine Datei" : `${format(count)} Dateien`;
+  return texts().detail.fileCount(count, format(count));
 }
 
 /** A text that ends like a sentence, whether or not it came with a full stop. */
 export const sentence = (text: string) => (/[.!?…]$/.test(text.trim()) ? text.trim() : `${text.trim()}.`);
 
 export interface Failure {
-  /** One German sentence. */
+  /** One sentence in the interface language. */
   text: string;
-  /** The backend's own words when there is no German for them yet, for a tooltip. */
+  /** The backend's own words when there is no translation for them yet, for a tooltip. */
   detail: string | null;
 }
 
 /**
- * A failed call in German: the lead says what did not work, and the backend message follows once
- * labels.ts knows it. Until then the English original stays out of the sentence. Messages that
- * already name what failed, e.g. "Das Kopieren ist fehlgeschlagen", can stand without the lead.
+ * A failed call in the interface language: the lead says what did not work, and the backend message
+ * follows once labels.ts knows it. Until then the terse original stays out of the sentence. Messages
+ * that already name what failed, e.g. "The copy failed", can stand without the lead.
  */
 export function failureOf(lead: string, reason: unknown, withLead = true): Failure {
   const raw = String(reason);
-  const german = messageLabel(raw);
-  if (german === raw) return { text: sentence(lead), detail: raw };
-  return { text: sentence(withLead ? `${lead}: ${german}` : german), detail: null };
+  const known = messageLabel(raw);
+  if (known === raw) return { text: sentence(lead), detail: raw };
+  return { text: sentence(withLead ? `${lead}: ${known}` : known), detail: null };
 }

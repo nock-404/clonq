@@ -1,5 +1,6 @@
 import { Check, ExternalLink, Plug, RotateCw } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useT } from "../../i18n";
 import { api } from "../../lib/api";
 import type { CloudProvider, CloudProviderInfo } from "../../lib/types";
 import { UiButton, UiNotice, UiProgressBar, UiSegmented, UiText } from "../../ui";
@@ -53,6 +54,9 @@ function suggestName(provider: CloudProviderInfo | undefined, values: Record<str
  * saves only when that works.
  */
 export function useCloudSetup(context: SetupContext, mode: "cloud" | "webdav"): Setup {
+  const t = useT();
+  const tc = t.locations.cloud;
+  const tw = t.locations.flow;
   const config = context.state.config;
   const [providers, setProviders] = useState<CloudProviderInfo[] | null>(null);
   const load = useTask();
@@ -104,18 +108,18 @@ export function useCloudSetup(context: SetupContext, mode: "cloud" | "webdav"): 
   const locked = add.busy || !!added;
   const body = waiting ? (
     <div className="flex flex-col gap-3 pt-1">
-      <UiText variant="heading">Anmeldung bei {label}</UiText>
+      <UiText variant="heading">{tc.signInTitle(label)}</UiText>
       <UiText tone="neutral">
-        Im Browser ist die Anmeldeseite von {label} geöffnet. Sobald du clonq dort den Zugriff erlaubst, prüft clonq die Verbindung und legt den Ort an.
+        {tw.signInOpen(label)} {tc.signInAllow}
       </UiText>
       <div className="flex flex-col gap-1.5 pt-1">
         <UiProgressBar value={(left / SIGN_IN_SECONDS) * 100} />
         <UiText variant="caption" tone="neutral">
-          Die Anmeldung muss in den nächsten {formatClock(left)} Minuten abgeschlossen sein.
+          {tw.signInClock(formatClock(left))}
         </UiText>
       </div>
       <UiText variant="caption" tone="neutral">
-        Wenn du hier abbrichst, die Freigabe im Browser aber trotzdem erteilst, legt clonq den Ort dennoch an.
+        {tc.signInCancel}
       </UiText>
     </div>
   ) : (
@@ -125,22 +129,22 @@ export function useCloudSetup(context: SetupContext, mode: "cloud" | "webdav"): 
           tone="danger"
           actions={
             <UiButton icon={RotateCw} onPress={fetchProviders} disabled={load.busy}>
-              Erneut laden
+              {tw.reload}
             </UiButton>
           }
         >
-          Die Liste der Anbieter ließ sich nicht laden. {load.error}
+          {tc.providersFailed(load.error)}
         </UiNotice>
       ) : null}
       {providers === null && !load.error ? (
         <UiText variant="caption" tone="neutral">
-          Anbieter werden geladen …
+          {tc.loadingProviders}
         </UiText>
       ) : null}
       {mode === "cloud" && provider ? (
         <div className="flex flex-col gap-2">
           <UiSegmented
-            label="Anbieter"
+            label={tc.providerGroup}
             value={provider.id}
             segments={choices.map((item) => ({ value: item.id, label: providerShort[item.id] }))}
             onChange={(id) => {
@@ -151,7 +155,7 @@ export function useCloudSetup(context: SetupContext, mode: "cloud" | "webdav"): 
             }}
           />
           <UiText variant="caption" tone="neutral">
-            {label} · {provider.browserLogin ? "Anmeldung im Browser" : "Zugang mit Schlüssel"}
+            {label} · {provider.browserLogin ? tc.browserLogin : tc.keyLogin}
           </UiText>
         </div>
       ) : null}
@@ -163,13 +167,13 @@ export function useCloudSetup(context: SetupContext, mode: "cloud" | "webdav"): 
           root={root}
           onRoot={setRoot}
           disabled={locked}
-          aside={<NameField value={name} onChange={setName} taken={taken} hint="So erscheint der Ort in clonq." disabled={locked} />}
+          aside={<NameField value={name} onChange={setName} taken={taken} hint={tc.nameHint} disabled={locked} />}
         />
       ) : null}
       {existing ? (
-        <ExistingNotice subject="Dieser Ordner bei diesem Anbieter" location={existing} onOpen={() => context.reveal(existing.id)} soft>
+        <ExistingNotice subject={tc.subject} location={existing} onOpen={() => context.reveal(existing.id)} soft>
           {" "}
-          Gehört er zu einem anderen Konto, lässt er sich trotzdem hinzufügen.
+          {tc.otherAccount}
         </ExistingNotice>
       ) : null}
       {add.error ? (
@@ -177,8 +181,8 @@ export function useCloudSetup(context: SetupContext, mode: "cloud" | "webdav"): 
       ) : provider ? (
         <UiText variant="caption" tone="neutral">
           {provider.browserLogin
-            ? `Mit „Im Browser anmelden“ öffnet sich die Anmeldeseite von ${label}. Dort gibst du clonq den Zugriff frei.`
-            : "clonq prüft den Zugang und legt den Ort erst an, wenn das gelingt."}
+            ? tc.browserHint(label)
+            : tc.keyHint}
         </UiText>
       ) : null}
     </div>
@@ -195,36 +199,36 @@ export function useCloudSetup(context: SetupContext, mode: "cloud" | "webdav"): 
       lampOf({ done: !!added, ready: false }),
     ],
     status: added
-      ? "Hinzugefügt"
+      ? tw.added
       : waiting
-        ? "Wartet auf die Freigabe im Browser"
+        ? tc.waitingBrowser
         : add.busy
-          ? "Zugang wird geprüft …"
+          ? tw.checkingAccess
           : add.error
-            ? "Kein Zugang"
+            ? tc.noAccess
             : providers === null
               ? load.error
-                ? "Anbieter nicht geladen"
-                : "Anbieter werden geladen …"
+                ? tc.providersNotLoaded
+                : tc.loadingProviders
               : ready
-                ? "Bereit zum Verbinden"
-                : "Nicht verbunden",
+                ? tw.readyToConnect
+                : tw.notConnected,
     tone: added ? ("ok" as const) : add.error || load.error ? ("danger" as const) : ("neutral" as const),
   };
 
   let action: SetupAction;
   if (added) {
-    action = { label: "Hinzugefügt", icon: Check, run: () => {}, disabled: true };
+    action = { label: tw.added, icon: Check, run: () => {}, disabled: true };
   } else if (provider?.browserLogin) {
-    action = { label: waiting ? "Anmeldung läuft …" : "Im Browser anmelden", icon: waiting ? undefined : ExternalLink, run: () => void submit(), disabled: add.busy || !ready };
+    action = { label: waiting ? tc.signingIn : tw.signInBrowser, icon: waiting ? undefined : ExternalLink, run: () => void submit(), disabled: add.busy || !ready };
   } else {
-    action = { label: add.busy ? "Zugang wird geprüft …" : "Verbinden und hinzufügen", icon: add.busy ? undefined : Plug, run: () => void submit(), disabled: add.busy || !ready };
+    action = { label: add.busy ? tw.checkingAccess : tw.connectAndAdd, icon: add.busy ? undefined : Plug, run: () => void submit(), disabled: add.busy || !ready };
   }
 
   return {
     body,
     action,
-    secondary: waiting ? { label: "Abbrechen", keys: ["esc"], run: abandon, disabled: false } : undefined,
+    secondary: waiting ? { label: t.common.cancel, keys: ["esc"], run: abandon, disabled: false } : undefined,
     plate,
     dirty: Object.values(values).some((value) => value.trim() !== "") || root.trim() !== "" || edited || (mode === "cloud" && picked !== null),
     busy: add.busy || load.busy,

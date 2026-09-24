@@ -83,7 +83,7 @@ export function lampOf(step: { done: boolean; busy?: boolean; failed?: boolean; 
 }
 
 /**
- * Runs one backend call at a time and keeps its error, already in German.
+ * Runs one backend call at a time and keeps its error, already in the interface language.
  * `cancel` stops waiting: a result that arrives later is ignored.
  */
 export function useTask() {

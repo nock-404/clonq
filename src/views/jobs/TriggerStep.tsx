@@ -1,4 +1,5 @@
 import { CalendarClock, FileClock, Link2, Timer, Usb } from "lucide-react";
+import { locale, useT } from "../../i18n";
 import type { Config, Location } from "../../lib/types";
 import { UiInput, UiKbd } from "../../ui";
 import { UiSelect } from "../../ui/UiSelect";
@@ -24,10 +25,11 @@ function anyOn(triggers: TriggerDraft, withMount: boolean): boolean {
 
 /** Step 4: when the job starts by itself. Without any trigger it starts only by hand. */
 export function TriggerStep({ triggers, onTriggers, enabled, onEnabled, drives, config, jobId }: TriggerStepProps) {
+  const r = useT().wizard.trigger;
   const withMount = drives.length > 0;
   const set = (change: Partial<TriggerDraft>) => onTriggers({ ...triggers, ...change });
   const { jobs: followable, excluded } = followableJobs(config, jobId);
-  const driveNames = new Intl.ListFormat("de", { type: "disjunction" }).format(drives.map((drive) => drive.name));
+  const driveNames = new Intl.ListFormat(locale(), { type: "disjunction" }).format(drives.map((drive) => drive.name));
   const automatic = anyOn(triggers, withMount);
 
   return (
@@ -36,79 +38,73 @@ export function TriggerStep({ triggers, onTriggers, enabled, onEnabled, drives, 
         {withMount ? (
           <UiSwitchRow
             icon={Usb}
-            title="Beim Anstecken"
-            description={triggers.onMount ? `Startet, sobald ${driveNames} angeschlossen wird.` : undefined}
+            title={r.onMount}
+            description={triggers.onMount ? r.onMountDescription(driveNames) : undefined}
             checked={triggers.onMount}
             onChange={(onMount) => set({ onMount })}
           />
         ) : null}
         <UiSwitchRow
           icon={FileClock}
-          title="Bei Änderungen in der Quelle"
-          description={triggers.onChange ? "Wartet nach jeder Änderung, bis die Quelle so lange ruht." : undefined}
+          title={r.onChange}
+          description={triggers.onChange ? r.onChangeDescription : undefined}
           checked={triggers.onChange}
           onChange={(onChange) => set({ onChange })}
           inline={
             <>
-              nach
+              {r.onChangeBefore}
               <span className="w-16">
                 <UiInput type="number" value={triggers.changeSeconds} disabled={!triggers.onChange} onChange={(changeSeconds) => set({ changeSeconds })} />
               </span>
-              Sekunden Ruhe
+              {r.onChangeAfter}
             </>
           }
         />
         <UiSwitchRow
           icon={Timer}
-          title="In festem Abstand"
-          description={triggers.every ? "Gezählt ab dem Beginn des letzten Laufs." : undefined}
+          title={r.every}
+          description={triggers.every ? r.everyDescription : undefined}
           checked={triggers.every}
           onChange={(every) => set({ every })}
           inline={
             <>
-              alle
+              {r.everyBefore}
               <span className="w-16">
                 <UiInput type="number" value={triggers.everyMinutes} disabled={!triggers.every} onChange={(everyMinutes) => set({ everyMinutes })} />
               </span>
-              Minuten
+              {r.everyAfter}
             </>
           }
         />
         <UiSwitchRow
           icon={CalendarClock}
-          title="Täglich"
-          description={triggers.daily ? "Ein verpasster Lauf wird nach dem Ruhezustand nachgeholt." : undefined}
+          title={r.daily}
+          description={triggers.daily ? r.dailyDescription : undefined}
           checked={triggers.daily}
           onChange={(daily) => set({ daily })}
           inline={
             <>
-              um
-              <UiTimeField label="Uhrzeit" value={triggers.dailyAt} disabled={!triggers.daily} onChange={(dailyAt) => set({ dailyAt })} />
-              Uhr
+              {r.dailyBefore}
+              <UiTimeField label={r.timeLabel} value={triggers.dailyAt} disabled={!triggers.daily} onChange={(dailyAt) => set({ dailyAt })} />
+              {r.dailyAfter}
             </>
           }
         />
         {followable.length > 0 || triggers.after ? (
           <UiSwitchRow
             icon={Link2}
-            title="Im Anschluss an einen anderen Job"
-            description={
-              triggers.after
-                ? excluded > 0
-                  ? "Startet, sobald der gewählte Job einen Lauf beendet hat. Jobs, die selbst nach diesem laufen, stehen nicht zur Wahl."
-                  : "Startet, sobald der gewählte Job einen Lauf beendet hat."
-                : undefined
-            }
+            title={r.after}
+            description={triggers.after ? (excluded > 0 ? r.afterExcluded : r.afterDescription) : undefined}
             checked={triggers.after}
             onChange={(after) => set({ after, afterJob: after ? (triggers.afterJob ?? followable[0]?.id ?? null) : triggers.afterJob })}
             inline={
               <span className="w-[11.5rem]">
                 <UiSelect
-                  label="Vorheriger Job"
+                  label={r.afterLabel}
                   value={triggers.afterJob}
                   options={followable.map((job) => ({ value: job.id, label: job.name }))}
                   onChange={(afterJob) => set({ afterJob })}
-                  placeholder="Job wählen"
+                  placeholder={r.afterPlaceholder}
                   disabled={!triggers.after}
                 />
               </span>
@@ -120,18 +116,14 @@ export function TriggerStep({ triggers, onTriggers, enabled, onEnabled, drives, 
       <div className="hairline flex flex-col rounded-[var(--radius-panel)] bg-well">
         {automatic ? (
           <UiSwitchRow
-            title="Automatik"
-            description={
-              enabled
-                ? "Die Auslöser greifen nur, solange clonq läuft."
-                : "Die Auslöser bleiben gespeichert, greifen aber erst, wenn die Automatik eingeschaltet ist."
-            }
+            title={r.automation}
+            description={enabled ? r.automationOn : r.automationOff}
             checked={enabled}
             onChange={onEnabled}
           />
         ) : (
           <p className="flex min-h-11 flex-wrap items-center gap-1 px-3 text-xs text-ink-soft">
-            Ohne Auslöser startet der Job nur von Hand, mit <UiKbd keys={["↵"]} /> in der Jobansicht oder im Menüleistenfenster.
+            {r.manualBefore} <UiKbd keys={["↵"]} /> {r.manualAfter}
           </p>
         )}
       </div>

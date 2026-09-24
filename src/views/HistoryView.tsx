@@ -1,5 +1,6 @@
 import { Clock } from "lucide-react";
 import type { ClonqState } from "../hooks/useClonq";
+import { useT } from "../i18n";
 import { formatBytes, formatCount, formatDateTime, formatDuration } from "../lib/format";
 import { messageLabel, statusLabel, statusTone } from "../lib/labels";
 import { durationSeconds } from "../lib/runs";
@@ -12,16 +13,10 @@ interface HistoryViewProps {
   state: ClonqState;
 }
 
-const triggerLabel: Record<string, string> = {
-  manual: "Per Knopf",
-  schedule: "Zeitplan",
-  daily: "Täglich",
-  mount: "Angesteckt",
-  change: "Änderung",
-  chain: "Nach Job",
-};
-
 export function HistoryView({ state }: HistoryViewProps) {
+  const t = useT();
+  const h = t.detail.history;
+  const triggers: Record<string, string> = h.triggers;
   const jobs = state.config?.jobs ?? [];
   const jobOf = (jobId: string) => {
     const index = jobs.findIndex((job) => job.id === jobId);
@@ -31,13 +26,13 @@ export function HistoryView({ state }: HistoryViewProps) {
   const columns: UiColumn<Run>[] = [
     {
       key: "when",
-      header: "Start",
+      header: h.start,
       width: "w-36",
       render: (run) => <span className="text-xs text-ink-soft tabular">{formatDateTime(run.startedAt)}</span>,
     },
     {
       key: "job",
-      header: "Job",
+      header: h.job,
       render: (run) => {
         const { job, index } = jobOf(run.jobId);
         return (
@@ -45,7 +40,7 @@ export function HistoryView({ state }: HistoryViewProps) {
             <div className="flex min-w-0 items-center gap-2">
               <span className={`size-2 shrink-0 rounded-full ${ringBg[ringOf(job?.ring ?? null, Math.max(index, 0))]}`} />
               <span className="truncate text-xs font-medium">{job?.name ?? run.jobId}</span>
-              {run.dryRun ? <UiBadge tone="accent">Probelauf</UiBadge> : null}
+              {run.dryRun ? <UiBadge tone="accent">{t.detail.dryRun}</UiBadge> : null}
             </div>
             {run.message ? (
               <span className="truncate text-[0.6875rem] text-ink-faint" title={messageLabel(run.message)}>
@@ -58,19 +53,19 @@ export function HistoryView({ state }: HistoryViewProps) {
     },
     {
       key: "status",
-      header: "Status",
+      header: h.status,
       width: "w-32",
       render: (run) => <UiBadge tone={statusTone[run.status]}>{statusLabel(run.status)}</UiBadge>,
     },
     {
       key: "trigger",
-      header: "Auslöser",
+      header: h.trigger,
       width: "w-24",
-      render: (run) => <span className="text-xs text-ink-faint">{triggerLabel[run.trigger] ?? run.trigger}</span>,
+      render: (run) => <span className="text-xs text-ink-faint">{triggers[run.trigger] ?? run.trigger}</span>,
     },
     {
       key: "files",
-      header: "Neu / geändert / gelöscht",
+      header: h.files,
       width: "w-44",
       align: "end",
       render: (run) => (
@@ -85,32 +80,32 @@ export function HistoryView({ state }: HistoryViewProps) {
     },
     {
       key: "bytes",
-      header: "Menge",
+      header: t.detail.data,
       width: "w-24",
       align: "end",
       render: (run) => <span className="text-xs tabular">{formatBytes(run.bytesNew + run.bytesChanged)}</span>,
     },
     {
       key: "duration",
-      header: "Dauer",
+      header: h.duration,
       width: "w-20",
       align: "end",
       render: (run) => {
         const seconds = durationSeconds(run);
-        return <span className="text-xs text-ink-faint tabular">{seconds === null ? "läuft" : formatDuration(seconds)}</span>;
+        return <span className="text-xs text-ink-faint tabular">{seconds === null ? h.running : formatDuration(seconds)}</span>;
       },
     },
   ];
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-xl font-semibold tracking-tight">Verlauf</h1>
+      <h1 className="text-xl font-semibold tracking-tight">{h.title}</h1>
       <UiTable
         columns={columns}
         rows={state.recent}
         rowKey={(run) => run.id}
         onRowPress={(run) => openSheet({ kind: "run", runId: run.id })}
-        empty={<UiEmpty icon={Clock} title="Noch keine Läufe" detail="Jeder Lauf erscheint hier, auch Probeläufe." />}
+        empty={<UiEmpty icon={Clock} title={h.empty} detail={h.emptyDetail} />}
       />
     </div>
   );

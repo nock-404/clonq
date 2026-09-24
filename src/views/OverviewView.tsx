@@ -1,4 +1,5 @@
 import type { ClonqState } from "../hooks/useClonq";
+import { useT } from "../i18n";
 import { formatBytes, formatCount, formatReels, formatRelative } from "../lib/format";
 import { isRunning } from "../lib/jobs";
 import { UiCounter, UiListRow, UiPanel, UiReel, UiStat, freshnessTone } from "../ui";
@@ -12,24 +13,30 @@ interface OverviewViewProps {
 }
 
 export function OverviewView({ state, now, onOpenJob }: OverviewViewProps) {
+  const t = useT();
+  const o = t.shell.overview;
   const overview = state.overview;
   const jobs = state.config?.jobs ?? [];
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-xl font-semibold tracking-tight">Übersicht</h1>
+      <h1 className="text-xl font-semibold tracking-tight">{o.title}</h1>
       <div className="grid grid-cols-3 gap-4">
-        <UiPanel title="Heute bewegt">
-          <UiStat label="Daten" value={formatBytes(overview?.todayBytes ?? 0)} detail={`≈ ${formatReels(overview?.todayBytes ?? 0)} · ${formatCount(overview?.todayRuns ?? 0)} Läufe`} />
+        <UiPanel title={o.today}>
+          <UiStat
+            label={o.data}
+            value={formatBytes(overview?.todayBytes ?? 0)}
+            detail={o.todayDetail(formatReels(overview?.todayBytes ?? 0), overview?.todayRuns ?? 0, formatCount(overview?.todayRuns ?? 0))}
+          />
         </UiPanel>
-        <UiPanel title="Seit Beginn, Dateien">
+        <UiPanel title={o.totalFiles}>
           <UiCounter value={overview?.totals.files ?? 0} digits={7} />
         </UiPanel>
-        <UiPanel title="Seit Beginn, Daten">
-          <UiStat label="Neu und geändert" value={formatBytes(overview?.totals.bytes ?? 0)} detail={`≈ ${formatReels(overview?.totals.bytes ?? 0)} Magnetband`} />
+        <UiPanel title={o.totalData}>
+          <UiStat label={o.newAndChanged} value={formatBytes(overview?.totals.bytes ?? 0)} detail={o.tape(formatReels(overview?.totals.bytes ?? 0))} />
         </UiPanel>
       </div>
-      <UiPanel title="Stand pro Job">
-        <div className="flex flex-col" role="listbox" aria-label="Jobs">
+      <UiPanel title={o.perJob}>
+        <div className="flex flex-col" role="listbox" aria-label={t.shell.nav.jobs}>
           {jobs.map((job, index) => {
             const stats = state.stats[job.id];
             const live = state.live[job.id];
@@ -41,8 +48,8 @@ export function OverviewView({ state, now, onOpenJob }: OverviewViewProps) {
                 onPress={() => onOpenJob(job.id)}
                 leading={<UiReel ring={ringOf(job.ring, index)} spinning={isRunning(live)} />}
                 title={job.name}
-                subtitle={stats ? `Serie ${stats.streak} · ${formatBytes(stats.totals.bytes)} bewegt` : undefined}
-                accessory={<span className={toneText[freshnessTone(at, now)]}>{at ? formatRelative(at, now) : "noch nie"}</span>}
+                subtitle={stats ? o.jobLine(stats.streak, formatBytes(stats.totals.bytes)) : undefined}
+                accessory={<span className={toneText[freshnessTone(at, now)]}>{at ? formatRelative(at, now) : t.common.never}</span>}
               />
             );
           })}

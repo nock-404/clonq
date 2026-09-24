@@ -1,5 +1,6 @@
 import { ChevronRight, Eye, EyeOff, Folder, FolderPlus, RotateCw, X } from "lucide-react";
 import { useEffect, useState, type KeyboardEvent } from "react";
+import { locale, texts, useT } from "../../i18n";
 import { api } from "../../lib/api";
 import { messageLabel } from "../../lib/labels";
 import type { FolderEntry, Location } from "../../lib/types";
@@ -35,21 +36,29 @@ type Listing =
   | { state: "failed"; path: string; message: string };
 
 function folderNameProblem(name: string, siblings: FolderEntry[]): string | null {
+  const t = texts().wizard.folders;
   const trimmed = name.trim();
-  if (!trimmed) return "Der Ordner braucht einen Namen.";
-  if (trimmed.includes("/")) return "Ein Ordnername darf keinen Schrägstrich enthalten.";
-  if (trimmed === "." || trimmed === "..") return "Dieser Name ist nicht erlaubt.";
-  if (siblings.some((entry) => entry.name.toLowerCase() === trimmed.toLowerCase())) return "Einen Ordner mit diesem Namen gibt es hier schon.";
+  if (!trimmed) return t.needsName;
+  if (trimmed.includes("/")) return t.noSlash;
+  if (trimmed === "." || trimmed === "..") return t.notAllowed;
+  if (siblings.some((entry) => entry.name.toLowerCase() === trimmed.toLowerCase())) return t.exists;
   return null;
 }
 
-/** "Quelle von „A“ und „B“, Ziel von „C“". */
+/** What a job does with a folder, e.g. "Source of “A” and “B”". */
+function roleWords(role: PlaceUse["role"], names: string): string {
+  const t = texts().wizard.folders;
+  return role === "source" ? t.sourceOf(names) : t.targetOf(names);
+}
+
+/** "Source of “A” and “B”, Target of “C”". */
 function usesTitle(uses: PlaceUse[]): string {
-  const list = new Intl.ListFormat("de", { type: "conjunction" });
+  const list = new Intl.ListFormat(locale(), { type: "conjunction" });
+  const { quote } = texts().wizard;
   return (["source", "target"] as const)
     .map((role) => {
-      const names = uses.filter((use) => use.role === role).map((use) => `„${use.job.name}“`);
-      return names.length > 0 ? `${role === "source" ? "Quelle" : "Ziel"} von ${list.format(names)}` : null;
+      const names = uses.filter((use) => use.role === role).map((use) => quote(use.job.name));
+      return names.length > 0 ? roleWords(role, list.format(names)) : null;
     })
     .filter(Boolean)
     .join(", ");
@@ -60,6 +69,8 @@ function usesTitle(uses: PlaceUse[]): string {
  * on the highlighted one, opens it. ← and ⌘↑ go back up.
  */
 export function FolderBrowser({ location, path, onPath, markOf, onReadable }: FolderBrowserProps) {
+  const t = useT();
+  const f = t.wizard.folders;
   const current = trimPath(path);
   const [listing, setListing] = useState<Listing>({ state: "loading", path: current, entries: null });
   const [reload, setReload] = useState(0);
@@ -160,21 +171,21 @@ export function FolderBrowser({ location, path, onPath, markOf, onReadable }: Fo
   const count = visible.length;
   const status =
     listing.state === "loading"
-      ? "Ordner werden gelesen …"
+      ? f.loading
       : listing.state === "failed"
-        ? "Nicht lesbar"
+        ? f.unreadable
         : count === 0
           ? hiddenCount > 0
-            ? `Nur ${hiddenCount === 1 ? "ein versteckter Ordner" : `${hiddenCount} versteckte Ordner`}`
-            : "Keine Unterordner"
-          : `${count === 1 ? "Ein Unterordner" : `${count} Unterordner`}${hiddenCount > 0 && !showHidden ? `, dazu ${hiddenCount} versteckt` : ""}`;
+            ? f.onlyHidden(hiddenCount)
+            : f.none
+          : f.count(count, showHidden ? 0 : hiddenCount);
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col gap-2">
       <div className="flex min-h-7 items-center gap-2">
         <div className="min-w-0 flex-1">
           <UiBreadcrumb
-            label="Gewählter Ordner"
+            label={f.chosen}
             root={
               <>
                 <UiLocationGlyph kind={location.kind.type} size="xs" connected />
@@ -188,10 +199,10 @@ export function FolderBrowser({ location, path, onPath, markOf, onReadable }: Fo
             }}
           />
         </div>
-        {segments.length === 0 ? <UiBadge>ganzer Ort</UiBadge> : null}
+        {segments.length === 0 ? <UiBadge>{t.wizard.tape.whole}</UiBadge> : null}
         <UiIconButton
           icon={showHidden ? Eye : EyeOff}
-          label={showHidden ? "Versteckte Ordner ausblenden" : hiddenCount > 0 ? `${hiddenCount} versteckte Ordner zeigen` : "Keine versteckten Ordner"}
+          label={showHidden ? f.hideHidden : hiddenCount > 0 ? f.showHidden(hiddenCount) : f.noHidden}
           tone={showHidden ? "accent" : "neutral"}
           disabled={hiddenCount === 0 && !showHidden}
           onPress={() => setShowHidden((value) => !value)}
@@ -205,7 +216,7 @@ export function FolderBrowser({ location, path, onPath, markOf, onReadable }: Fo
               tone="danger"
               actions={
                 <UiButton variant="ghost" icon={RotateCw} onPress={() => setReload((value) => value + 1)}>
-                  Erneut versuchen
+                  {f.retry}
                 </UiButton>
               }
             >
@@ -214,7 +225,7 @@ export function FolderBrowser({ location, path, onPath, markOf, onReadable }: Fo
           </div>
         ) : (
           <UiListbox
-            label={`Ordner in ${[location.name, ...segments].join("/")}`}
+            label={f.listLabel([location.name, ...segments].join("/"))}
             autoFocus
             busy={listing.state === "loading" && listing.entries !== null}
             active={active}
@@ -231,7 +242,7 @@ export function FolderBrowser({ location, path, onPath, markOf, onReadable }: Fo
                 accessory: (
                   <>
                     {mark.uses.slice(0, 3).map((use) => (
-                      <UiReel key={use.job.id} size="xs" ring={ringOf(use.job.ring, use.index)} label={`${use.role === "source" ? "Quelle" : "Ziel"} von „${use.job.name}“`} />
+                      <UiReel key={use.job.id} size="xs" ring={ringOf(use.job.ring, use.index)} label={roleWords(use.role, t.wizard.quote(use.job.name))} />
                     ))}
                     {markRows && mark.clash ? <UiBadge tone="danger">{mark.clash}</UiBadge> : null}
                     <ChevronRight className="size-3.5 text-ink-faint" strokeWidth={2.2} />
@@ -242,8 +253,8 @@ export function FolderBrowser({ location, path, onPath, markOf, onReadable }: Fo
             empty={
               settled ? (
                 <span className="flex items-center gap-2 px-2.5 py-2 text-xs text-ink-faint">
-                  {hiddenCount > 0 ? "Hier liegen nur versteckte Ordner." : "Dieser Ordner hat keine Unterordner."}
-                  {hiddenCount > 0 ? <UiLinkButton onPress={() => setShowHidden(true)}>Zeigen</UiLinkButton> : null}
+                  {hiddenCount > 0 ? f.emptyHidden : f.empty}
+                  {hiddenCount > 0 ? <UiLinkButton onPress={() => setShowHidden(true)}>{f.show}</UiLinkButton> : null}
                 </span>
               ) : null
             }
@@ -259,22 +270,22 @@ export function FolderBrowser({ location, path, onPath, markOf, onReadable }: Fo
                           setNewName(value);
                           setCreateError(null);
                         }}
-                        placeholder="Name des neuen Ordners"
+                        placeholder={f.newName}
                         autoFocus
                         disabled={busy}
                         onKeyDown={onNameKey}
                       />
                     </span>
                     <UiButton variant="secondary" disabled={busy} onPress={() => void create()} keys={["↵"]}>
-                      {busy ? "Wird angelegt …" : "Anlegen"}
+                      {busy ? t.wizard.footer.creating : t.wizard.footer.create}
                     </UiButton>
-                    <UiIconButton icon={X} label="Abbrechen" onPress={stopCreating} />
+                    <UiIconButton icon={X} label={t.common.cancel} onPress={stopCreating} />
                   </div>
                 </div>
               ) : settled ? (
                 <div className="px-0.5 pt-0.5">
                   <UiButton variant="ghost" icon={FolderPlus} onPress={() => setCreating(true)}>
-                    Neuer Ordner
+                    {f.newFolder}
                   </UiButton>
                 </div>
               ) : null

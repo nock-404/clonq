@@ -1,4 +1,5 @@
 import { FlaskConical, PanelRight, Play, ShieldAlert, Square } from "lucide-react";
+import { texts } from "../i18n";
 import { api } from "../lib/api";
 import { isRunning, jobActions } from "../lib/jobs";
 import type { Job, LiveRun, Run } from "../lib/types";
@@ -9,13 +10,14 @@ export function actionsFor(job: Job, live: LiveRun | undefined, latest: Run | un
   const running = isRunning(live);
   const remote = !ready;
   const blocked = !running && latest?.status === "blocked";
+  const t = texts();
   const actions: UiAction[] = [
-    { id: "run", title: "Jetzt syncen", icon: Play, keys: ["↵"], disabled: running || remote, run: () => void jobActions.run(job.id) },
-    { id: "dry", title: "Probelauf", icon: FlaskConical, keys: ["⌘", "↵"], disabled: running || remote, run: () => void jobActions.dryRun(job.id) },
-    { id: "cancel", title: "Abbrechen", icon: Square, keys: ["⌘", "."], tone: "danger", disabled: !running, run: () => void jobActions.cancel(job.id) },
+    { id: "run", title: t.detail.actions.syncNow, icon: Play, keys: ["↵"], disabled: running || remote, run: () => void jobActions.run(job.id) },
+    { id: "dry", title: t.detail.dryRun, icon: FlaskConical, keys: ["⌘", "↵"], disabled: running || remote, run: () => void jobActions.dryRun(job.id) },
+    { id: "cancel", title: t.common.cancel, icon: Square, keys: ["⌘", "."], tone: "danger", disabled: !running, run: () => void jobActions.cancel(job.id) },
     {
       id: "force",
-      title: "Trotzdem ausführen",
+      title: t.detail.job.runAnyway,
       icon: ShieldAlert,
       tone: "danger",
       disabled: !blocked || remote,
@@ -23,7 +25,7 @@ export function actionsFor(job: Job, live: LiveRun | undefined, latest: Run | un
     },
   ];
   if (withDetails) {
-    actions.push({ id: "details", title: "Details öffnen", icon: PanelRight, keys: ["⌘", "O"], run: () => void api.openMainWindow(job.id) });
+    actions.push({ id: "details", title: t.detail.actions.openDetails, icon: PanelRight, keys: ["⌘", "O"], run: () => void api.openMainWindow(job.id) });
   }
   return actions;
 }

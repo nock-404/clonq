@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { clearError, useClonq, useNow } from "../hooks/useClonq";
 import { api } from "../lib/api";
 import { isRunning } from "../lib/jobs";
+import { useT } from "../i18n";
 import { closeSheet, navigate, openSheet, useNav } from "../lib/nav";
 import { reachLabel } from "../lib/labels";
 import { UiIconButton, UiNavItem, UiNotice, UiReel } from "../ui";
@@ -26,6 +27,7 @@ import { overallSummary } from "./summary";
 export function MainWindow() {
   const state = useClonq();
   const now = useNow();
+  const t = useT();
   const { section, sheet } = useNav();
   const jobs = state.config?.jobs ?? [];
   const locations = state.config?.locations ?? [];
@@ -53,9 +55,9 @@ export function MainWindow() {
         <div className="mb-2.5 flex h-8 shrink-0 justify-end pr-1.5" data-tauri-drag-region>
           <UiLogo variant="wordmark" size="md" label="clonq" />
         </div>
-        <UiNavItem icon={LayoutGrid} label="Übersicht" active={section.kind === "overview"} onPress={() => navigate({ kind: "overview" })} />
+        <UiNavItem icon={LayoutGrid} label={t.shell.nav.overview} active={section.kind === "overview"} onPress={() => navigate({ kind: "overview" })} />
 
-        <SidebarHeading label="Jobs" onAdd={locations.length > 0 ? () => openSheet({ kind: "jobWizard" }) : undefined} addLabel="Job anlegen" />
+        <SidebarHeading label={t.shell.nav.jobs} onAdd={locations.length > 0 ? () => openSheet({ kind: "jobWizard" }) : undefined} addLabel={t.shell.nav.addJob} />
         {jobs.map((item, index) => (
           <UiNavItem
             key={item.id}
@@ -65,9 +67,9 @@ export function MainWindow() {
             onPress={() => navigate({ kind: "job", jobId: item.id })}
           />
         ))}
-        {jobs.length === 0 ? <span className="px-2 py-1 text-[0.6875rem] text-ink-faint">noch keine</span> : null}
+        {jobs.length === 0 ? <span className="px-2 py-1 text-[0.6875rem] text-ink-faint">{t.shell.nav.none}</span> : null}
 
-        <SidebarHeading label="Orte" onAdd={() => openSheet({ kind: "addLocation" })} addLabel="Ort hinzufügen" />
+        <SidebarHeading label={t.shell.nav.locations} onAdd={() => openSheet({ kind: "addLocation" })} addLabel={t.shell.nav.addLocation} />
         {locations.map((item) => {
           const reach = state.locations[item.id]?.reach;
           return (
@@ -81,11 +83,11 @@ export function MainWindow() {
             />
           );
         })}
-        {locations.length === 0 ? <span className="px-2 py-1 text-[0.6875rem] text-ink-faint">noch keine</span> : null}
+        {locations.length === 0 ? <span className="px-2 py-1 text-[0.6875rem] text-ink-faint">{t.shell.nav.none}</span> : null}
 
         <div className="pt-4" />
-        <UiNavItem icon={Clock} label="Verlauf" active={section.kind === "history"} onPress={() => navigate({ kind: "history" })} count={state.recent.length} />
-        <UiNavItem icon={Settings2} label="Einstellungen" active={section.kind === "settings"} onPress={() => navigate({ kind: "settings" })} />
+        <UiNavItem icon={Clock} label={t.shell.nav.history} active={section.kind === "history"} onPress={() => navigate({ kind: "history" })} count={state.recent.length} />
+        <UiNavItem icon={Settings2} label={t.shell.nav.settings} active={section.kind === "settings"} onPress={() => navigate({ kind: "settings" })} />
         <div className="mt-auto pt-3">
           <UpdateBand />
         </div>

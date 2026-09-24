@@ -1,6 +1,7 @@
 import { FlaskConical } from "lucide-react";
 import { Fragment, useEffect, useEffectEvent, useRef, useState } from "react";
 import { refreshLocations, type ClonqState } from "../../hooks/useClonq";
+import { texts, useT } from "../../i18n";
 import { api } from "../../lib/api";
 import { jobActions } from "../../lib/jobs";
 import { locationOf, modeLabel, placeLabel } from "../../lib/labels";
@@ -17,14 +18,13 @@ import { DoneStep } from "./DoneStep";
 import {
   ALL_STEPS,
   LAST_STEP,
-  STEPS,
   clashOf,
   conflictTag,
   draftFrom,
   drivesOf,
   hasAutomatic,
   isDirty,
-  MERGE_NOTICE,
+  jumpLabel,
   loserSentence,
   modeProblem,
   nameTaken,
@@ -34,6 +34,7 @@ import {
   samePlace,
   saveFailure,
   sortExcludes,
+  stepLabel,
   suggestName,
   toInput,
   triggerProblem,
@@ -65,8 +66,6 @@ interface Parked {
   known: string[];
 }
 
-const JUMP_WORDS: Record<Step, string> = { 0: "Zur Quelle", 1: "Zum Ziel", 2: "Zur Art", 3: "Zu den Auslösern", 4: "Zum Namen" };
-
 // Enter on these belongs to the control. Radios, switches and list rows are part of the form,
 // so there Enter moves on, as it would in a form.
 const OWN_ENTER = "button:not([role=radio]):not([role=switch]):not([role=checkbox]), a[href], select, textarea";
@@ -77,6 +76,8 @@ const TURN_MS = 2400;
 /** Creates or edits a job in five steps; a tape path along the top shows the job as it takes shape. */
 export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps) {
   const config = state.config;
+  const t = useT();
+  const w = t.wizard;
   const nav = useNav();
   const toast = useJobToast();
   const [session, setSession] = useState("closed");
@@ -216,19 +217,19 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
 
   const placeKey = (place: Place) => `${place.location}/${trimPath(place.path)}`;
   const readProblem = (place: Place | null) =>
-    place && unreadable.includes(placeKey(place)) ? `Den Ordner ${placeLabel(place, config)} kann clonq nicht lesen.` : null;
+    place && unreadable.includes(placeKey(place)) ? w.problem.unreadable(placeLabel(place, config)) : null;
   const problems: Record<Step, string | null> = {
     0: !draft.source
-      ? "Es ist noch keine Quelle gewählt."
+      ? w.problem.noSource
       : ((sourceLocation ? reachProblem(sourceLocation, state) : null) ?? readProblem(draft.source)),
     1: !draft.target
-      ? "Es ist noch kein Ziel gewählt."
+      ? w.problem.noTarget
       : ((targetLocation ? reachProblem(targetLocation, state) : null) ??
         readProblem(draft.target) ??
         (overlap && draft.source ? overlapText(overlap, "target", placeLabel(draft.source, config)) : null)),
     2: modeProblem(draft),
     3: triggerProblem({ ...draft.triggers, onMount: draft.triggers.onMount && drives.length > 0 }),
-    4: name.trim() ? null : "Der Job braucht einen Namen.",
+    4: name.trim() ? null : w.problem.noName,
   };
   const firstProblem = ALL_STEPS.find((index) => problems[index] !== null);
   const canSave = firstProblem === undefined && input !== null && !saving && !done && !closing;
@@ -240,13 +241,11 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
   const mirrorRisk = (() => {
     if (!draft.target || !newTarget || !targetLocation) return null;
     if (trimPath(draft.target.path) === "") {
-      return targetLocation.kind.type === "volume"
-        ? `Das Ziel ist das ganze Laufwerk ${targetLocation.name}.`
-        : `Das Ziel ist der ganze Ort ${targetLocation.name}.`;
+      return targetLocation.kind.type === "volume" ? w.warning.wholeDrive(targetLocation.name) : w.warning.wholeLocation(targetLocation.name);
     }
     const count = targetFolders?.key === targetKey ? targetFolders.count : 0;
     if (count === 0) return null;
-    return `Im Ziel ${placeLabel(draft.target, config)} liegen bereits ${count === 1 ? "ein Ordner" : `${count} Ordner`}.`;
+    return w.warning.targetHolds(placeLabel(draft.target, config), count);
   })();
   const history = job ? (state.stats[job.id]?.runsTotal ?? 0) > 0 : false;
   // A two-way job starts by merging both sides, so whatever only the target holds reaches the
@@ -254,14 +253,9 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
   // becomes two-way now.
   const switchedToTwoWay = job !== undefined && job.mode !== "bidirectional";
   const mergeWarning =
-    draft.mode !== "bidirectional" ? null : switchedToTwoWay ? MERGE_NOTICE : mirrorRisk ? `${mirrorRisk} ${MERGE_NOTICE}` : null;
-  const nameNotices = [
-    ...(draft.mode === "mirror" && mirrorRisk ? [`${mirrorRisk} Ein Spiegel löscht dort alles, was in der Quelle fehlt.`] : []),
-    ...(mergeWarning ? [mergeWarning] : []),
-    ...(job && history && newTarget
-      ? ["Das Ziel ist neu, deshalb überträgt der nächste Lauf alles."]
-      : []),
-  ];
+    draft.mode !== "bidirectional" ? null : switchedToTwoWay ? w.warning.merge : mirrorRisk ? `${mirrorRisk} ${w.warning.merge}` : null;
+  const mirrorWarning = draft.mode === "mirror" && mirrorRisk ? `${mirrorRisk} ${w.warning.mirrorDeletes}` : null;
+  const nameNotices = [...(mirrorWarning ? [mirrorWarning] : []), ...(mergeWarning ? [mergeWarning] : []), ...(job && history && newTarget ? [w.warning.newTarget] : [])];
 
   const goTo = (next: Step) => {
     setStep(next);
@@ -286,7 +280,8 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
         setClosing(true);
         later(() => {
           finish(saved);
-          showJobToast({ text: `Die Änderungen an „${saved.name}“ sind gespeichert.` });
+          // Read at this moment: the language may have changed while the reels turned.
+          showJobToast({ text: texts().wizard.savedToast(saved.name) });
         }, 1300);
       } else {
         setDone(saved);
@@ -382,25 +377,25 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
   // A two-way job carries its conflict rule under the tape, with the whole rule as the title.
   const twoWay = draft.mode === "bidirectional";
   const conflictNote: UiTapeTag | null = twoWay
-    ? { text: conflictTag(draft.conflicts), title: `Bei Konflikten: ${preferLabel(draft.conflicts.prefer)}. ${loserSentence(draft.conflicts, draft.archive.enabled)}` }
+    ? { text: conflictTag(draft.conflicts), title: w.tape.conflicts(preferLabel(draft.conflicts.prefer), loserSentence(draft.conflicts, draft.archive.enabled)) }
     : null;
   const targetTag: UiTapeTag | null =
     reached >= 3 && triggers
       ? automatic && !draft.enabled
-        ? { text: "Automatik aus", tone: "warn", title: triggerWords(triggers, config).join(", ") }
-        : { text: triggerTag(triggers), title: automatic ? triggerWords(triggers, config).join(", ") : "Startet nur von Hand" }
+        ? { text: w.tape.automationOff, tone: "warn", title: triggerWords(triggers, config).join(", ") }
+        : { text: triggerTag(triggers), title: automatic ? triggerWords(triggers, config).join(", ") : w.tape.manualOnly }
       : null;
   const pulse = [step, draft.source?.location, draft.source?.path, draft.target?.location, draft.target?.path, draft.mode, draft.conflicts.prefer].join("|");
 
-  const steps: UiStepperStep[] = STEPS.map((label, index) => ({
-    label,
+  const steps: UiStepperStep[] = ALL_STEPS.map((index) => ({
+    label: stepLabel(index),
     state: done
       ? "done"
       : index === step
         ? "current"
         : index > reached
           ? "locked"
-          : problems[index as Step] !== null
+          : problems[index] !== null
             ? "problem"
             : "done",
   }));
@@ -409,11 +404,10 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
   // or, on the last step, the first thing still missing elsewhere. The mode step says its problems
   // in place too, but a wrong number may sit below the fold, so the footer repeats them.
   const inPlace = (index: Step) => (index === 0 && draft.source !== null) || (index === 1 && draft.target !== null) || index === 4;
-  const mirrorWarning = draft.mode === "mirror" && mirrorRisk ? `${mirrorRisk} Ein Spiegel löscht dort alles, was in der Quelle fehlt.` : null;
   const pending: { text: string; jump: Step | null; tone: "danger" | "warn" | "neutral" } | null = failure
     ? { text: [failure.text, failure.advice].filter(Boolean).join(" "), jump: failure.step !== step ? failure.step : null, tone: "danger" }
     : (step === LAST_STEP || (job && problems[step] === null)) && firstProblem !== undefined && firstProblem !== step
-      ? { text: `${STEPS[firstProblem]}: ${problems[firstProblem]}`, jump: firstProblem, tone: "neutral" }
+      ? { text: `${stepLabel(firstProblem)}: ${problems[firstProblem]}`, jump: firstProblem, tone: "neutral" }
       : problems[step] !== null && !inPlace(step)
         ? { text: problems[step] ?? "", jump: null, tone: step === 3 || (step === 2 && draft.mode !== null) ? "danger" : "neutral" }
         : step === 2 && (mirrorWarning ?? mergeWarning)
@@ -425,10 +419,10 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
     <Fragment key="done">
       <span className="mr-auto" />
       <UiButton variant="secondary" keys={["esc"]} onPress={() => finish(done)}>
-        Zum Job
+        {w.footer.openJob}
       </UiButton>
       <UiButton variant="primary" icon={FlaskConical} keys={["↵"]} onPress={() => dryRun(done)}>
-        Probelauf starten
+        {w.footer.dryRun}
       </UiButton>
     </Fragment>
   ) : (
@@ -437,7 +431,7 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
         {closing ? (
           <>
             <UiLamp tone="ok" lit />
-            <span className="text-xs text-ink-soft">Gespeichert.</span>
+            <span className="text-xs text-ink-soft">{w.footer.saved}</span>
           </>
         ) : pending ? (
           <>
@@ -448,27 +442,27 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
             >
               {pending.text}
             </span>
-            {pending.jump !== null ? <UiLinkButton onPress={() => goTo(pending.jump ?? step)}>{JUMP_WORDS[pending.jump]}</UiLinkButton> : null}
+            {pending.jump !== null ? <UiLinkButton onPress={() => goTo(pending.jump ?? step)}>{jumpLabel(pending.jump)}</UiLinkButton> : null}
           </>
         ) : null}
       </span>
       {step > 0 ? (
         <UiButton variant="ghost" keys={["⌘", "←"]} disabled={closing} onPress={back}>
-          Zurück
+          {w.footer.back}
         </UiButton>
       ) : null}
       {job && step < LAST_STEP ? (
         <UiButton variant="secondary" keys={["⌘", "↵"]} disabled={!canSave} onPress={() => void save()}>
-          Speichern
+          {t.common.save}
         </UiButton>
       ) : null}
       {step < LAST_STEP ? (
         <UiButton variant="primary" keys={["↵"]} disabled={problems[step] !== null} onPress={advance}>
-          Weiter
+          {w.footer.next}
         </UiButton>
       ) : (
         <UiButton variant="primary" keys={["↵"]} disabled={!canSave} onPress={() => void save()}>
-          {saving ? (job ? "Wird gespeichert …" : "Wird angelegt …") : job ? "Speichern" : "Anlegen"}
+          {saving ? (job ? t.common.saving : w.footer.creating) : job ? t.common.save : w.footer.create}
         </UiButton>
       )}
     </Fragment>
@@ -478,11 +472,11 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
     <>
       <UiSheet
         open={open}
-        title={done ? "Job angelegt" : job ? "Job bearbeiten" : "Job anlegen"}
+        title={done ? w.title.done : job ? w.title.edit : w.title.create}
         onClose={requestClose}
         header={
           <div className="bg-raised-solid">
-            <UiStepper steps={steps} label="Schritte" onJump={(index) => !done && goTo(index as Step)} />
+            <UiStepper steps={steps} label={w.stepsLabel} onJump={(index) => !done && goTo(index as Step)} />
             <UiTapePath
               source={endOf(draft.source)}
               target={endOf(draft.target)}
@@ -566,14 +560,14 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
             <div className="absolute inset-x-5 bottom-3.5 rounded-[var(--radius-panel)] bg-raised-solid shadow-2xl">
               <UiConfirmBar
                 tone="warn"
-                title="Entwurf verwerfen?"
-                cancelLabel="Weiter bearbeiten"
-                confirmLabel="Verwerfen"
+                title={w.discard.title}
+                cancelLabel={w.discard.keepEditing}
+                confirmLabel={w.discard.confirm}
                 onCancel={() => setConfirmDiscard(false)}
                 onConfirm={onClose}
                 escapeCancels={false}
               >
-                {job ? "Die Änderungen an diesem Job gehen verloren." : "Die Angaben für den neuen Job gehen verloren."}
+                {job ? w.discard.edited : w.discard.created}
               </UiConfirmBar>
             </div>
           ) : null}

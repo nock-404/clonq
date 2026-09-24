@@ -2,6 +2,7 @@ import { ArrowLeft, ArrowRight } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useClonq } from "../../hooks/useClonq";
+import { useT } from "../../i18n";
 import { navigate } from "../../lib/nav";
 import type { Location, LocationKind } from "../../lib/types";
 import { UiButton, UiChoiceCard, UiKbd, UiSheet, UiText } from "../../ui";
@@ -9,7 +10,7 @@ import { UiDriveFront } from "../../ui/UiDriveFront";
 import { UiLocationGlyph } from "../../ui/UiLocationGlyph";
 import { useCloudSetup } from "./CloudSetup";
 import { useFolderSetup } from "./FolderSetup";
-import { KINDS, kindInfo, type KindInfo, type SetupKind } from "./kinds";
+import { KIND_ORDER, kindInfo, kinds, type KindInfo, type SetupKind } from "./kinds";
 import { useServerSetup } from "./ServerSetup";
 import type { Setup, SetupAction, SetupContext } from "./setup";
 import { useSmbSetup } from "./SmbSetup";
@@ -22,7 +23,7 @@ interface AddLocationSheetProps {
   onAdded: (location: Location) => void;
 }
 
-/** "Ort hinzufügen": pick a kind, then fill in what that kind needs. Every opening starts fresh. */
+/** "Add location": pick a kind, then fill in what that kind needs. Every opening starts fresh. */
 export function AddLocationSheet({ open, preset, onClose, onAdded }: AddLocationSheetProps) {
   const [session, setSession] = useState(0);
   const [wasOpen, setWasOpen] = useState(open);
@@ -41,10 +42,13 @@ export function AddLocationSheet({ open, preset, onClose, onAdded }: AddLocation
   return <AddLocationFlow key={session} open={open} preset={preset} onClose={onClose} onAdded={handOn} />;
 }
 
-const indexOf = (kind: SetupKind) => Math.max(0, KINDS.findIndex((info) => info.kind === kind));
+const indexOf = (kind: SetupKind) => Math.max(0, KIND_ORDER.indexOf(kind));
 
 function AddLocationFlow({ open, preset, onClose, onAdded }: AddLocationSheetProps) {
   const state = useClonq();
+  const t = useT();
+  const tl = t.locations.sheet;
+  const kindList = kinds();
   const [kind, setKind] = useState<SetupKind | null>(preset ?? null);
   const [highlight, setHighlight] = useState(() => indexOf(preset ?? "folder"));
   // The drive front follows the mouse while it rests on a card, the selection follows the keyboard.
@@ -80,10 +84,10 @@ function AddLocationFlow({ open, preset, onClose, onAdded }: AddLocationSheetPro
   const notes = all.flatMap((item) => (item.dirty && item.discardNote ? [item.discardNote] : []));
   const canGoBack = setup !== null && !setup.busy && !setup.final;
 
-  const shown = KINDS[hovered ?? highlight] ?? (KINDS[0] as KindInfo);
+  const shown = kindList[hovered ?? highlight] ?? (kindList[0] as KindInfo);
   const info = kind ? kindInfo(kind) : null;
-  const highlighted = KINDS[highlight] ?? (KINDS[0] as KindInfo);
-  const action: SetupAction = setup?.action ?? { label: "Weiter", icon: ArrowRight, run: () => choose(highlighted.kind), disabled: false };
+  const highlighted = kindList[highlight] ?? (kindList[0] as KindInfo);
+  const action: SetupAction = setup?.action ?? { label: tl.next, icon: ArrowRight, run: () => choose(highlighted.kind), disabled: false };
 
   const back = () => {
     if (!canGoBack) return;
@@ -143,15 +147,15 @@ function AddLocationFlow({ open, preset, onClose, onAdded }: AddLocationSheetPro
       if (setup) {
         setup.onArrow?.(step);
       } else {
-        setHighlight((index) => (index + step + KINDS.length) % KINDS.length);
+        setHighlight((index) => (index + step + kindList.length) % kindList.length);
         setHovered(null);
       }
       return;
     }
     const digit = Number(event.key);
-    if (!setup && Number.isInteger(digit) && digit >= 1 && digit <= KINDS.length) {
+    if (!setup && Number.isInteger(digit) && digit >= 1 && digit <= kindList.length) {
       event.preventDefault();
-      choose((KINDS[digit - 1] as KindInfo).kind);
+      choose((kindList[digit - 1] as KindInfo).kind);
     }
   });
 
@@ -167,14 +171,14 @@ function AddLocationFlow({ open, preset, onClose, onAdded }: AddLocationSheetPro
     <>
       <span className="min-w-0 flex-1">
         <UiText variant="caption" tone="neutral">
-          {["Beim Schließen gehen die Eingaben verloren.", ...notes, running ? "Was gerade läuft, führt clonq trotzdem zu Ende." : ""].filter(Boolean).join(" ")}
+          {[tl.discardLost, ...notes, running ? tl.discardRunning : ""].filter(Boolean).join(" ")}
         </UiText>
       </span>
       <UiButton variant="ghost" keys={["esc"]} onPress={() => setDiscarding(false)}>
-        Weiter bearbeiten
+        {tl.keepEditing}
       </UiButton>
       <UiButton variant="danger" keys={["↵"]} onPress={onClose}>
-        Verwerfen
+        {tl.discard}
       </UiButton>
     </>
   ) : (
@@ -182,12 +186,12 @@ function AddLocationFlow({ open, preset, onClose, onAdded }: AddLocationSheetPro
       {setup ? (
         setup.final ? null : (
           <UiButton variant="ghost" icon={ArrowLeft} keys={canGoBack ? ["⌘", "←"] : undefined} disabled={!canGoBack} onPress={back}>
-            Zurück
+            {tl.back}
           </UiButton>
         )
       ) : (
         <UiButton variant="ghost" keys={["esc"]} onPress={requestClose}>
-          Abbrechen
+          {t.common.cancel}
         </UiButton>
       )}
       <span className="flex-1" />
@@ -203,7 +207,7 @@ function AddLocationFlow({ open, preset, onClose, onAdded }: AddLocationSheetPro
   );
 
   return (
-    <UiSheet open={open} title="Ort hinzufügen" subtitle={info ? info.title : "Welche Art von Ort soll clonq kennen?"} onClose={requestClose} footer={footer}>
+    <UiSheet open={open} title={tl.title} subtitle={info ? info.title : tl.question} onClose={requestClose} footer={footer}>
       {/* One height for every kind and step, so the sheet does not jump. */}
       <div className="grid h-[24rem] grid-cols-[minmax(0,1fr)_15rem] gap-5">
         <motion.div
@@ -216,13 +220,13 @@ function AddLocationFlow({ open, preset, onClose, onAdded }: AddLocationSheetPro
           {setup ? (
             setup.body
           ) : (
-            <div role="radiogroup" aria-label="Art des Ortes" className="flex flex-col gap-1.5">
-              {KINDS.map((item, index) => (
+            <div role="radiogroup" aria-label={tl.kindGroup} className="flex flex-col gap-1.5">
+              {kindList.map((item, index) => (
                 <div key={item.kind} onMouseEnter={() => setHovered(index)} onMouseLeave={() => setHovered(null)}>
                   <UiChoiceCard
                     art={<UiLocationGlyph kind={item.kind} size="md" />}
                     title={item.title}
-                    description={item.kind === "volume" && drives.length > 0 ? `Angeschlossen: ${drives.map((drive) => drive.name).join(", ")}` : item.short}
+                    description={item.kind === "volume" && drives.length > 0 ? tl.connectedDrives(drives.map((drive) => drive.name).join(", ")) : item.short}
                     selected={index === highlight}
                     onPress={() => choose(item.kind)}
                     aside={<UiKbd keys={[String(index + 1)]} />}
@@ -238,11 +242,11 @@ function AddLocationFlow({ open, preset, onClose, onAdded }: AddLocationSheetPro
             key={`plate-${info.kind}`}
             kind={setup.plate.empty ? null : info.kind}
             label={setup.plate.name.trim()}
-            placeholder="noch ohne Namen"
+            placeholder={tl.unnamed}
             lamp={setup.plate.lamp}
             threaded={setup.plate.threaded}
             pulse={setup.final ? "added" : "open"}
-            lamps={info.lamps.map((word, index) => ({ key: word, label: word, state: setup.plate.steps[index] ?? "off" }))}
+            lamps={info.lamps.map((word, index) => ({ key: String(index), label: word, state: setup.plate.steps[index] ?? "off" }))}
             sequence
             status={setup.plate.status}
             statusTone={setup.plate.tone}

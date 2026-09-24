@@ -2,6 +2,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { ExternalLink, FolderSearch, Plug, RotateCw, Upload } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { refreshLocations, type ClonqState } from "../../hooks/useClonq";
+import { texts, useT } from "../../i18n";
 import { api } from "../../lib/api";
 import { navigate } from "../../lib/nav";
 import type { CloudProviderInfo, Location, LocationKind, Reach } from "../../lib/types";
@@ -42,26 +43,26 @@ function RepairBlock({ title, children }: { title?: string; children: ReactNode 
   );
 }
 
-/** "Die 2 Jobs mit diesem Ort werden auf … umgestellt." */
+/** "The 2 jobs using this location are switched to …" */
 function movingSentence(count: number, onto: string): string {
-  if (count === 0) return `Der Ort zeigt danach auf ${onto}.`;
-  if (count === 1) return `Der Job mit diesem Ort wird auf ${onto} umgestellt.`;
-  return `Die ${count} Jobs mit diesem Ort werden auf ${onto} umgestellt.`;
+  return texts().locations.repair.moving(count, onto);
 }
 
 /** Saving a job checks both of its places; a place that is not reachable holds the move up. */
 function BlockerNote({ blockers }: { blockers: Location[] }) {
+  const t = useT().locations;
   if (blockers.length === 0) return null;
-  const names = blockers.map((item) => `„${item.name}“`).join(", ");
+  const names = blockers.map((item) => t.quoted(item.name)).join(", ");
   return (
     <UiText variant="caption" tone="warn">
-      Das geht erst, wenn {names} wieder erreichbar {blockers.length === 1 ? "ist" : "sind"}: Beim Umstellen prüft clonq beide Orte jedes Jobs.
+      {t.repair.blocked(names, blockers.length)}
     </UiText>
   );
 }
 
 /** A server that refuses the key: put the key on it again with the password, or by hand. */
 function KeyRepair({ location, kind, onRepaired }: { location: Location; kind: Kind<"ssh">; onRepaired: () => void }) {
+  const t = useT().locations;
   const [password, setPassword] = useState("");
   const task = useTask();
 
@@ -84,13 +85,13 @@ function KeyRepair({ location, kind, onRepaired }: { location: Location; kind: K
   };
 
   return (
-    <RepairBlock title="Schlüssel erneut hinterlegen">
+    <RepairBlock title={t.repair.keyTitle}>
       <UiText variant="caption" tone="neutral">
-        Wurde der Schlüssel auf dem Server entfernt, trägt clonq ihn mit dem Passwort neu ein und testet die Anmeldung. Das Passwort wird nicht gespeichert.
+        {t.repair.keyText}
       </UiText>
       <div className="flex items-end gap-2">
         <div className="min-w-0 flex-1">
-          <UiField label={`Passwort für ${kind.user}`} error={task.error}>
+          <UiField label={t.flow.passwordFor(kind.user)} error={task.error}>
             <UiInput
               value={password}
               onChange={setPassword}
@@ -107,19 +108,20 @@ function KeyRepair({ location, kind, onRepaired }: { location: Location; kind: K
           </UiField>
         </div>
         <UiButton icon={task.busy ? undefined : Upload} disabled={task.busy || password === ""} onPress={() => void run()}>
-          {task.busy ? "Schlüssel wird hinterlegt …" : "Hinterlegen"}
+          {task.busy ? t.repair.installing : t.repair.install}
         </UiButton>
       </div>
       <UiText variant="caption" tone="neutral">
-        Zum Eintragen von Hand liegt der öffentliche Schlüssel in dieser Datei:
+        {t.repair.keyByHand}
       </UiText>
-      <UiCopyBlock value={tidyPath(`${kind.identityFile}.pub`)} label="Datei mit dem öffentlichen Schlüssel" />
+      <UiCopyBlock value={tidyPath(`${kind.identityFile}.pub`)} label={t.repair.keyFile} />
     </RepairBlock>
   );
 }
 
 /** A folder that was moved or renamed: pick it again; the jobs move with it. */
 function FolderRepair({ state, location, kind }: { state: ClonqState; location: Location; kind: Kind<"folder"> }) {
+  const t = useT().locations.repair;
   const task = useTask();
   const [replacement, setReplacement] = useState<Location | null>(null);
   const blockers = blockersOf(state, location.id);
@@ -129,7 +131,7 @@ function FolderRepair({ state, location, kind }: { state: ClonqState; location: 
     let next = replacement;
     if (!next) {
       const parent = kind.path.replace(/\/[^/]+\/?$/, "") || "/";
-      const chosen = await task.run(() => open({ directory: true, title: `Neuer Ordner für „${location.name}“`, defaultPath: parent }));
+      const chosen = await task.run(() => open({ directory: true, title: t.folderDialog(location.name), defaultPath: parent }));
       if (typeof chosen !== "string") return;
       next = (await task.run(() => api.addFolderLocation(location.name, chosen))) ?? null;
       if (!next) return;
@@ -146,12 +148,12 @@ function FolderRepair({ state, location, kind }: { state: ClonqState; location: 
   return (
     <RepairBlock>
       <UiText variant="caption" tone="neutral">
-        {movingSentence(count, "den neuen Ordner")}
+        {movingSentence(count, t.newFolder)}
       </UiText>
       <BlockerNote blockers={blockers} />
       <span className="flex">
         <UiButton icon={task.busy ? undefined : replacement ? RotateCw : FolderSearch} disabled={task.busy || blockers.length > 0} onPress={() => void run()}>
-          {task.busy ? "Wird umgestellt …" : replacement ? "Umstellen erneut versuchen" : "Ordner neu wählen …"}
+          {task.busy ? t.switching : replacement ? t.retry : t.chooseFolder}
         </UiButton>
       </span>
       {task.error ? <UiNotice tone="danger">{task.error}</UiNotice> : null}
@@ -164,6 +166,8 @@ function FolderRepair({ state, location, kind }: { state: ClonqState; location: 
  * or enter new keys. clonq adds a fresh connection, moves the jobs, and removes the old one.
  */
 function CloudRepair({ state, location, kind }: { state: ClonqState; location: Location; kind: Kind<"cloud"> }) {
+  const t = useT();
+  const tr = t.locations.repair;
   const [provider, setProvider] = useState<CloudProviderInfo | null>(null);
   const load = useTask();
   const task = useTask();
@@ -217,16 +221,16 @@ function CloudRepair({ state, location, kind }: { state: ClonqState; location: L
 
   if (load.error) {
     return (
-      <RepairBlock title="Zugang erneuern">
+      <RepairBlock title={tr.renewAccess}>
         <UiNotice
           tone="danger"
           actions={
             <UiButton icon={RotateCw} onPress={fetchProvider} disabled={load.busy}>
-              Erneut laden
+              {t.locations.flow.reload}
             </UiButton>
           }
         >
-          Die Angaben zu {label} ließen sich nicht laden. {load.error}
+          {tr.loadFailed(label, load.error)}
         </UiNotice>
       </RepairBlock>
     );
@@ -235,17 +239,16 @@ function CloudRepair({ state, location, kind }: { state: ClonqState; location: L
 
   const browser = provider.browserLogin;
   return (
-    <RepairBlock title={browser ? "Neu anmelden" : "Zugang erneuern"}>
+    <RepairBlock title={browser ? tr.signInAgain : tr.renewAccess}>
       <UiText variant="caption" tone="neutral">
-        {browser ? `Ist die Anmeldung bei ${label} abgelaufen, meldest du dich im Browser neu an.` : "Stimmen die Zugangsdaten nicht mehr, gib sie hier neu ein."}{" "}
-        {movingSentence(count, "den neuen Zugang")}
+        {browser ? tr.expired(label) : tr.keysWrong} {movingSentence(count, tr.newAccess)}
       </UiText>
       <BlockerNote blockers={blockers} />
       {waiting ? (
         <div className="flex flex-col gap-1.5">
           <UiProgressBar value={(left / SIGN_IN_SECONDS) * 100} />
           <UiText variant="caption" tone="neutral">
-            Im Browser ist die Anmeldeseite von {label} geöffnet. Die Anmeldung muss in den nächsten {formatClock(left)} Minuten abgeschlossen sein.
+            {t.locations.flow.signInOpen(label)} {t.locations.flow.signInClock(formatClock(left))}
           </UiText>
         </div>
       ) : !browser && !replacement ? (
@@ -261,7 +264,7 @@ function CloudRepair({ state, location, kind }: { state: ClonqState; location: L
       <span className="flex gap-2">
         {waiting ? (
           <UiButton variant="ghost" onPress={abandon}>
-            Abbrechen
+            {t.common.cancel}
           </UiButton>
         ) : (
           <UiButton
@@ -269,7 +272,7 @@ function CloudRepair({ state, location, kind }: { state: ClonqState; location: L
             disabled={task.busy || blockers.length > 0 || (!browser && !replacement && missing)}
             onPress={() => void run()}
           >
-            {task.busy ? "Zugang wird geprüft …" : replacement ? "Umstellen erneut versuchen" : browser ? "Im Browser anmelden" : "Verbinden und umstellen"}
+            {task.busy ? t.locations.flow.checkingAccess : replacement ? tr.retry : browser ? t.locations.flow.signInBrowser : tr.connectAndSwitch}
           </UiButton>
         )}
       </span>
