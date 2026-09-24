@@ -369,6 +369,18 @@ impl Engine {
         if let Some(limit) = max_delete {
             extra.push(format!("--max-delete={limit}"));
         }
+        if two_way && !options.dry_run
+            && let Tool::Bisync { config } = &plan.tool
+        {
+            // bisync needs both roots to exist; a new job's target folder may not yet
+            // (rsync creates it with --mkpath, rclone copy by itself, bisync does not).
+            let made = Command::new(&plan.program).arg("mkdir").arg(&plan.target).arg("--config").arg(config).env("LC_ALL", "C").output().await?;
+            if !made.status.success() {
+                run.status = RunStatus::Failed;
+                run.message = Some(String::from_utf8_lossy(&made.stderr).lines().last().unwrap_or("could not create the target folder").trim().to_string());
+                return Ok(());
+            }
+        }
         if two_way {
             // Only one run per job exists (the engine's active map), so a lock file
             // here is left over from an interrupted run and would block every run.

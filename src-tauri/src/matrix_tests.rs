@@ -949,3 +949,13 @@ async fn repair_two_way_keeps_both_versions_on_both_sides() {
         assert!(before.iter().filter(|content| content.contains("ravo")).all(|content| values.contains(content)), "{damaged_side}: both versions are on the sides");
     }
 }
+
+#[tokio::test]
+async fn two_way_into_a_target_folder_that_does_not_exist_yet_creates_it() {
+    let b = Bench::new();
+    fs::remove_dir_all(b.side("dst")).unwrap();
+    let config = b.config(Mode::Bidirectional, true, newer_wins());
+    b.put("src", "a.txt", "alpha");
+    ok(&b.run(&config).await);
+    assert_eq!(b.tree("dst"), b.tree("src"));
+}

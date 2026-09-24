@@ -34,9 +34,11 @@ pub async fn measure(job: &Job, config: &Config, rclone_config: &Path, volumes: 
         }
         LocationKind::Ssh { .. } => {
             let crate::locations::Resolved::Remote { destination, ssh, .. } = locations::resolve(&job.target, config, volumes).ok()? else { return None };
-            let (host, path) = destination.split_once(':')?;
+            // The login folder: the job's own folder may not exist before its first run,
+            // and a server account is one file system.
+            let (host, _) = destination.split_once(':')?;
             let mut command = tokio::process::Command::new(ssh.first()?);
-            command.args(&ssh[1..]).arg(host).arg("df").arg("-k").arg(if path.is_empty() { "." } else { path });
+            command.args(&ssh[1..]).arg(host).arg("df").arg("-k").arg(".");
             let output = tokio::time::timeout(std::time::Duration::from_secs(30), command.output()).await.ok()?.ok()?;
             parse_df(&String::from_utf8_lossy(&output.stdout))
         }

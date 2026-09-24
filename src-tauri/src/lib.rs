@@ -11,6 +11,8 @@ mod licence;
 mod locations;
 mod report;
 #[cfg(test)]
+mod box_tests;
+#[cfg(test)]
 mod matrix_tests;
 mod rclone_output;
 mod rsync_output;
