@@ -24,6 +24,13 @@ pub fn known_hosts() -> PathBuf {
     KNOWN_HOSTS.get().cloned().unwrap_or_else(|| std::env::temp_dir().join("clonq-test-known_hosts"))
 }
 
+/// `-o UserKnownHostsFile=…` for clonq's pinned keys. ssh splits this option's value at
+/// spaces into several files, and the app's folder is ".../Application Support/...": without
+/// the quotes ssh looks in ".../Application" and finds no key at all.
+pub fn known_hosts_option() -> String {
+    format!("UserKnownHostsFile=\"{}\"", known_hosts().display())
+}
+
 /// A server's public host key as `ssh-keyscan` saw it, with its fingerprint for the user.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -161,11 +168,10 @@ pub async fn install_key(
         // A last line without a newline would glue the new key onto it; a key already there is not added twice.
         "umask 077; mkdir -p .ssh && touch .ssh/authorized_keys && { [ -n \"$(tail -c1 .ssh/authorized_keys)\" ] && echo >> .ssh/authorized_keys; KEY=$(cat); grep -qxF \"$KEY\" .ssh/authorized_keys || printf '%s\\n' \"$KEY\" >> .ssh/authorized_keys; }".to_string()
     };
-    let known_hosts = known_hosts();
     let mut child = Command::new("/usr/bin/ssh")
         .args(["-p", &port.to_string()])
         .arg("-o")
-        .arg(format!("UserKnownHostsFile={}", known_hosts.display()))
+        .arg(known_hosts_option())
         .args(["-o", "StrictHostKeyChecking=yes"])
         .args(["-o", "ForwardAgent=no"])
         .args(["-o", "ClearAllForwardings=yes"])
@@ -229,6 +235,14 @@ pub(crate) fn explain(stderr: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_known_hosts_path_is_quoted_for_ssh() {
+        // Measured against a Storage Box: unquoted, "Application Support" makes ssh report
+        // "No ED25519 host key is known"; quoted, the pinned key is accepted.
+        let option = known_hosts_option();
+        assert!(option.starts_with("UserKnownHostsFile=\"") && option.ends_with('"'), "{option}");
+    }
 
     #[test]
     fn a_new_confirmation_replaces_the_old_keys_of_that_host() {
