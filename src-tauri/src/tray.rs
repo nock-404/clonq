@@ -64,6 +64,8 @@ fn animate(app: AppHandle) -> tauri::Result<()> {
             if frame != shown {
                 if let Some(tray) = app.tray_by_id(TRAY_ID) {
                     let _ = tray.set_icon(Some(frames[frame].clone()));
+                    // set_icon drops the template flag; without it the reel stays black in dark mode.
+                    let _ = tray.set_icon_as_template(true);
                 }
                 shown = frame;
             }

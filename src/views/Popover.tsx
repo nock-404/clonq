@@ -1,4 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { AppWindow } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { clearError, useClonq, useNow } from "../hooks/useClonq";
 import { useHotkeys } from "../hooks/useHotkeys";
@@ -6,7 +7,7 @@ import { api } from "../lib/api";
 import { formatBytes } from "../lib/format";
 import { messageLabel, placeLabel } from "../lib/labels";
 import { isRunning, jobActions, jobLine, jobReady } from "../lib/jobs";
-import { UiActionBar, UiActionPanel, UiButton, UiEmpty, UiKbd, UiListRow, UiNotice, UiReel, UiSearchField } from "../ui";
+import { UiActionBar, UiActionPanel, UiButton, UiEmpty, UiIconButton, UiKbd, UiListRow, UiNotice, UiReel, UiSearchField } from "../ui";
 import { UiLogo } from "../ui/UiLogo";
 import { UpdateBand } from "./UpdateBand";
 import { useUpdate } from "../lib/update";
@@ -61,7 +62,7 @@ export function Popover() {
       "mod+k": () => setActionsOpen((open) => !open),
       "mod+Enter": () => job && !running && ready && void jobActions.dryRun(job.id),
       "mod+.": () => job && running && void jobActions.cancel(job.id),
-      "mod+o": () => job && void api.openMainWindow(job.id),
+      "mod+o": () => void api.openMainWindow(job?.id),
     },
     !actionsOpen,
   );
@@ -88,7 +89,12 @@ export function Popover() {
 
   return (
     <div className="relative flex h-full flex-col bg-canvas text-ink">
-      <UiSearchField ref={search} value={query} onChange={(value) => { setQuery(value); setSelected(0); }} placeholder="Job suchen oder starten …" onKeyDown={onSearchKey} autoFocus />
+      <div className="flex items-center pr-2">
+        <div className="min-w-0 flex-1">
+          <UiSearchField ref={search} value={query} onChange={(value) => { setQuery(value); setSelected(0); }} placeholder="Job suchen oder starten …" onKeyDown={onSearchKey} autoFocus />
+        </div>
+        <UiIconButton icon={AppWindow} label="clonq öffnen (⌘O)" onPress={() => void api.openMainWindow(job?.id)} />
+      </div>
       <div className="hairline-t" />
 
       {state.error ? (
