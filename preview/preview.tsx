@@ -202,9 +202,25 @@ if (jobParam && dryParam) {
   setTimeout(
     () =>
       void emit("run-update", {
-        runId: "dry-preview", jobId: jobParam, dryRun: true, phase: "finished", percent: 100, bytes: 0, bytesPerSecond: 0,
+        runId: "dry-preview", jobId: jobParam, dryRun: true, verify: false, phase: "finished", percent: 100, bytes: 0, bytesPerSecond: 0,
         etaSeconds: null, filesDone: 0, filesTotal: null, filesNew: found[0], filesChanged: found[1], filesDeleted: found[2],
         filesConflicted: 0, filesPerSecond: 0, throughput: [], recentPaths: [], currentPath: null, status: "succeeded", message: null,
+      }),
+    700,
+  );
+}
+
+// ?check=ok|damaged sends a finished integrity check for ?job.
+const checkParam = params.get("check");
+if (jobParam && checkParam) {
+  const damaged = checkParam === "damaged";
+  setTimeout(
+    () =>
+      void emit("run-update", {
+        runId: "check-preview", jobId: jobParam, dryRun: true, verify: true, phase: "finished", percent: 100, bytes: 0, bytesPerSecond: 0,
+        etaSeconds: null, filesDone: 0, filesTotal: null, filesNew: 0, filesChanged: 0, filesDeleted: 0,
+        filesConflicted: damaged ? 2 : 0, filesPerSecond: 0, throughput: [], recentPaths: [], currentPath: null,
+        status: damaged ? "partial" : "succeeded", message: damaged ? "2 file(s) differ in content although size and date match" : null,
       }),
     700,
   );

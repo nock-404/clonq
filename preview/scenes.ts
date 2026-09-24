@@ -368,6 +368,7 @@ const running: LiveRun = {
   runId: "live1",
   jobId: "work-to-m2mini",
   dryRun: false,
+  verify: false,
   phase: "transferring",
   percent: 62,
   bytes: 1_240_000_000,

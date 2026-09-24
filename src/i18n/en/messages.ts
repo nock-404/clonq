@@ -35,6 +35,10 @@ export const messages = {
   licenceOtherProduct: "This licence key is for another product or version.",
   proNeeded: "Versioned backups are part of clonq Pro. Enter a licence in Settings.",
   licenceNotCovering: (until: string) => `Your clonq Pro licence covers versions released until ${until}; this version is newer.`,
+  checkNeedsPro: "The integrity check is part of clonq Pro. Enter a licence in Settings.",
+  contentDiffers: (count: number) =>
+    count === 1 ? "One file differs in content although its size and date match." : `${count} files differ in content although their size and date match.`,
+  noSnapshotToCheck: "There is no snapshot to check yet.",
   licenceWithdrawn: "This clonq Pro licence has been withdrawn.",
   versionedNeedsLocalAndFolder: "Versioned backups need a source on this Mac and a folder, drive or server as the target.",
   onlyVersionedSnapshots: "Only versioned jobs keep snapshots.",

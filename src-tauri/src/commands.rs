@@ -58,7 +58,16 @@ pub fn set_ui_settings(app: AppHandle, state: State<'_, AppState>, settings: UiS
 pub fn run_job(state: State<'_, AppState>, job_id: String, dry_run: bool, force: bool) -> Result<String> {
     let config = state.config.read().expect("config lock").clone();
     crate::licence::allows(&state.config_dir, &config, &job_id)?;
-    state.engine.start(&config, &job_id, "manual", RunOptions { dry_run, force })
+    state.engine.start(&config, &job_id, "manual", RunOptions { dry_run, force, ..Default::default() })
+}
+
+/// Compares source and target by content (Pro); changes nothing on either side.
+#[tauri::command]
+pub fn verify_job(state: State<'_, AppState>, job_id: String) -> Result<String> {
+    let config = state.config.read().expect("config lock").clone();
+    crate::licence::allows_check(&state.config_dir)?;
+    crate::licence::allows(&state.config_dir, &config, &job_id)?;
+    state.engine.start(&config, &job_id, "verify", RunOptions { verify: true, ..Default::default() })
 }
 
 #[tauri::command]

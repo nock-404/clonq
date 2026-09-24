@@ -18,6 +18,12 @@ export const detail = {
     run: "Run now",
     dismiss: "Dismiss",
   },
+  check: {
+    title: "Integrity check",
+    intact: "Source and target match in content.",
+    hint: "One of the two copies is damaged, and clonq cannot tell which. A normal run leaves both as they are, so open both copies and replace the damaged one by hand.",
+    failed: "The integrity check did not finish.",
+  },
   /** A file or folder name inside a sentence. */
   quote: (name: string) => `“${name}”`,
   retry: "Try again",
@@ -53,6 +59,8 @@ export const detail = {
     tapeRunning: "Tape running",
     tapeStopped: "Tape stopped",
     dryRunning: "Dry run in progress",
+    verifying: "Integrity check in progress",
+    verify: "Check",
     running: "Running now",
     copyState: "Copy status",
     checking: "checking",
@@ -96,6 +104,7 @@ export const detail = {
 
   actions: {
     syncNow: "Sync now",
+    verify: "Check integrity",
     openDetails: "Open details",
   },
 
@@ -273,6 +282,7 @@ export const detail = {
       mount: "Plugged in",
       change: "Change",
       chain: "After job",
+      verify: "Integrity check",
     },
   },
 
@@ -296,6 +306,7 @@ export const detail = {
       mount: "when plugged in",
       change: "after a change",
       chain: "after another job",
+      verify: "as an integrity check",
     },
   },
 };

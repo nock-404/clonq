@@ -22,6 +22,12 @@ export const detail: Shape<typeof source> = {
     run: "Jetzt starten",
     dismiss: "Schließen",
   },
+  check: {
+    title: "Prüflauf",
+    intact: "Quelle und Ziel stimmen inhaltlich überein.",
+    hint: "Eine der beiden Fassungen ist beschädigt; welche, kann clonq nicht erkennen. Ein normaler Lauf lässt beide unverändert. Öffne deshalb beide Fassungen und ersetze die beschädigte von Hand.",
+    failed: "Der Prüflauf wurde nicht abgeschlossen.",
+  },
   quote: (name) => `„${name}“`,
   retry: "Erneut versuchen",
   reading: "Wird gelesen …",
@@ -53,6 +59,8 @@ export const detail: Shape<typeof source> = {
     tapeRunning: "Band läuft",
     tapeStopped: "Band steht",
     dryRunning: "Probelauf läuft",
+    verifying: "Prüflauf läuft",
+    verify: "Prüfen",
     running: "Läuft gerade",
     copyState: "Stand der Kopie",
     checking: "prüft",
@@ -95,6 +103,7 @@ export const detail: Shape<typeof source> = {
 
   actions: {
     syncNow: "Jetzt syncen",
+    verify: "Inhalt prüfen",
     openDetails: "Details öffnen",
   },
 
@@ -272,6 +281,7 @@ export const detail: Shape<typeof source> = {
       mount: "Angesteckt",
       change: "Änderung",
       chain: "Nach Job",
+      verify: "Prüflauf",
     },
   },
 
@@ -295,6 +305,7 @@ export const detail: Shape<typeof source> = {
       mount: "beim Anstecken",
       change: "nach einer Änderung",
       chain: "nach einem anderen Job",
+      verify: "als Prüflauf",
     },
   },
 };

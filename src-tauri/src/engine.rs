@@ -43,6 +43,8 @@ pub struct LiveRun {
     pub run_id: String,
     pub job_id: String,
     pub dry_run: bool,
+    /// An integrity check: compares by content, changes nothing.
+    pub verify: bool,
     pub phase: Phase,
     pub percent: f64,
     pub bytes: i64,
@@ -78,6 +80,8 @@ pub struct RunOptions {
     pub dry_run: bool,
     /// Skips the deletion threshold, after the user saw what would be deleted.
     pub force: bool,
+    /// Compares source and target by content instead of copying; changes nothing.
+    pub verify: bool,
 }
 
 struct Active {
@@ -146,7 +150,7 @@ impl Engine {
             id: run_id,
             job_id: job.id.clone(),
             trigger: trigger.to_string(),
-            dry_run: options.dry_run,
+            dry_run: options.dry_run || options.verify,
             started_at: Utc::now(),
             finished_at: None,
             status: RunStatus::Running,
@@ -178,7 +182,8 @@ impl Engine {
             let live = LiveRun {
                 run_id: run.id.clone(),
                 job_id: job.id.clone(),
-                dry_run: options.dry_run,
+                dry_run: options.dry_run || options.verify,
+                verify: options.verify,
                 phase: Phase::Transferring,
                 percent: 0.0,
                 bytes: 0,
@@ -273,6 +278,9 @@ impl Engine {
     ) -> Result<()> {
         plan.check_source()?;
         plan.check_target()?;
+        if options.verify {
+            return self.verify(job, plan, run, &mut cancel, log).await;
+        }
         let two_way = matches!(plan.tool, Tool::Bisync { .. });
         if job.mode == Mode::Mirror && !two_way {
             self.check_remote_source(plan).await?;
@@ -290,7 +298,7 @@ impl Engine {
                     self.update(&job.id, |live| live.phase = Phase::Checking);
                     self.emit(&job.id);
                     log.write_all(b"# safety check (dry run)\n").await?;
-                    let check = self.rsync(&job.id, plan, &["--dry-run".into()], log, &mut cancel, false).await?;
+                    let check = self.rsync(&job.id, plan, &["--dry-run".into()], log, &mut cancel, false, false).await?;
                     if check.cancelled {
                         run.status = RunStatus::Cancelled;
                         return Ok(());
@@ -375,11 +383,11 @@ impl Engine {
                 extra.extend(plan.resync_args(job));
             }
         }
-        let mut result = self.rsync(&job.id, plan, &extra, log, &mut cancel, true).await?;
+        let mut result = self.rsync(&job.id, plan, &extra, log, &mut cancel, true, false).await?;
         if two_way && !result.cancelled && result.errors.iter().any(|error| rclone_output::needs_resync(error)) {
             log.write_all(b"# no earlier listings, merging both sides first\n").await?;
             extra.extend(plan.resync_args(job));
-            result = self.rsync(&job.id, plan, &extra, log, &mut cancel, true).await?;
+            result = self.rsync(&job.id, plan, &extra, log, &mut cancel, true, false).await?;
         }
 
         run.exit_code = result.exit_code;
@@ -442,6 +450,7 @@ impl Engine {
     }
 
     /// Runs rsync once with the plan's arguments plus `extra`, streaming its output.
+    #[allow(clippy::too_many_arguments)]
     async fn rsync(
         &self,
         job_id: &str,
@@ -450,6 +459,8 @@ impl Engine {
         log: &mut BufWriter<tokio::fs::File>,
         cancel: &mut watch::Receiver<bool>,
         report: bool,
+        // Keeps every changed path in the result; only the integrity check needs them.
+        collect: bool,
     ) -> Result<RsyncResult> {
         let mut command = Command::new(&plan.program);
         command
@@ -648,6 +659,9 @@ impl Engine {
                                     if report && let Some(line) = log_entry(Change::of(code), size, path) {
                                         log.write_all(line.as_bytes()).await?;
                                     }
+                                    if collect {
+                                        result.paths.push((Change::of(code), path.to_string()));
+                                    }
                                     self.count_file(job_id, &mut result, &mut recent, Change::of(code), size, path, report);
                                 }
                                 Line::Stat(stat) => {
@@ -735,6 +749,124 @@ impl Engine {
             self.emit(job_id);
         }
         Ok(result)
+    }
+
+    /// The integrity check: finds files whose content differs between source and target although
+    /// a normal run would leave them alone, the sign of silent damage (a flipped bit on a dying
+    /// disk, a file changed behind clonq's back). Changes nothing on either side.
+    ///
+    /// rsync: one dry run by size and date, one by checksum; what only the second one finds has
+    /// the same size and date but other content. On a server rsync computes the checksums
+    /// there, so no file data crosses the line. rclone (clouds, two-way): `rclone check`.
+    async fn verify(&self, job: &Job, plan: &Plan, run: &mut Run, cancel: &mut watch::Receiver<bool>, log: &mut BufWriter<tokio::fs::File>) -> Result<()> {
+        self.update(&job.id, |live| live.phase = Phase::Checking);
+        self.emit(&job.id);
+        match &plan.tool {
+            Tool::Rsync => {
+                // A versioned job is checked against its newest complete snapshot.
+                let mut checked = plan.clone();
+                if job.mode == Mode::Versioned {
+                    let base = format!("{}/", plan.target.trim_end_matches('/'));
+                    let (complete, _) = match &plan.target_path {
+                        Some(path) => versions::list_local(path),
+                        None => versions::list_remote(&plan.program, &plan.rsh(), &base).await?,
+                    };
+                    let Some(newest) = complete.last() else {
+                        run.status = RunStatus::Failed;
+                        run.message = Some("there is no snapshot to check yet".into());
+                        return Ok(());
+                    };
+                    checked.target = format!("{base}{newest}");
+                    checked.target_path = plan.target_path.as_ref().map(|path| path.join(newest));
+                    log.write_all(format!("# integrity check against snapshot {newest}\n").as_bytes()).await?;
+                }
+                // Deletions are no damage; the check only reads what both sides hold.
+                checked.base_args.retain(|arg| arg != "--delete");
+                log.write_all(b"# integrity check, pass 1: by size and date\n").await?;
+                let quick = self.rsync(&job.id, &checked, &["--dry-run".into()], log, cancel, false, true).await?;
+                if quick.cancelled {
+                    run.status = RunStatus::Cancelled;
+                    return Ok(());
+                }
+                log.write_all(b"# integrity check, pass 2: by content (checksums)\n").await?;
+                let deep = self.rsync(&job.id, &checked, &["--dry-run".into(), "--checksum".into()], log, cancel, false, true).await?;
+                if deep.cancelled {
+                    run.status = RunStatus::Cancelled;
+                    return Ok(());
+                }
+                let usable = |code: Option<i32>| matches!(code, Some(0 | 23 | 24));
+                if !usable(quick.exit_code) || !usable(deep.exit_code) {
+                    run.status = RunStatus::Failed;
+                    run.exit_code = if usable(quick.exit_code) { deep.exit_code } else { quick.exit_code };
+                    run.message = Some(if usable(quick.exit_code) { deep.error_summary() } else { quick.error_summary() });
+                    return Ok(());
+                }
+                let is_file = |change: &Change| matches!(change, Change::NewFile | Change::ChangedFile);
+                let known: std::collections::HashSet<&str> = quick.paths.iter().filter(|(change, _)| is_file(change)).map(|(_, path)| path.as_str()).collect();
+                let silent: Vec<&str> = deep.paths.iter().filter(|(change, path)| is_file(change) && !known.contains(path.as_str())).map(|(_, path)| path.as_str()).collect();
+                let missing = quick.paths.iter().filter(|(change, _)| *change == Change::NewFile).count();
+                for path in &silent {
+                    log.write_all(format!("! content differs: {path}\n").as_bytes()).await?;
+                }
+                run.files_total = deep.stats.files;
+                run.files_conflicted = silent.len() as i64;
+                run.files_new = missing as i64;
+                run.files_changed = quick.paths.iter().filter(|(change, _)| *change == Change::ChangedFile).count() as i64;
+                run.source_bytes = deep.stats.total_size;
+                run.exit_code = deep.exit_code;
+                run.status = if silent.is_empty() { RunStatus::Succeeded } else { RunStatus::Partial };
+                run.message = (!silent.is_empty()).then(|| format!("{} file(s) differ in content although size and date match", silent.len()));
+            }
+            Tool::Rclone { config } | Tool::Bisync { config } => {
+                let mut command = Command::new(&plan.program);
+                command.arg("check").arg(&plan.source).arg(&plan.target).arg("--config").arg(config).args(["--combined", "-"]);
+                if !matches!(plan.tool, Tool::Bisync { .. }) {
+                    command.arg("--one-way");
+                }
+                command.args(job.excludes.iter().map(|pattern| format!("--exclude={}", rclone_pattern(pattern))));
+                command.arg(format!("--exclude=/{ARCHIVE_DIR}/**"));
+                command.env("LC_ALL", "C").stdin(Stdio::null()).kill_on_drop(true);
+                let output = tokio::select! {
+                    output = command.output() => output?,
+                    _ = cancel.changed() => {
+                        run.status = RunStatus::Cancelled;
+                        return Ok(());
+                    }
+                };
+                // One line per file: "= same", "* differs", "- missing in target", "+ only in target", "! error".
+                let text = String::from_utf8_lossy(&output.stdout);
+                let mut differ = 0_i64;
+                let mut missing = 0_i64;
+                let mut errors = 0_i64;
+                for line in text.lines() {
+                    let (mark, path) = line.split_at(line.len().min(2));
+                    match mark.trim() {
+                        "*" => {
+                            differ += 1;
+                            log.write_all(format!("! content differs: {path}\n").as_bytes()).await?;
+                        }
+                        "-" => missing += 1,
+                        "!" => {
+                            errors += 1;
+                            log.write_all(format!("! could not check: {path}\n").as_bytes()).await?;
+                        }
+                        _ => {}
+                    }
+                }
+                run.files_conflicted = differ;
+                run.files_new = missing;
+                run.exit_code = output.status.code();
+                // rclone check exits 1 when it found differences; that is a result, not a failure.
+                let failed = !matches!(output.status.code(), Some(0 | 1)) || errors > 0 && differ == 0 && missing == 0;
+                run.status = if failed { RunStatus::Failed } else if differ > 0 { RunStatus::Partial } else { RunStatus::Succeeded };
+                run.message = if failed {
+                    Some(String::from_utf8_lossy(&output.stderr).lines().last().unwrap_or("rclone check failed").trim().to_string())
+                } else {
+                    (differ > 0).then(|| format!("{differ} file(s) differ in content between source and target"))
+                };
+            }
+        }
+        Ok(())
     }
 
     /// Lists the snapshots, removes unfinished ones (not in a dry run), and plans this run into a
@@ -1327,6 +1459,8 @@ struct RsyncResult {
     delete_limit_hit: bool,
     /// Two-way sync: files changed on both sides.
     conflicts: i64,
+    /// Changed paths, when asked for (integrity check).
+    paths: Vec<(Change, String)>,
 }
 
 /// What a finished run stores beside its row.
@@ -1790,7 +1924,7 @@ mod tests {
         let blocked = f.run(&config, RunOptions::default()).await;
         assert_eq!(blocked.status, RunStatus::Blocked, "{:?}", blocked.message);
         assert_eq!(Fixture::count_files(&f.dst()), 40);
-        let forced = f.run(&config, RunOptions { dry_run: false, force: true }).await;
+        let forced = f.run(&config, RunOptions { force: true, ..Default::default() }).await;
         assert_eq!(forced.status, RunStatus::Succeeded, "{:?}", forced.message);
         assert_eq!(Fixture::count_files(&f.dst()), 10);
     }
@@ -1830,7 +1964,7 @@ mod tests {
             assert_eq!(again.status, RunStatus::Blocked, "{:?}", again.message);
             assert_eq!(Fixture::count_files(&f.dst()), left, "a stopped job must not delete another batch");
         }
-        let forced = f.run(&config, RunOptions { dry_run: false, force: true }).await;
+        let forced = f.run(&config, RunOptions { force: true, ..Default::default() }).await;
         assert_eq!(forced.status, RunStatus::Succeeded);
         assert_eq!(Fixture::count_files(&f.dst()), 5);
     }
@@ -1894,7 +2028,7 @@ mod tests {
         let f = Fixture::new();
         f.write("src/a.txt", "a");
         f.write("dst/stale.txt", "old");
-        let run = f.run(&f.config(Mode::Mirror, "dst"), RunOptions { dry_run: true, force: false }).await;
+        let run = f.run(&f.config(Mode::Mirror, "dst"), RunOptions { dry_run: true, ..Default::default() }).await;
         assert_eq!(run.status, RunStatus::Succeeded, "{:?}", run.message);
         assert!(run.dry_run);
         assert_eq!(run.files_transferred, 1);
@@ -1934,7 +2068,7 @@ mod tests {
         assert_eq!(run.status, RunStatus::Blocked, "{:?}", run.message);
         assert_eq!(Fixture::count_files(&f.dst()), 30, "nothing may change while blocked");
 
-        let forced = f.run(&config, RunOptions { dry_run: false, force: true }).await;
+        let forced = f.run(&config, RunOptions { force: true, ..Default::default() }).await;
         assert_eq!(forced.status, RunStatus::Succeeded, "{:?}", forced.message);
         assert_eq!(Fixture::count_files(&f.dst()), 1);
     }

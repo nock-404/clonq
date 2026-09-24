@@ -33,6 +33,10 @@ export const messages: Shape<typeof source> = {
   licenceOtherProduct: "Dieser Lizenzschlüssel gilt für ein anderes Produkt oder eine andere Version.",
   proNeeded: "Versionen gehören zu clonq Pro. Trag in den Einstellungen eine Lizenz ein.",
   licenceNotCovering: (until) => `Deine Lizenz für clonq Pro gilt für Versionen bis zum ${until}; diese Version ist neuer.`,
+  checkNeedsPro: "Der Prüflauf gehört zu clonq Pro. Trag in den Einstellungen eine Lizenz ein.",
+  contentDiffers: (count) =>
+    count === 1 ? "Eine Datei unterscheidet sich im Inhalt, obwohl Größe und Datum gleich sind." : `${count} Dateien unterscheiden sich im Inhalt, obwohl Größe und Datum gleich sind.`,
+  noSnapshotToCheck: "Es gibt noch keinen Snapshot, der sich prüfen ließe.",
   licenceWithdrawn: "Diese Lizenz für clonq Pro wurde zurückgezogen.",
   versionedNeedsLocalAndFolder: "Versionen brauchen eine Quelle auf diesem Mac und als Ziel einen Ordner, ein Laufwerk oder einen Server.",
   onlyVersionedSnapshots: "Nur Jobs der Art „Versionen“ haben Snapshots.",

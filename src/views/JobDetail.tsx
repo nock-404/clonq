@@ -1,4 +1,4 @@
-import { FlaskConical, Play, ShieldAlert, Square } from "lucide-react";
+import { FlaskConical, Play, ShieldAlert, ShieldCheck, Square } from "lucide-react";
 import { useState, type KeyboardEvent } from "react";
 import type { ClonqState } from "../hooks/useClonq";
 import { useHotkeys } from "../hooks/useHotkeys";
@@ -24,6 +24,7 @@ import {
   UiButton,
   UiCounter,
   UiFreshness,
+  UiIconButton,
   UiLamps,
   UiNotice,
   UiPanel,
@@ -92,6 +93,7 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
           </UiButton>
         ) : (
           <>
+            <UiIconButton icon={ShieldCheck} label={d.actions.verify} disabled={remote} onPress={() => void jobActions.verify(job.id)} />
             <UiButton variant="ghost" icon={FlaskConical} keys={["⌘", "↵"]} disabled={remote} onPress={() => void jobActions.dryRun(job.id)}>
               {d.dryRun}
             </UiButton>
@@ -107,7 +109,7 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
           {j.waiting(blockerName, blockerReach)}
         </UiNotice>
       ) : null}
-      {!running && latest?.message && latest.status !== "succeeded" ? (
+      {!running && latest?.message && latest.status !== "succeeded" && latest.id !== state.dryRuns[job.id]?.runId ? (
         <UiNotice
           tone={latest.status === "failed" ? "danger" : "warn"}
           actions={
@@ -139,7 +141,7 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
         </section>
 
         <div className="flex min-w-0 flex-col gap-4">
-          <UiPanel title={running ? (live.dryRun ? j.dryRunning : j.running) : j.copyState} aside={running ? progressLine(live) : undefined}>
+          <UiPanel title={running ? (live.verify ? j.verifying : live.dryRun ? j.dryRunning : j.running) : j.copyState} aside={running ? progressLine(live) : undefined}>
             {running ? (
               <div className="flex flex-col gap-3">
                 <div className="flex items-end justify-between gap-4">

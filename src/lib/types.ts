@@ -192,6 +192,8 @@ export interface LiveRun {
   runId: string;
   jobId: string;
   dryRun: boolean;
+  /** An integrity check: compares by content, changes nothing. */
+  verify: boolean;
   phase: Phase;
   percent: number;
   bytes: number;

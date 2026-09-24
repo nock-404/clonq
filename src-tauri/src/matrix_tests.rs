@@ -65,6 +65,16 @@ impl Bench {
         if path.is_dir() { fs::remove_dir_all(path).unwrap() } else { fs::remove_file(path).unwrap() }
     }
 
+    /// Changes a file's content but keeps its size and modification time: silent damage.
+    fn corrupt(&self, side: &str, relative: &str) {
+        let path = self.side(side).join(relative);
+        let at = fs::metadata(&path).unwrap().modified().unwrap();
+        let mut bytes = fs::read(&path).unwrap();
+        bytes[0] ^= 0x20;
+        fs::write(&path, bytes).unwrap();
+        fs::File::options().write(true).open(&path).unwrap().set_modified(at).unwrap();
+    }
+
     fn rename(&self, side: &str, from: &str, to: &str) {
         let to = self.side(side).join(to);
         fs::create_dir_all(to.parent().unwrap()).unwrap();
@@ -96,7 +106,11 @@ impl Bench {
     }
 
     async fn run(&self, config: &Config) -> Run {
-        let run_id = self.engine.start(config, "job", "manual", RunOptions::default()).unwrap();
+        self.run_with(config, RunOptions::default()).await
+    }
+
+    async fn run_with(&self, config: &Config, options: RunOptions) -> Run {
+        let run_id = self.engine.start(config, "job", "manual", options).unwrap();
         for _ in 0..3000 {
             if self.engine.live_runs().is_empty() {
                 break;
@@ -691,7 +705,7 @@ async fn versioned_dry_run_creates_nothing() {
     let b = Bench::new();
     let config = b.config(Mode::Versioned, true, newer_wins());
     b.put("src", "a.txt", "a");
-    let run_id = b.engine.start(&config, "job", "manual", RunOptions { dry_run: true, force: false }).unwrap();
+    let run_id = b.engine.start(&config, "job", "manual", RunOptions { dry_run: true, ..Default::default() }).unwrap();
     for _ in 0..500 {
         if b.engine.live_runs().is_empty() {
             break;
@@ -751,4 +765,83 @@ async fn versioned_remote_listing_reads_complete_and_unfinished_snapshots() {
     // A target folder that does not exist yet has no snapshots, and that is not an error.
     let missing = format!("{}/", b.root.join("nothing-here").display());
     assert_eq!(crate::versions::list_remote(&tool("rsync"), &[], &missing).await.unwrap(), (vec![], vec![]));
+}
+
+// Integrity check
+
+fn verify() -> RunOptions {
+    RunOptions { verify: true, ..Default::default() }
+}
+
+fn log_of(b: &Bench, run: &Run) -> String {
+    fs::read_to_string(b.root.join("logs").join(format!("{}.log", run.id))).unwrap_or_default()
+}
+
+#[tokio::test]
+async fn verify_passes_when_both_sides_hold_the_same_content() {
+    for mode in [Mode::Mirror, Mode::Backup, Mode::Bidirectional] {
+        let b = Bench::new();
+        let config = b.config(mode, true, newer_wins());
+        b.put("src", "a.txt", "alpha");
+        b.put("src", "dir/b.txt", "bravo");
+        ok(&b.run(&config).await);
+        let run = b.run_with(&config, verify()).await;
+        assert_eq!(run.status, RunStatus::Succeeded, "{mode:?}: {:?}", run.message);
+        assert_eq!(run.files_conflicted, 0, "{mode:?}");
+        assert!(run.dry_run, "{mode:?}: a check is recorded as a dry run");
+    }
+}
+
+#[tokio::test]
+async fn verify_finds_silent_damage_and_changes_nothing() {
+    for mode in [Mode::Mirror, Mode::Backup, Mode::Bidirectional] {
+        let b = Bench::new();
+        let config = b.config(mode, true, newer_wins());
+        b.put("src", "a.txt", "alpha");
+        b.put("src", "dir/b.txt", "bravo");
+        ok(&b.run(&config).await);
+        b.corrupt("dst", "dir/b.txt");
+        let (src, dst) = (b.tree("src"), b.tree("dst"));
+        let run = b.run_with(&config, verify()).await;
+        assert_eq!(run.status, RunStatus::Partial, "{mode:?}: {:?}", run.message);
+        assert_eq!(run.files_conflicted, 1, "{mode:?}");
+        assert!(log_of(&b, &run).contains("! content differs: dir/b.txt"), "{mode:?}: {}", log_of(&b, &run));
+        assert_eq!((b.tree("src"), b.tree("dst")), (src, dst), "{mode:?}: the check touched a file");
+        assert!(b.archived().is_empty(), "{mode:?}: the check archived something");
+    }
+}
+
+#[tokio::test]
+async fn verify_does_not_count_pending_changes_as_damage() {
+    let b = Bench::new();
+    let config = b.config(Mode::Backup, true, newer_wins());
+    b.put("src", "a.txt", "alpha");
+    b.put("src", "gone.txt", "gone");
+    ok(&b.run(&config).await);
+    b.put("src", "new.txt", "new");
+    b.put("src", "a.txt", "alpha, edited");
+    b.remove("src", "gone.txt");
+    let run = b.run_with(&config, verify()).await;
+    assert_eq!(run.status, RunStatus::Succeeded, "{:?}", run.message);
+    assert_eq!((run.files_conflicted, run.files_new, run.files_changed), (0, 1, 1));
+    assert!(!b.side("dst").join("new.txt").exists());
+}
+
+#[tokio::test]
+async fn verify_checks_the_newest_snapshot_of_a_versioned_job() {
+    let b = Bench::new();
+    let config = b.config(Mode::Versioned, true, newer_wins());
+    let run = b.run_with(&config, verify()).await;
+    assert_eq!(run.status, RunStatus::Failed, "no snapshot yet");
+    b.put("src", "a.txt", "alpha");
+    b.put("src", "b.txt", "bravo");
+    ok(&b.run(&config).await);
+    let run = b.run_with(&config, verify()).await;
+    assert_eq!(run.status, RunStatus::Succeeded, "{:?}", run.message);
+    let newest = snapshots_in(&b).last().unwrap().clone();
+    b.corrupt("dst", &format!("{newest}/b.txt"));
+    let run = b.run_with(&config, verify()).await;
+    assert_eq!(run.status, RunStatus::Partial, "{:?}", run.message);
+    assert_eq!(run.files_conflicted, 1);
+    assert_eq!(snapshots_in(&b), vec![newest], "the check made a snapshot");
 }

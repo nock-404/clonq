@@ -206,6 +206,15 @@ pub fn allows(dir: &Path, config: &crate::config::Config, job_id: &str) -> crate
     if job.mode != crate::config::Mode::Versioned {
         return Ok(());
     }
+    require(dir, "versioned backups are part of clonq Pro: enter a licence in Settings")
+}
+
+/// Refuses an integrity check without Pro.
+pub fn allows_check(dir: &Path) -> crate::error::Result<()> {
+    require(dir, "the integrity check is part of clonq Pro: enter a licence in Settings")
+}
+
+fn require(dir: &Path, missing: &str) -> crate::error::Result<()> {
     let store = Store::new(dir);
     if store.pro() {
         return Ok(());
@@ -213,7 +222,7 @@ pub fn allows(dir: &Path, config: &crate::config::Config, job_id: &str) -> crate
     Err(crate::error::Error::Job(match store.status() {
         Status::NotCovered { updates_until: Some(until), .. } => format!("your clonq Pro licence covers versions released until {until}; this version is newer"),
         Status::Revoked { .. } => "this clonq Pro licence has been withdrawn".into(),
-        _ => "versioned backups are part of clonq Pro: enter a licence in Settings".into(),
+        _ => missing.into(),
     }))
 }
 
