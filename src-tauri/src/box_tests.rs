@@ -345,3 +345,24 @@ async fn box_space_is_measured_over_ssh() {
     let (total, free) = crate::report::measure(&job, &r.config, &r.root.join("rclone.conf"), &[]).await.expect("df over ssh");
     assert!(total > 1_000_000_000_000 && free > 0 && free < total, "{total} {free}");
 }
+
+#[tokio::test]
+#[ignore]
+async fn box_versioned_removes_an_unfinished_snapshot_with_read_only_folders() {
+    let r = Remote::new(Mode::Versioned, true);
+    r.put("ReadOnly/a.txt", "a");
+    fs::set_permissions(r.root.join("src/ReadOnly"), std::os::unix::fs::PermissionsExt::from_mode(0o555)).unwrap();
+    ok(&r.run("manual", RunOptions::default()).await);
+    let base = format!("{}:{}/dst/", r.login, r.base);
+    let rsh = vec![format!("--rsh={}", crate::engine::shell_join(&r.ssh))];
+    let (complete, _) = crate::versions::list_remote(&tool("rsync"), &rsh, &base).await.unwrap();
+    let first = complete[0].clone();
+    // The run is cut short: its marker never arrived.
+    r.box_run(&["rm", &format!("{}/dst/{first}/{}", r.base, crate::versions::MARKER)]);
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    ok(&r.run("manual", RunOptions::default()).await);
+    let (complete, incomplete) = crate::versions::list_remote(&tool("rsync"), &rsh, &base).await.unwrap();
+    assert!(incomplete.is_empty() && !complete.contains(&first), "the unfinished snapshot is gone: {complete:?} {incomplete:?}");
+    assert_eq!(complete.len(), 1);
+    fs::set_permissions(r.root.join("src/ReadOnly"), std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+}
