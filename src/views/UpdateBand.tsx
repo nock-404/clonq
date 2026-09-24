@@ -16,9 +16,12 @@ export function UpdateBand() {
         <span className="text-xs font-medium text-ink">clonq {update.version} ist da</span>
       </div>
       {update.phase === "available" ? (
-        <UiButton variant="primary" icon={Download} onPress={() => void installUpdate()}>
-          Installieren und neu starten
-        </UiButton>
+        <div className="flex flex-col items-start gap-1">
+          <UiButton variant="primary" icon={Download} onPress={() => void installUpdate()}>
+            Installieren
+          </UiButton>
+          <span className="text-[0.6875rem] text-ink-soft">clonq startet danach neu.</span>
+        </div>
       ) : (
         <div className="flex flex-col gap-1">
           <UiProgressBar value={update.phase === "restarting" ? 100 : percent} />

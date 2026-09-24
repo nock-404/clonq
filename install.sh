@@ -6,8 +6,7 @@
 # What it does: asks GitHub for the newest release, downloads the app for Apple
 # silicon, and puts it into /Applications (~/Applications when that is not
 # writable). A running clonq is quit first and started again afterwards.
-# clonq copies with rsync 3 and rclone from Homebrew; when one is missing, the
-# script asks before installing it. Nothing else is touched.
+# rsync and rclone ship inside the app. Nothing else is touched.
 set -eu
 
 REPO="nock-404/clonq"
@@ -56,24 +55,6 @@ cp -R "$app" "$dest/clonq.app"
 # ask about an unidentified developer.
 xattr -dr com.apple.quarantine "$dest/clonq.app" 2>/dev/null || true
 say "installiert: $dest/clonq.app"
-
-# rsync 3 and rclone come from Homebrew; macOS ships only an old rsync.
-missing=""
-[ -x /opt/homebrew/bin/rsync ] || missing="$missing rsync"
-[ -x /opt/homebrew/bin/rclone ] || missing="$missing rclone"
-if [ -n "$missing" ]; then
-	say "clonq braucht noch:$missing"
-	if command -v brew >/dev/null 2>&1 && [ -r /dev/tty ]; then
-		printf '  Mit Homebrew installieren? [j/N] '
-		read -r answer </dev/tty || answer=""
-		case "$answer" in
-			j | J | ja | Ja | y | Y) brew install $missing ;;
-			*) say "übersprungen. Später: brew install$missing" ;;
-		esac
-	else
-		say "installieren mit: brew install$missing"
-	fi
-fi
 
 if [ "$running" -eq 1 ]; then
 	open -a "$dest/clonq.app"

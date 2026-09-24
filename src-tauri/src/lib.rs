@@ -59,7 +59,8 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
             ssh::set_known_hosts(data_dir.join("known_hosts"));
-            let config = Config::load_or_init(&data_dir)?;
+            let mut config = Config::load_or_init(&data_dir)?;
+            use_bundled_tools(&mut config);
             let history = Arc::new(History::open(&data_dir.join("history.sqlite"))?);
             let handle = app.handle().clone();
             let emit: engine::Emit = Arc::new(move |event, payload| {
@@ -158,6 +159,18 @@ pub fn run() {
                 let _ = show_main(app);
             }
         });
+}
+
+/// rsync and rclone ship inside clonq.app next to the main program; they win over the paths
+/// in the config, which point at Homebrew for configs written before they were bundled.
+fn use_bundled_tools(config: &mut Config) {
+    let Some(dir) = std::env::current_exe().ok().and_then(|exe| exe.parent().map(PathBuf::from)) else { return };
+    for (name, path) in [("rsync", &mut config.rsync_path), ("rclone", &mut config.rclone_path)] {
+        let bundled = dir.join(name);
+        if bundled.is_file() {
+            *path = bundled.to_string_lossy().into_owned();
+        }
+    }
 }
 
 /// Shows the main window. While it is open, clonq also sits in the Dock and in ⌘Tab.

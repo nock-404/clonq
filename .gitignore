@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# rsync and rclone, fetched and built by scripts/fetch-tools.sh
+src-tauri/binaries/

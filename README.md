@@ -14,8 +14,8 @@ curl -fsSL https://raw.githubusercontent.com/nock-404/clonq/main/install.sh | sh
 
 For Macs with Apple silicon, macOS 13 or newer. The same command updates an
 installed clonq; the app also finds new releases by itself and installs them
-on request. clonq copies with rsync 3 and rclone from Homebrew; the script
-offers to install them when they are missing.
+on request. rsync 3.5.1 (built from source) and rclone 1.75.1 ship inside the
+app; nothing else needs to be installed.
 
 ## Release
 
@@ -35,6 +35,7 @@ key in the repository secrets `TAURI_SIGNING_PRIVATE_KEY` and
 
 ```sh
 pnpm install
+./scripts/fetch-tools.sh   # rsync and rclone into src-tauri/binaries, once
 pnpm tauri dev
 ```
 

@@ -35,6 +35,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # rsync (built from source) and rclone go into the app bundle.
+      - run: ./scripts/fetch-tools.sh
+
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -49,6 +52,8 @@ jobs:
                 curl -fsSL https://raw.githubusercontent.com/nock-404/clonq/main/install.sh | sh
 
             Eine installierte clonq meldet das Update auch selbst.
+
+            Enthalten sind rclone 1.75.1 (MIT) und rsync 3.5.1 (GPLv3, Quellcode: https://download.samba.org/pub/rsync/src/rsync-3.5.1.tar.gz).
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true
