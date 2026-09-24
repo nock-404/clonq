@@ -282,6 +282,7 @@ export const detail: Shape<typeof source> = {
       change: "Änderung",
       chain: "Nach Job",
       verify: "Prüflauf",
+      verifyScheduled: "Geplanter Prüflauf",
     },
   },
 
@@ -306,6 +307,7 @@ export const detail: Shape<typeof source> = {
       change: "nach einer Änderung",
       chain: "nach einem anderen Job",
       verify: "als Prüflauf",
+      verifyScheduled: "als geplanter Prüflauf",
     },
   },
 };

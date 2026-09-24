@@ -1241,6 +1241,8 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
       bearbeiten: toModeStep,
       "bearbeiten-unten": [...toModeStep, ["scrollEnd"]],
       "bearbeiten-beidseitig": [...toModeStep, ["radio", t.common.mode.bidirectional]],
+      "bearbeiten-ausloeser": [...toModeStep, ["stepper", w.steps.triggers], ["step", w.steps.triggers]],
+      "bearbeiten-ausloeser-unten": [...toModeStep, ["stepper", w.steps.triggers], ["step", w.steps.triggers], ["scrollEnd"]],
       "bearbeiten-beidseitig-name": [...toModeStep, ["radio", t.common.mode.bidirectional], ["stepper", w.steps.name], ["step", w.steps.name]],
     };
   };

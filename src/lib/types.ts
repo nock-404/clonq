@@ -69,6 +69,8 @@ export interface Triggers {
   /** Local time "HH:MM". */
   dailyAt: string | null;
   afterJob: string | null;
+  /** An integrity check every this many days (Pro). */
+  verifyEveryDays: number | null;
 }
 
 /** Deleted and overwritten files are kept in `.clonq-archiv/<time>/` on the target. */

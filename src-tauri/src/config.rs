@@ -251,6 +251,9 @@ pub struct Triggers {
     /// After this job finished successfully.
     #[serde(default)]
     pub after_job: Option<String>,
+    /// An integrity check every this many days (Pro), counted from the last check.
+    #[serde(default)]
+    pub verify_every_days: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

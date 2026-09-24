@@ -17,7 +17,7 @@ interface Scene {
 
 const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
 
-const triggers = { onMount: false, onChangeAfterSeconds: null, everyMinutes: null, dailyAt: null, afterJob: null };
+const triggers = { onMount: false, onChangeAfterSeconds: null, everyMinutes: null, dailyAt: null, afterJob: null, verifyEveryDays: null };
 const safety = { maxDeletePercent: 10, alwaysAllowedDeletions: 10 };
 const archive = { enabled: true, keepDays: 30 };
 const conflicts = { prefer: "newer" as const, loser: "keep" as const };
@@ -541,6 +541,6 @@ export const modusTwoWayJob: Job = {
   archive: { enabled: true, keepDays: 14 },
   conflicts: { prefer: "source", loser: "delete" },
   ring: "yellow",
-  triggers: { onMount: true, onChangeAfterSeconds: null, everyMinutes: null, dailyAt: null, afterJob: null },
+  triggers: { onMount: true, onChangeAfterSeconds: null, everyMinutes: null, dailyAt: null, afterJob: null, verifyEveryDays: null },
 };
 // --- end Modus -------------------------------------------------------------------------------

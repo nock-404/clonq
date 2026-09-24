@@ -549,6 +549,7 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
                 drives={drives}
                 config={config}
                 jobId={jobId}
+                pro={pro}
               />
             ) : null}
             {!done && step === 4 ? (

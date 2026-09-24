@@ -378,6 +378,19 @@ impl History {
         Ok(started.as_deref().map(parse_time))
     }
 
+    /// When the job last started an integrity check, by hand or on schedule.
+    pub fn last_verify(&self, job_id: &str) -> Result<Option<DateTime<Utc>>> {
+        let connection = self.connection.lock().expect("history lock");
+        let started: Option<String> = connection
+            .query_row(
+                "SELECT started_at FROM runs WHERE job_id = ?1 AND trigger IN ('verify', 'verifyScheduled') ORDER BY started_at DESC LIMIT 1",
+                [job_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(started.as_deref().map(parse_time))
+    }
+
     /// Target size from the newest successful real run with the same plan, if any.
     pub fn last_target_entries(&self, job_id: &str, plan_key: &str) -> Result<Option<i64>> {
         let connection = self.connection.lock().expect("history lock");

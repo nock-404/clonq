@@ -28,6 +28,7 @@ pub mod reason {
     pub const MOUNT: &str = "mount";
     pub const CHANGE: &str = "change";
     pub const CHAIN: &str = "chain";
+    pub const VERIFY: &str = "verifyScheduled";
 }
 
 #[derive(Default)]
@@ -111,6 +112,26 @@ fn fire(app: &AppHandle, job_id: &str, why: &str) -> bool {
     }
 }
 
+/// Starts a scheduled integrity check. It waits while the job runs, needs Pro, and like a
+/// failed automatic start leaves an unreachable job alone for a while.
+fn fire_verify(app: &AppHandle, job_id: &str) {
+    let scheduler = app.state::<Scheduler>();
+    let key = format!("verify:{job_id}");
+    if scheduler.backoff.lock().expect("backoff").get(&key).is_some_and(|until| Instant::now() < *until) {
+        return;
+    }
+    let state = app.state::<AppState>();
+    if !crate::licence::Store::new(&state.config_dir).pro() {
+        return;
+    }
+    let config = state.config.read().expect("config lock").clone();
+    if let Err(error) = state.engine.start(&config, job_id, reason::VERIFY, RunOptions { verify: true, ..Default::default() })
+        && !error.to_string().contains("already running")
+    {
+        scheduler.backoff.lock().expect("backoff").insert(key, Instant::now() + BACKOFF);
+    }
+}
+
 /// Drives or servers changed: jobs that were waiting may be reachable now.
 pub fn reachability_changed(app: &AppHandle) {
     app.state::<Scheduler>().backoff.lock().expect("backoff").clear();
@@ -160,6 +181,14 @@ fn tick(app: &AppHandle) {
             && daily_due(last, at, now.with_timezone(&Local))
         {
             fire(app, &job.id, reason::DAILY);
+            continue;
+        }
+        // The first check waits for a first real run; before it there is nothing to compare.
+        if let Some(days) = job.triggers.verify_every_days.filter(|d| *d > 0)
+            && history.has_completed(&job.id).unwrap_or(false)
+            && every_due(history.last_verify(&job.id).ok().flatten(), days.saturating_mul(24 * 60), now)
+        {
+            fire_verify(app, &job.id);
         }
     }
     // Source changes whose quiet time is over.
@@ -293,10 +322,24 @@ fn is_excluded(path: &Path, root: &Path, excluded: &[String]) -> bool {
 
 /// Chained jobs and notifications once a run has ended.
 fn after_run(app: &AppHandle, run: &Run) {
+    let config = config(app);
+    let german = config.ui.language.resolved() == Language::De;
+    // A scheduled integrity check speaks up only when it found something or could not finish.
+    if run.trigger == reason::VERIFY {
+        let body = match (run.status, german) {
+            (RunStatus::Partial, false) => "Integrity check: files differ in content. Please check in clonq.",
+            (RunStatus::Partial, true) => "Prüflauf: Dateien unterscheiden sich im Inhalt. Bitte in clonq nachsehen.",
+            (RunStatus::Failed, false) => "Integrity check failed. The reason is in the history.",
+            (RunStatus::Failed, true) => "Prüflauf fehlgeschlagen. Der Grund steht im Verlauf.",
+            _ => return,
+        };
+        let name = config.job(&run.job_id).map_or(run.job_id.clone(), |job| job.name.clone());
+        let _ = app.notification().builder().title(name).body(body).show();
+        return;
+    }
     if run.dry_run {
         return;
     }
-    let config = config(app);
     if run.status.completed() {
         for job in config.jobs.iter().filter(|job| job.enabled && job.triggers.after_job.as_deref() == Some(run.job_id.as_str())) {
             fire(app, &job.id, reason::CHAIN);
@@ -307,7 +350,6 @@ fn after_run(app: &AppHandle, run: &Run) {
         return;
     }
     let name = config.job(&run.job_id).map_or(run.job_id.clone(), |job| job.name.clone());
-    let german = config.ui.language.resolved() == Language::De;
     let body = match (run.status, german) {
         (RunStatus::Blocked, false) => "Stopped: the deletion limit was reached. Please check in clonq.",
         (RunStatus::Blocked, true) => "Gestoppt: Die Schutzschwelle hat angeschlagen. Bitte in clonq nachsehen.",

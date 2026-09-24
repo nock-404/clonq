@@ -52,6 +52,7 @@ export const wizard = {
     quietTime: "The quiet time must be a whole number of at least one second.",
     interval: "The interval must be a whole number of at least one minute.",
     time: "The time is not valid.",
+    verifyDays: "The check interval must be a whole number of at least one day.",
     noAfterJob: "No job chosen yet for this one to run after.",
     keepDays: "The retention period must be a whole number from 1 to 365 days.",
     percent: "The deletion limit must be a number between 0 and 100.",
@@ -249,6 +250,11 @@ export const wizard = {
     afterExcluded: "Starts as soon as the chosen job has finished a run. Jobs that themselves run after this one are not listed.",
     afterLabel: "Previous job",
     afterPlaceholder: "Choose job",
+    verify: "Check the content regularly",
+    verifyDescription: "Compares source and target by content and reports silent damage. Changes nothing; reads every file, so it takes a while.",
+    verifyPro: "Part of clonq Pro.",
+    verifyBefore: "every",
+    verifyAfter: "days",
     automation: "Automation",
     automationOn: "Triggers only work while clonq is running.",
     automationOff: "The triggers stay saved but only work once automation is turned on.",
@@ -265,6 +271,7 @@ export const wizard = {
       minutes === 1 ? "every minute" : minutes === 60 ? "hourly" : minutes % 60 === 0 ? `every ${minutes / 60} hours` : `every ${minutes} minutes`,
     daily: (time: string) => `daily at ${time}`,
     after: (name: string | null) => (name === null ? "after another job" : `after “${name}”`),
+    verify: (days: number) => (days === 1 ? "content checked daily" : `content checked every ${days} days`),
   },
   /** A few words for the triggers, for the label on the tape. */
   tag: {

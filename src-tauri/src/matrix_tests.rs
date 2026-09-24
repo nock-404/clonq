@@ -845,3 +845,20 @@ async fn verify_checks_the_newest_snapshot_of_a_versioned_job() {
     assert_eq!(run.files_conflicted, 1);
     assert_eq!(snapshots_in(&b), vec![newest], "the check made a snapshot");
 }
+
+#[tokio::test]
+async fn a_check_counts_for_the_check_schedule_but_never_for_the_sync_triggers() {
+    let b = Bench::new();
+    let config = b.config(Mode::Mirror, true, newer_wins());
+    b.put("src", "a.txt", "alpha");
+    ok(&b.run(&config).await);
+    let synced = b.history.last_started("job").unwrap();
+    assert_eq!(b.history.last_verify("job").unwrap(), None);
+    b.engine.start(&config, "job", crate::scheduler::reason::VERIFY, verify()).unwrap();
+    while !b.engine.live_runs().is_empty() {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(b.history.last_verify("job").unwrap().is_some());
+    assert_eq!(b.history.last_started("job").unwrap(), synced, "a check must not stand in for a sync");
+    assert_eq!(b.history.last_real_status("job").unwrap(), Some(RunStatus::Succeeded));
+}

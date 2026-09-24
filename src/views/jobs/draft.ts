@@ -32,6 +32,8 @@ export interface TriggerDraft {
   dailyAt: string;
   after: boolean;
   afterJob: string | null;
+  verify: boolean;
+  verifyDays: string;
 }
 
 /** The archive as the form holds it: the days as typed, kept while the archive is off. */
@@ -75,6 +77,8 @@ function triggerDraft(triggers: Triggers | null): TriggerDraft {
     dailyAt: triggers?.dailyAt ?? "02:00",
     after: triggers?.afterJob != null,
     afterJob: triggers?.afterJob ?? null,
+    verify: triggers?.verifyEveryDays != null,
+    verifyDays: String(triggers?.verifyEveryDays ?? 7),
   };
 }
 
@@ -278,6 +282,7 @@ export function triggerProblem(triggers: TriggerDraft): string | null {
   if (triggers.every && wholeNumber(triggers.everyMinutes) === null) return t.interval;
   if (triggers.daily && !TIME.test(triggers.dailyAt.trim())) return t.time;
   if (triggers.after && !triggers.afterJob) return t.noAfterJob;
+  if (triggers.verify && wholeNumber(triggers.verifyDays) === null) return t.verifyDays;
   return null;
 }
 
@@ -310,6 +315,7 @@ function toTriggers(triggers: TriggerDraft): Triggers {
     everyMinutes: triggers.every ? wholeNumber(triggers.everyMinutes) : null,
     dailyAt: triggers.daily ? triggers.dailyAt.trim() : null,
     afterJob: triggers.after ? triggers.afterJob : null,
+    verifyEveryDays: triggers.verify ? wholeNumber(triggers.verifyDays) : null,
   };
 }
 
@@ -319,7 +325,8 @@ export function hasAutomatic(triggers: Triggers): boolean {
     triggers.onChangeAfterSeconds !== null ||
     triggers.everyMinutes !== null ||
     triggers.dailyAt !== null ||
-    triggers.afterJob !== null
+    triggers.afterJob !== null ||
+    triggers.verifyEveryDays !== null
   );
 }
 
@@ -332,6 +339,7 @@ export function triggerWords(triggers: Triggers, config: Config | null): string[
   if (triggers.everyMinutes !== null) words.push(t.every(triggers.everyMinutes));
   if (triggers.dailyAt !== null) words.push(t.daily(triggers.dailyAt));
   if (triggers.afterJob !== null) words.push(t.after(config?.jobs.find((job) => job.id === triggers.afterJob)?.name ?? null));
+  if (triggers.verifyEveryDays !== null) words.push(t.verify(triggers.verifyEveryDays));
   return words;
 }
 

@@ -283,6 +283,7 @@ export const detail = {
       change: "Change",
       chain: "After job",
       verify: "Integrity check",
+      verifyScheduled: "Scheduled check",
     },
   },
 
@@ -307,6 +308,7 @@ export const detail = {
       change: "after a change",
       chain: "after another job",
       verify: "as an integrity check",
+      verifyScheduled: "as a scheduled integrity check",
     },
   },
 };
