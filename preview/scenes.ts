@@ -1,6 +1,6 @@
 // Dev-only: made-up data that exercises every state of the UI. The app itself only shows real numbers.
 
-import type { CloudProviderInfo, Config, DayChange, JobStats, LiveRun, LocationStatus, MountedVolume, Overview, Reels, Run, RunDetail, Sample } from "../src/lib/types";
+import type { CloudProviderInfo, Config, DayChange, JobStats, LiveRun, LocationStatus, MountedVolume, Language, Overview, Reels, Run, RunDetail, Sample } from "../src/lib/types";
 
 export type SceneName = "idle" | "running" | "blocked" | "failed" | "fresh" | "empty";
 
@@ -25,12 +25,15 @@ const conflicts = { prefer: "newer" as const, loser: "keep" as const };
 // ?reels=vakuum|praezision shows the other reel styles; licht is the default.
 const reelParam = new URLSearchParams(location.search).get("reels");
 const reels: Reels = reelParam === "vakuum" || reelParam === "praezision" ? reelParam : "licht";
+// ?lang=en|de shows the interface in that language; without it the browser language decides.
+const langParam = new URLSearchParams(location.search).get("lang");
+const language: Language = langParam === "en" || langParam === "de" ? langParam : "system";
 
 const config: Config = {
   version: 2,
   rsyncPath: "/opt/homebrew/bin/rsync",
   rclonePath: "/opt/homebrew/bin/rclone",
-  ui: { accent: "amber", lamps: true, notifySuccess: false, reels },
+  ui: { accent: "amber", lamps: true, notifySuccess: false, reels, language },
   locations: [
     { id: "desktop", name: "Schreibtisch", kind: { type: "folder", path: "/Users/matthias/Desktop" } },
     { id: "m2mini", name: "M2mini", kind: { type: "volume", volumeUuid: "53955C00-5DD6-4953-8E31-335F53043B30", volumeName: "M2mini" } },

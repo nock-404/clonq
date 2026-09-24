@@ -38,11 +38,41 @@ pub struct UiSettings {
     pub notify_success: bool,
     #[serde(default)]
     pub reels: Reels,
+    #[serde(default)]
+    pub language: Language,
 }
 
 impl Default for UiSettings {
     fn default() -> Self {
-        Self { accent: Accent::Amber, lamps: true, notify_success: false, reels: Reels::default() }
+        Self { accent: Accent::Amber, lamps: true, notify_success: false, reels: Reels::default(), language: Language::default() }
+    }
+}
+
+/// The language of the interface and the notifications.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Language {
+    /// Follows the Mac's preferred languages.
+    #[default]
+    System,
+    En,
+    De,
+}
+
+impl Language {
+    /// The language actually shown: the setting, or for "System" the first of the Mac's
+    /// preferred languages that clonq has, English otherwise.
+    pub fn resolved(self) -> Language {
+        match self {
+            Language::System => sys_locale::get_locales()
+                .find_map(|tag| match tag.to_lowercase().split(['-', '_']).next() {
+                    Some("en") => Some(Language::En),
+                    Some("de") => Some(Language::De),
+                    _ => None,
+                })
+                .unwrap_or(Language::En),
+            other => other,
+        }
     }
 }
 

@@ -12,7 +12,7 @@ use tauri_plugin_notification::NotificationExt;
 
 use crate::AppState;
 use crate::commands::EVENT_CONFIG_CHANGED;
-use crate::config::{Config, Job, LocationKind};
+use crate::config::{Config, Job, Language, LocationKind};
 use crate::engine::RunOptions;
 use crate::history::{Run, RunStatus};
 use crate::locations::{self, Resolved};
@@ -277,11 +277,16 @@ fn after_run(app: &AppHandle, run: &Run) {
         return;
     }
     let name = config.job(&run.job_id).map_or(run.job_id.clone(), |job| job.name.clone());
-    let body = match run.status {
-        RunStatus::Blocked => "Gestoppt: Die Schutzschwelle hat angeschlagen. Bitte in clonq nachsehen.",
-        RunStatus::Failed => "Fehlgeschlagen. Der Grund steht im Verlauf.",
-        RunStatus::Partial => "Mit Warnungen beendet. Einzelne Dateien wurden übersprungen.",
-        RunStatus::Succeeded if config.ui.notify_success => "Erfolgreich abgeschlossen.",
+    let german = config.ui.language.resolved() == Language::De;
+    let body = match (run.status, german) {
+        (RunStatus::Blocked, false) => "Stopped: the deletion limit was reached. Please check in clonq.",
+        (RunStatus::Blocked, true) => "Gestoppt: Die Schutzschwelle hat angeschlagen. Bitte in clonq nachsehen.",
+        (RunStatus::Failed, false) => "Failed. The reason is in the history.",
+        (RunStatus::Failed, true) => "Fehlgeschlagen. Der Grund steht im Verlauf.",
+        (RunStatus::Partial, false) => "Finished with warnings. Some files were skipped.",
+        (RunStatus::Partial, true) => "Mit Warnungen beendet. Einzelne Dateien wurden übersprungen.",
+        (RunStatus::Succeeded, false) if config.ui.notify_success => "Finished successfully.",
+        (RunStatus::Succeeded, true) if config.ui.notify_success => "Erfolgreich abgeschlossen.",
         _ => return,
     };
     let _ = app.notification().builder().title(name).body(body).show();

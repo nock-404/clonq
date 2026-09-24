@@ -39,6 +39,7 @@ rusqlite = { version = "0.40.2", features = ["bundled"] }
 chrono = { version = "0.4.45", features = ["serde"] }
 uuid = { version = "1.26.1", features = ["v4", "serde"] }
 thiserror = "2.0.20"
+sys-locale = "0.3.2"
 regex = "1.13.1"
 
 [profile.release]

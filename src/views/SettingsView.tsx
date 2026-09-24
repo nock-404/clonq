@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import type { ClonqState } from "../hooks/useClonq";
 import { reportError } from "../hooks/useClonq";
 import { api } from "../lib/api";
-import type { Accent, Reels, UiSettings } from "../lib/types";
+import { LANGUAGES, useT } from "../i18n";
+import type { Accent, Language, Reels, UiSettings } from "../lib/types";
 import { UiPanel, UiSegmented, UiSwitch, type UiSegment } from "../ui";
 import { UiLogo } from "../ui/UiLogo";
 import { UpdateCheck } from "./UpdateBand";
@@ -36,6 +37,11 @@ export function SettingsView({ state }: SettingsViewProps) {
     isEnabled().then(setAutostart).catch(() => setAutostart(null));
     getVersion().then(setVersion).catch(() => setVersion(null));
   }, []);
+  const t = useT();
+  const languages: UiSegment<Language>[] = [
+    { value: "system", label: t.shell.settings.languageSystem },
+    ...LANGUAGES.map((lang) => ({ value: lang.code, label: lang.name })),
+  ];
   const ui = state.config?.ui;
   if (!ui || !state.config) return null;
   const toggleAutostart = (next: boolean) => {
@@ -47,6 +53,9 @@ export function SettingsView({ state }: SettingsViewProps) {
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-xl font-semibold tracking-tight">Einstellungen</h1>
+      <UiPanel title={t.shell.settings.language}>
+        <UiSegmented label={t.shell.settings.language} segments={languages} value={ui.language} onChange={(language) => save({ language })} />
+      </UiPanel>
       <UiPanel title="Akzentfarbe">
         <UiSegmented label="Akzentfarbe" segments={accents} value={ui.accent} onChange={(accent) => save({ accent })} />
       </UiPanel>

@@ -9,12 +9,16 @@ export type Ring = "red" | "yellow" | "blue" | "green" | "white";
 /** How the tape reels and the drive are drawn. */
 export type Reels = "licht" | "vakuum" | "praezision";
 
+/** "system" follows the Mac's language; every other value is a code from src/i18n. */
+export type Language = "system" | "en" | "de";
+
 export interface UiSettings {
   accent: Accent;
   lamps: boolean;
   /** Also announce automatic runs that went well, not only problems. */
   notifySuccess: boolean;
   reels: Reels;
+  language: Language;
 }
 
 export interface Place {

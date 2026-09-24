@@ -1,15 +1,28 @@
-// Numbers, sizes and times the way a German Mac shows them.
+// Numbers, sizes and times in the format of the interface language.
 
-const LOCALE = "de-DE";
+import { locale, texts } from "../i18n";
 
-const number = new Intl.NumberFormat(LOCALE);
-const relative = new Intl.RelativeTimeFormat(LOCALE, { numeric: "auto" });
-const dateTime = new Intl.DateTimeFormat(LOCALE, { dateStyle: "medium", timeStyle: "short" });
+// Formatters are cached per locale, because the language can change while the app runs.
+const cache = new Map<string, { number: Intl.NumberFormat; relative: Intl.RelativeTimeFormat; dateTime: Intl.DateTimeFormat }>();
+
+function formatters() {
+  const tag = locale();
+  let found = cache.get(tag);
+  if (!found) {
+    found = {
+      number: new Intl.NumberFormat(tag),
+      relative: new Intl.RelativeTimeFormat(tag, { numeric: "auto" }),
+      dateTime: new Intl.DateTimeFormat(tag, { dateStyle: "medium", timeStyle: "short" }),
+    };
+    cache.set(tag, found);
+  }
+  return found;
+}
 
 const UNITS = ["B", "KB", "MB", "GB", "TB"] as const;
 
 export function formatCount(value: number): string {
-  return number.format(value);
+  return formatters().number.format(value);
 }
 
 /** Decimal units, like Finder. */
@@ -21,7 +34,7 @@ export function formatBytes(bytes: number): string {
     unit += 1;
   }
   const digits = unit === 0 || value >= 100 ? 0 : 1;
-  return `${value.toLocaleString(LOCALE, { maximumFractionDigits: digits })} ${UNITS[unit]}`;
+  return `${value.toLocaleString(locale(), { maximumFractionDigits: digits })} ${UNITS[unit]}`;
 }
 
 export function formatRate(bytesPerSecond: number): string {
@@ -48,13 +61,13 @@ export function formatRelative(iso: string, now: number = Date.now()): string {
     ["minute", 60],
   ];
   for (const [unit, size] of steps) {
-    if (Math.abs(diffSeconds) >= size) return relative.format(Math.round(diffSeconds / size), unit);
+    if (Math.abs(diffSeconds) >= size) return formatters().relative.format(Math.round(diffSeconds / size), unit);
   }
-  return "gerade eben";
+  return texts().common.justNow;
 }
 
 export function formatDateTime(iso: string): string {
-  return dateTime.format(new Date(iso));
+  return formatters().dateTime.format(new Date(iso));
 }
 
 export function runDurationSeconds(startedAt: string, finishedAt: string | null): number | null {
@@ -70,19 +83,19 @@ export const BYTES_PER_REEL = 150_000_000;
 
 export function formatReels(bytes: number): string {
   const reels = bytes / BYTES_PER_REEL;
-  if (reels === 0) return "0 Spulen";
-  if (reels < 0.1) return "< 0,1 Spulen";
+  const t = texts().common;
+  if (reels === 0) return t.reels(0, "0");
+  if (reels < 0.1) return t.reelsBelow((0.1).toLocaleString(locale()));
   const digits = reels < 10 ? 1 : 0;
-  const text = reels.toLocaleString(LOCALE, { maximumFractionDigits: digits });
-  return `${text} ${reels === 1 ? "Spule" : "Spulen"}`;
+  return t.reels(reels, reels.toLocaleString(locale(), { maximumFractionDigits: digits }));
 }
 
 export function formatPercent(value: number, digits = 0): string {
-  return `${value.toLocaleString(LOCALE, { maximumFractionDigits: digits, minimumFractionDigits: digits })} %`;
+  return texts().common.percent(value.toLocaleString(locale(), { maximumFractionDigits: digits, minimumFractionDigits: digits }));
 }
 
 export function formatDay(iso: string): string {
-  return new Date(`${iso}T12:00:00`).toLocaleDateString(LOCALE, { weekday: "short", day: "numeric", month: "short" });
+  return new Date(`${iso}T12:00:00`).toLocaleDateString(locale(), { weekday: "short", day: "numeric", month: "short" });
 }
 
 /** "2026-09-23_14-05-09" as a readable local date and time. */
@@ -90,5 +103,5 @@ export function formatStamp(stamp: string): string {
   const match = stamp.match(/^(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})$/);
   if (!match) return stamp;
   const [, y, mo, d, h, mi, se] = match;
-  return dateTime.format(new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(se)));
+  return formatters().dateTime.format(new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(se)));
 }
