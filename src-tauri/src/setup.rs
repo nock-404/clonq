@@ -484,6 +484,8 @@ pub struct JobInput {
     pub archive: Archive,
     #[serde(default)]
     pub conflicts: Conflicts,
+    #[serde(default)]
+    pub encrypted: bool,
 }
 
 /// Why two places cannot be a job, or None when they can.
@@ -517,7 +519,7 @@ fn reachable(place: &Place, config: &Config, volumes: &[MountedVolume], state: &
 
 /// Creates or updates a job. Both places must be reachable now, and they must not overlap.
 #[tauri::command]
-pub fn save_job(app: AppHandle, state: State<'_, AppState>, job: JobInput) -> Result<Job> {
+pub async fn save_job(app: AppHandle, state: State<'_, AppState>, job: JobInput) -> Result<Job> {
     let name = require_name(&job.name)?;
     // A versioned job is a Pro feature: it can only be created with a licence that covers this version.
     if job.mode == crate::config::Mode::Versioned && !crate::licence::Store::new(&state.config_dir).pro() {
@@ -558,6 +560,36 @@ pub fn save_job(app: AppHandle, state: State<'_, AppState>, job: JobInput) -> Re
         }
     }
     let id = job.id.clone().unwrap_or_else(|| new_id(&name));
+    let rclone_config = state.config_dir.join("rclone.conf");
+    let before = config.job(&id);
+    let was_encrypted = before.is_some_and(|existing| existing.encrypted);
+    let same_target = before.is_some_and(|existing| existing.target.location == job.target.location && existing.target.path.trim_matches('/') == job.target.path.trim_matches('/'));
+    if job.encrypted {
+        if !crate::licence::Store::new(&state.config_dir).pro() {
+            return Err(Error::Job("encrypted cloud copies are part of clonq Pro: enter a licence in Settings".into()));
+        }
+        if !matches!(target, Resolved::Cloud { .. }) {
+            return Err(Error::Job("encryption needs a cloud as the target".into()));
+        }
+    }
+    // Encrypted and plain files must never share a folder: a mirror would take the others for
+    // leftovers. So encryption starts, stops or moves only into an empty folder.
+    if (job.encrypted || was_encrypted)
+        && !(job.encrypted && was_encrypted && same_target)
+        && let Resolved::Cloud { spec } = &target
+        && !cloud::is_empty(&config.rclone_path, &rclone_config, spec).await?
+    {
+        return Err(Error::Job(if job.encrypted {
+            "encryption needs an empty target folder; choose a new one".into()
+        } else {
+            "this folder holds the encrypted copy; choose an empty folder for a copy without encryption".into()
+        }));
+    }
+    if job.encrypted
+        && let Resolved::Cloud { spec } = &target
+    {
+        cloud::ensure_crypt(&config.rclone_path, &rclone_config, &id, spec).await?;
+    }
     if let Some(first) = &job.triggers.after_job {
         // Following the "after job" links from here must never come back to this job.
         let mut current = Some(first.clone());
@@ -582,6 +614,7 @@ pub fn save_job(app: AppHandle, state: State<'_, AppState>, job: JobInput) -> Re
         triggers: job.triggers.clone(),
         archive: job.archive.clone(),
         conflicts: job.conflicts.clone(),
+        encrypted: job.encrypted,
     };
     let stored = saved.clone();
     commit(&app, &state, |config| {

@@ -289,6 +289,86 @@ fn last_error(stderr: &str) -> String {
         .unwrap_or_else(|| "rclone failed".into())
 }
 
+/// The rclone crypt remote that wraps an encrypted job's cloud folder.
+pub fn crypt_name(job_id: &str) -> String {
+    format!("clonq-crypt-{job_id}")
+}
+
+pub fn is_crypt(spec: &str) -> bool {
+    spec.starts_with("clonq-crypt-")
+}
+
+/// A strong password a person can still copy by hand: 25 characters in five groups, 125 bits.
+fn new_password() -> String {
+    const ALPHABET: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    // uuid v4 bytes are random except byte 6 (version) and 8 (variant).
+    let bytes: Vec<u8> = [uuid::Uuid::new_v4(), uuid::Uuid::new_v4()]
+        .iter()
+        .flat_map(|id| id.as_bytes().iter().enumerate().filter(|(i, _)| *i != 6 && *i != 8).map(|(_, b)| *b).collect::<Vec<_>>())
+        .collect();
+    let symbols: Vec<char> = bytes.iter().take(25).map(|b| ALPHABET[(*b % 32) as usize] as char).collect();
+    symbols.chunks(5).map(|group| group.iter().collect::<String>()).collect::<Vec<_>>().join("-")
+}
+
+/// Creates the job's crypt remote around `wrapped`, or points an existing one there; an
+/// existing remote keeps its password, so the data already encrypted stays readable.
+pub async fn ensure_crypt(rclone: &str, config_file: &Path, job_id: &str, wrapped: &str) -> Result<()> {
+    let name = crypt_name(job_id);
+    let exists = crypt_password(rclone, config_file, job_id).await?.is_some();
+    let mut command = Command::new(rclone);
+    if exists {
+        command.args(["config", "update", &name, &format!("remote={wrapped}"), "--non-interactive"]);
+    } else {
+        command.args([
+            "config",
+            "create",
+            &name,
+            "crypt",
+            &format!("remote={wrapped}"),
+            &format!("password={}", new_password()),
+            "filename_encryption=standard",
+            "directory_name_encryption=true",
+            "--obscure",
+            "--non-interactive",
+        ]);
+    }
+    let output = command.arg("--config").arg(config_file).output().await?;
+    if !output.status.success() {
+        return Err(Error::Job(last_error(&String::from_utf8_lossy(&output.stderr))));
+    }
+    Ok(())
+}
+
+/// The password of a job's crypt remote in plain text, or None when the job has none.
+pub async fn crypt_password(rclone: &str, config_file: &Path, job_id: &str) -> Result<Option<String>> {
+    let output = Command::new(rclone).args(["config", "dump", "--config"]).arg(config_file).output().await?;
+    if !output.status.success() {
+        return Err(Error::Job(last_error(&String::from_utf8_lossy(&output.stderr))));
+    }
+    let dump: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_default();
+    let Some(obscured) = dump.get(crypt_name(job_id)).and_then(|remote| remote.get("password")).and_then(|value| value.as_str()) else {
+        return Ok(None);
+    };
+    let revealed = Command::new(rclone).args(["reveal", obscured]).output().await?;
+    if !revealed.status.success() {
+        return Err(Error::Job("the encryption password could not be read".into()));
+    }
+    Ok(Some(String::from_utf8_lossy(&revealed.stdout).trim().to_string()))
+}
+
+/// Whether a remote folder holds nothing yet (a folder that does not exist counts as empty).
+pub async fn is_empty(rclone: &str, config_file: &Path, spec: &str) -> Result<bool> {
+    let output = Command::new(rclone).args(["lsf", "--max-depth", "1", spec, "--config"]).arg(config_file).output().await?;
+    if !output.status.success() {
+        let error = String::from_utf8_lossy(&output.stderr);
+        if error.contains("directory not found") || error.contains("not found") {
+            return Ok(true);
+        }
+        return Err(Error::Job(last_error(&error)));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -371,3 +451,4 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+

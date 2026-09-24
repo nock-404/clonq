@@ -185,6 +185,9 @@ pub struct Job {
     /// Only for bidirectional jobs: what happens when a file changed on both sides.
     #[serde(default)]
     pub conflicts: Conflicts,
+    /// Files and names are encrypted before they reach the cloud target (Pro, rclone crypt).
+    #[serde(default)]
+    pub encrypted: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]

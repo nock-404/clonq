@@ -42,6 +42,13 @@ pub fn overview(state: State<'_, AppState>) -> Result<Overview> {
     stats::overview(&state.history, &job_ids, chrono::Utc::now())
 }
 
+/// The password of an encrypted job, to keep it safe or to decrypt the copy with rclone alone.
+#[tauri::command]
+pub async fn encryption_key(state: State<'_, AppState>, job_id: String) -> Result<Option<String>> {
+    let rclone = state.config.read().expect("config lock").rclone_path.clone();
+    crate::cloud::crypt_password(&rclone, &state.config_dir.join("rclone.conf"), &job_id).await
+}
+
 /// The last seven days: runs, data and space per target, with the watchdog's verdict.
 #[tauri::command]
 pub fn weekly_report(state: State<'_, AppState>) -> Result<crate::report::WeeklyReport> {

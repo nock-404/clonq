@@ -80,6 +80,7 @@ impl Remote {
             triggers: Triggers::default(),
             archive: Archive { enabled: archive, keep_days: 30 },
             conflicts: Conflicts { prefer: ConflictPrefer::Newer, loser: ConflictLoser::Keep },
+            encrypted: false,
         });
         let remote = Self { root, engine, history, config, base, ssh, login, clock: std::cell::Cell::new(0) };
         remote.box_run(&["mkdir", &remote.base]);

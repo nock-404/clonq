@@ -233,6 +233,19 @@ pub fn resolve(place: &Place, config: &Config, volumes: &[MountedVolume]) -> Res
     }
 }
 
+/// A job's target as the engine and the archive use it: an encrypted job's cloud folder is
+/// reached through its crypt remote, so everything written there is encrypted.
+pub fn resolve_target(job: &crate::config::Job, config: &Config, volumes: &[MountedVolume]) -> Result<Resolved> {
+    let target = resolve(&job.target, config, volumes)?;
+    if !job.encrypted {
+        return Ok(target);
+    }
+    match target {
+        Resolved::Cloud { .. } => Ok(Resolved::Cloud { spec: format!("{}:", crate::cloud::crypt_name(&job.id)) }),
+        _ => Err(Error::Job("encryption needs a cloud as the target".into())),
+    }
+}
+
 fn join(base: &Path, relative: &str) -> PathBuf {
     if relative.is_empty() { base.to_path_buf() } else { base.join(relative) }
 }
@@ -369,6 +382,7 @@ mod tests {
             triggers: Triggers::default(),
             archive: crate::config::Archive::default(),
             conflicts: crate::config::Conflicts::default(),
+            encrypted: false,
         });
         let status = status_of(&config.locations[0], &config, &[], &ServerChecks::default());
         assert_eq!(status.used_by, vec!["Tmp → Tmp".to_string()]);

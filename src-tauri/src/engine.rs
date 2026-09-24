@@ -145,7 +145,7 @@ impl Engine {
             .clone();
         let volumes = locations::mounted_volumes();
         let source = locations::resolve(&job.source, config, &volumes)?;
-        let target = locations::resolve(&job.target, config, &volumes)?;
+        let target = locations::resolve_target(&job, config, &volumes)?;
         let plan = Plan::new(&job, config, &self.rclone_config, &source, &target)?;
 
         let run_id = uuid::Uuid::new_v4().to_string();
@@ -844,7 +844,8 @@ impl Engine {
             }
             Tool::Rclone { config } | Tool::Bisync { config } => {
                 let mut command = Command::new(&plan.program);
-                command.arg("check").arg(&plan.source).arg(&plan.target).arg("--config").arg(config).args(["--combined", "-"]);
+                // Encrypted files carry no hash of their content; cryptcheck encrypts the source's to compare.
+                command.arg(if cloud::is_crypt(&plan.target) { "cryptcheck" } else { "check" }).arg(&plan.source).arg(&plan.target).arg("--config").arg(config).args(["--combined", "-"]);
                 if !matches!(plan.tool, Tool::Bisync { .. }) {
                     command.arg("--one-way");
                 }
@@ -1764,6 +1765,7 @@ mod tests {
                 triggers: Triggers::default(),
                 archive: crate::config::Archive::default(),
                 conflicts: crate::config::Conflicts::default(),
+                encrypted: false,
             });
             config
         }

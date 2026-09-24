@@ -133,6 +133,7 @@ pub fn run() {
             commands::verify_job,
             commands::repair_job,
             commands::weekly_report,
+            commands::encryption_key,
             commands::cancel_job,
             commands::open_main_window,
             commands::quit,

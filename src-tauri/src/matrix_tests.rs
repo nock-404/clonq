@@ -101,6 +101,7 @@ impl Bench {
             triggers: Triggers::default(),
             archive: Archive { enabled: archive, keep_days: 30 },
             conflicts,
+            encrypted: false,
         });
         config
     }
@@ -958,4 +959,165 @@ async fn two_way_into_a_target_folder_that_does_not_exist_yet_creates_it() {
     b.put("src", "a.txt", "alpha");
     ok(&b.run(&config).await);
     assert_eq!(b.tree("dst"), b.tree("src"));
+}
+
+// Encrypted cloud copies. A local-type rclone remote stands in for the cloud, so what
+// "the cloud" stores can be read straight from the disk.
+
+impl Bench {
+    /// The job with an encrypted "cloud" (the folder dst) as its target.
+    async fn encrypted(&self, mode: Mode, archive: bool) -> Config {
+        let conf = self.root.join("rclone.conf");
+        let made = std::process::Command::new(tool("rclone")).args(["config", "create", "fake", "local", "--config"]).arg(&conf).output().unwrap();
+        assert!(made.status.success());
+        let mut config = self.config(mode, archive, newer_wins());
+        config.locations.push(Location {
+            id: "cloud".into(),
+            name: "Cloud".into(),
+            kind: LocationKind::Cloud { provider: "local".into(), remote: "fake".into(), root: self.root.to_string_lossy().into_owned() },
+        });
+        config.jobs[0].target = Place { location: "cloud".into(), path: "dst".into() };
+        config.jobs[0].encrypted = true;
+        let crate::locations::Resolved::Cloud { spec } = crate::locations::resolve(&config.jobs[0].target, &config, &[]).unwrap() else { panic!() };
+        crate::cloud::ensure_crypt(&tool("rclone"), &conf, "job", &spec).await.unwrap();
+        config
+    }
+
+    async fn password(&self) -> String {
+        crate::cloud::crypt_password(&tool("rclone"), &self.root.join("rclone.conf"), "job").await.unwrap().expect("a password")
+    }
+
+    /// Decrypts the "cloud" with nothing but the password, as rclone on another Mac would.
+    async fn decrypt_with(&self, password: &str) -> Tree {
+        let obscured = std::process::Command::new(tool("rclone")).args(["obscure", password]).output().unwrap();
+        let obscured = String::from_utf8_lossy(&obscured.stdout).trim().to_string();
+        let out = self.root.join("decrypted");
+        let status = std::process::Command::new(tool("rclone"))
+            .arg("copy")
+            .arg(format!(":crypt,remote='{}',password='{obscured}':", self.side("dst").display()))
+            .arg(&out)
+            .args(["--exclude", &format!("/{ARCHIVE_DIR}/**"), "--config", "/dev/null"])
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let mut tree = Tree::new();
+        collect(&out, &out, &mut tree, false);
+        tree
+    }
+}
+
+/// Every name and content on the disk of the "cloud", archive included.
+fn raw(path: &Path) -> Vec<(String, String)> {
+    let mut found = Vec::new();
+    let mut stack = vec![path.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                found.push((path.to_string_lossy().into_owned(), String::from_utf8_lossy(&fs::read(&path).unwrap()).into_owned()));
+            }
+        }
+    }
+    found
+}
+
+#[tokio::test]
+async fn encrypted_copies_hide_names_and_contents_and_open_with_the_password_alone() {
+    let b = Bench::new();
+    let config = b.encrypted(Mode::Mirror, false).await;
+    b.put("src", "Steuer/Erklärung 2026.txt", "geheimer Inhalt");
+    b.put("src", ODD, "noch geheimer");
+    ok(&b.run(&config).await);
+    let stored = raw(&b.side("dst"));
+    assert_eq!(stored.len(), 2);
+    for (path, content) in &stored {
+        for secret in ["Steuer", "Erklärung", "Ordner mit Leerzeichen", "Übergröße"] {
+            assert!(!path.contains(secret), "a name reached the cloud: {path}");
+        }
+        assert!(!content.contains("geheim"), "content reached the cloud in plain text: {path}");
+    }
+    let password = b.password().await;
+    assert_eq!(password.len(), 29, "five groups of five: {password}");
+    assert_eq!(b.decrypt_with(&password).await, b.tree("src"));
+}
+
+#[tokio::test]
+async fn an_encrypted_job_keeps_its_password_when_saved_again() {
+    let b = Bench::new();
+    let config = b.encrypted(Mode::Backup, false).await;
+    let first = b.password().await;
+    let crate::locations::Resolved::Cloud { spec } = crate::locations::resolve(&config.jobs[0].target, &config, &[]).unwrap() else { panic!() };
+    crate::cloud::ensure_crypt(&tool("rclone"), &b.root.join("rclone.conf"), "job", &spec).await.unwrap();
+    assert_eq!(b.password().await, first, "a new password would lock out everything already uploaded");
+}
+
+#[tokio::test]
+async fn encrypted_mirror_archives_and_restores_readable_files() {
+    let b = Bench::new();
+    let config = b.encrypted(Mode::Mirror, true).await;
+    b.put("src", "a.txt", "alpha");
+    ok(&b.run(&config).await);
+    b.put("src", "a.txt", "alpha, edited");
+    ok(&b.run(&config).await);
+    let job = config.job("job").unwrap();
+    let conf = b.root.join("rclone.conf");
+    let snapshots = crate::archive::snapshots(job, &config, &conf, crate::archive::Side::Target).await.unwrap();
+    assert_eq!(snapshots.len(), 1);
+    let files = crate::archive::files(job, &config, &conf, crate::archive::Side::Target, &snapshots[0].stamp).await.unwrap();
+    assert_eq!(files.iter().map(|file| file.path.as_str()).collect::<Vec<_>>(), vec!["a.txt"], "the archive lists real names");
+    assert!(raw(&b.side("dst")).iter().all(|(path, content)| !path.contains("a.txt") && !content.contains("alpha")));
+}
+
+#[tokio::test]
+async fn the_integrity_check_of_an_encrypted_copy_notices_tampering() {
+    let b = Bench::new();
+    let config = b.encrypted(Mode::Mirror, false).await;
+    b.put("src", "a.txt", "alpha alpha alpha");
+    b.put("src", "b.txt", "bravo bravo bravo");
+    ok(&b.run(&config).await);
+    let clean = b.run_with(&config, verify()).await;
+    assert_eq!((clean.status, clean.files_conflicted), (RunStatus::Succeeded, 0), "{:?}", clean.message);
+    // Flip one byte inside an encrypted file: same size, same date.
+    let (path, _) = raw(&b.side("dst")).into_iter().next().unwrap();
+    let at = fs::metadata(&path).unwrap().modified().unwrap();
+    let mut bytes = fs::read(&path).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 0x01;
+    fs::write(&path, bytes).unwrap();
+    fs::File::options().write(true).open(&path).unwrap().set_modified(at).unwrap();
+    let found = b.run_with(&config, verify()).await;
+    assert_eq!((found.status, found.files_conflicted), (RunStatus::Partial, 1), "tampering went unnoticed: {:?}", found.message);
+}
+
+#[tokio::test]
+async fn an_encrypted_two_way_job_brings_files_from_the_cloud_back_readable() {
+    let b = Bench::new();
+    let config = b.encrypted(Mode::Bidirectional, false).await;
+    b.put("src", "a.txt", "alpha");
+    ok(&b.run(&config).await);
+    // Another Mac with the same password puts a file into the cloud.
+    let local = b.root.join("from-elsewhere.txt");
+    fs::write(&local, "hello from elsewhere").unwrap();
+    let status = std::process::Command::new(tool("rclone"))
+        .arg("copyto")
+        .arg(&local)
+        .arg(format!("{}:inbox/c.txt", crate::cloud::crypt_name("job")))
+        .arg("--config")
+        .arg(b.root.join("rclone.conf"))
+        .status()
+        .unwrap();
+    assert!(status.success());
+    ok(&b.run(&config).await);
+    assert_eq!(b.tree("src").get("inbox/c.txt").map(String::as_str), Some("hello from elsewhere"));
+}
+
+#[test]
+fn encryption_is_refused_for_targets_that_are_not_clouds() {
+    let b = Bench::new();
+    let mut config = b.config(Mode::Mirror, false, newer_wins());
+    config.jobs[0].encrypted = true;
+    let error = crate::locations::resolve_target(&config.jobs[0], &config, &[]).unwrap_err();
+    assert!(error.to_string().contains("encryption needs a cloud"), "{error}");
 }

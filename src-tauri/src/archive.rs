@@ -56,7 +56,11 @@ fn archive_root(job: &Job, config: &Config, side: Side) -> Result<Resolved> {
         }
         Side::Snapshots => return Err(Error::Job("only versioned jobs keep snapshots".into())),
     };
-    let target = locations::resolve(place, config, &locations::mounted_volumes())?;
+    let target = if side == Side::Target {
+        locations::resolve_target(job, config, &locations::mounted_volumes())?
+    } else {
+        locations::resolve(place, config, &locations::mounted_volumes())?
+    };
     Ok(match target {
         Resolved::Local(path) => Resolved::Local(path.join(ARCHIVE_DIR)),
         Resolved::Remote { destination, ssh, display, sftp } => Resolved::Remote {
