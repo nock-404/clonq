@@ -128,6 +128,7 @@ pub fn run() {
             commands::set_ui_settings,
             commands::run_job,
             commands::verify_job,
+            commands::repair_job,
             commands::cancel_job,
             commands::open_main_window,
             commands::quit,

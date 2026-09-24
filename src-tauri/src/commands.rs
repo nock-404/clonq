@@ -70,6 +70,15 @@ pub fn verify_job(state: State<'_, AppState>, job_id: String) -> Result<String> 
     state.engine.start(&config, &job_id, "verify", RunOptions { verify: true, ..Default::default() })
 }
 
+/// Repairs what the last integrity check found (Pro); nothing is lost, see RunOptions::repair.
+#[tauri::command]
+pub fn repair_job(state: State<'_, AppState>, job_id: String) -> Result<String> {
+    let config = state.config.read().expect("config lock").clone();
+    crate::licence::allows_check(&state.config_dir)?;
+    crate::licence::allows(&state.config_dir, &config, &job_id)?;
+    state.engine.start(&config, &job_id, "repair", RunOptions { repair: true, ..Default::default() })
+}
+
 #[tauri::command]
 pub fn cancel_job(state: State<'_, AppState>, job_id: String) -> Result<()> {
     if state.engine.cancel(&job_id) {

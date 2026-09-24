@@ -82,6 +82,10 @@ pub struct RunOptions {
     pub force: bool,
     /// Compares source and target by content instead of copying; changes nothing.
     pub verify: bool,
+    /// Repairs what the last integrity check found. One-way: a run that compares by content
+    /// and always archives what it replaces. Versioned: a new snapshot compared by content.
+    /// Two-way: the source version is copied over, the target version kept beside it.
+    pub repair: bool,
 }
 
 struct Active {
@@ -282,6 +286,9 @@ impl Engine {
             return self.verify(job, plan, run, &mut cancel, log).await;
         }
         let two_way = matches!(plan.tool, Tool::Bisync { .. });
+        if options.repair && two_way {
+            return self.repair_two_way(job, plan, run, log).await;
+        }
         if job.mode == Mode::Mirror && !two_way {
             self.check_remote_source(plan).await?;
         }
@@ -289,7 +296,7 @@ impl Engine {
         let mut max_delete = None;
         if job.mode == Mode::Mirror && !two_way && !options.dry_run && !options.force {
             // With an archive, rclone counts every overwrite against --max-delete.
-            let rclone_archive = matches!(plan.tool, Tool::Rclone { .. }) && job.archive.enabled;
+            let rclone_archive = matches!(plan.tool, Tool::Rclone { .. }) && (job.archive.enabled || options.repair);
             // Every mirror run is checked by a dry run first. --max-delete alone is not enough:
             // rsync and rclone delete up to the limit before they stop, and without an archive
             // those files would be gone although the run counts as stopped.
@@ -349,9 +356,15 @@ impl Engine {
         let mut extra = Vec::new();
         if options.dry_run {
             extra.push("--dry-run".to_string());
-        } else if job.archive.enabled && snapshot.is_none() {
+        } else if (job.archive.enabled || options.repair) && snapshot.is_none() {
             // Snapshots are their own history; an archive next to them would only double it.
+            // A repair always archives: the version it replaces may be the only intact one.
             extra.extend(plan.archive_args(&archive_stamp(run.started_at)));
+        }
+        if options.repair {
+            // Size and date match on damaged files; only the content tells them apart.
+            extra.push("--checksum".into());
+            log.write_all(b"# repair: comparing by content, replaced files go to the archive\n").await?;
         }
         if let Some(limit) = max_delete {
             extra.push(format!("--max-delete={limit}"));
@@ -806,7 +819,7 @@ impl Engine {
                 let silent: Vec<&str> = deep.paths.iter().filter(|(change, path)| is_file(change) && !known.contains(path.as_str())).map(|(_, path)| path.as_str()).collect();
                 let missing = quick.paths.iter().filter(|(change, _)| *change == Change::NewFile).count();
                 for path in &silent {
-                    log.write_all(format!("! content differs: {path}\n").as_bytes()).await?;
+                    log.write_all(format!("{DIFFERS}{path}\n").as_bytes()).await?;
                 }
                 run.files_total = deep.stats.files;
                 run.files_conflicted = silent.len() as i64;
@@ -843,7 +856,7 @@ impl Engine {
                     match mark.trim() {
                         "*" => {
                             differ += 1;
-                            log.write_all(format!("! content differs: {path}\n").as_bytes()).await?;
+                            log.write_all(format!("{DIFFERS}{path}\n").as_bytes()).await?;
                         }
                         "-" => missing += 1,
                         "!" => {
@@ -867,6 +880,57 @@ impl Engine {
             }
         }
         Ok(())
+    }
+
+    /// Repairs a two-way job: for every file the last integrity check found, the target's
+    /// version is renamed to "<name>.target-<time>.<ext>" and the source's version copied
+    /// in its place. Nothing is lost, whichever side was damaged; the next sync brings the
+    /// kept version to the source as well, so both sides show both versions.
+    async fn repair_two_way(&self, job: &Job, plan: &Plan, run: &mut Run, log: &mut BufWriter<tokio::fs::File>) -> Result<()> {
+        let Tool::Bisync { config } = &plan.tool else { unreachable!("two-way jobs use bisync") };
+        let paths = self.damaged_paths(&job.id)?;
+        let stamp = archive_stamp(run.started_at);
+        let join = |base: &str, path: &str| {
+            let base = base.trim_end_matches('/');
+            if base.ends_with(':') { format!("{base}{path}") } else { format!("{base}/{path}") }
+        };
+        let mut repaired = 0_i64;
+        for path in &paths {
+            let kept = kept_name(path, "target", &stamp);
+            for (verb, from, to) in [("moveto", join(&plan.target, path), join(&plan.target, &kept)), ("copyto", join(&plan.source, path), join(&plan.target, path))] {
+                let output = Command::new(&plan.program)
+                    .arg(verb)
+                    .arg(&from)
+                    .arg(&to)
+                    .arg("--config")
+                    .arg(config)
+                    .env("LC_ALL", "C")
+                    .stdin(Stdio::null())
+                    .kill_on_drop(true)
+                    .output()
+                    .await?;
+                if !output.status.success() {
+                    let reason = String::from_utf8_lossy(&output.stderr).lines().last().unwrap_or_default().trim().to_string();
+                    log.write_all(format!("! could not repair {path}: {reason}\n").as_bytes()).await?;
+                    run.status = RunStatus::Failed;
+                    run.files_changed = repaired;
+                    run.message = Some(format!("could not repair {path}: {reason}"));
+                    return Ok(());
+                }
+            }
+            log.write_all(format!("> repaired: {path} (the target's version is kept as {kept})\n").as_bytes()).await?;
+            repaired += 1;
+        }
+        run.files_changed = repaired;
+        run.status = RunStatus::Succeeded;
+        Ok(())
+    }
+
+    /// The files the job's last integrity check found damaged, from its log.
+    fn damaged_paths(&self, job_id: &str) -> Result<Vec<String>> {
+        let Some(log) = self.history.last_verify_log(job_id)? else { return Ok(Vec::new()) };
+        let text = std::fs::read_to_string(log).unwrap_or_default();
+        Ok(text.lines().filter_map(|line| line.strip_prefix(DIFFERS)).map(|path| path.trim().to_string()).filter(|path| !path.is_empty()).collect())
     }
 
     /// Lists the snapshots, removes unfinished ones (not in a dry run), and plans this run into a
@@ -1483,6 +1547,19 @@ fn signal_group(group: Option<i32>, signal: i32) {
 /// Archive folder names sort by time: `2026-09-23_14-05-09`.
 /// Milliseconds are part of the name: two runs in the same second must never share a folder,
 /// or the second would overwrite what the first kept.
+/// How the integrity check marks a damaged file in its log; a repair reads it back.
+const DIFFERS: &str = "! content differs: ";
+
+/// "report.pdf" → "report.target-<stamp>.pdf": a kept version beside the file, still openable.
+fn kept_name(path: &str, side: &str, stamp: &str) -> String {
+    let (dir, name) = path.rsplit_once('/').map_or(("", path), |(dir, name)| (dir, name));
+    let kept = match name.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() => format!("{stem}.{side}-{stamp}.{ext}"),
+        _ => format!("{name}.{side}-{stamp}"),
+    };
+    if dir.is_empty() { kept } else { format!("{dir}/{kept}") }
+}
+
 pub fn archive_stamp(at: chrono::DateTime<Utc>) -> String {
     at.with_timezone(&chrono::Local).format("%Y-%m-%d_%H-%M-%S-%3f").to_string()
 }

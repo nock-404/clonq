@@ -862,3 +862,90 @@ async fn a_check_counts_for_the_check_schedule_but_never_for_the_sync_triggers()
     assert_eq!(b.history.last_started("job").unwrap(), synced, "a check must not stand in for a sync");
     assert_eq!(b.history.last_real_status("job").unwrap(), Some(RunStatus::Succeeded));
 }
+
+// Repair
+
+fn repair() -> RunOptions {
+    RunOptions { repair: true, ..Default::default() }
+}
+
+/// Starts a run with this trigger and waits for it, as the commands do.
+async fn run_as(b: &Bench, config: &Config, trigger: &str, options: RunOptions) -> Run {
+    let run_id = b.engine.start(config, "job", trigger, options).unwrap();
+    while !b.engine.live_runs().is_empty() {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    b.history.recent(100).unwrap().into_iter().find(|run| run.id == run_id).unwrap()
+}
+
+#[tokio::test]
+async fn repair_one_way_restores_the_target_and_archives_the_replaced_version_even_with_the_archive_off() {
+    for mode in [Mode::Mirror, Mode::Backup] {
+        for damaged_side in ["dst", "src"] {
+            let b = Bench::new();
+            let config = b.config(mode, false, newer_wins());
+            b.put("src", "a.txt", "alpha");
+            b.put("src", "dir/b.txt", "bravo");
+            ok(&b.run(&config).await);
+            b.corrupt(damaged_side, "dir/b.txt");
+            let before = b.everything();
+            let check = run_as(&b, &config, "verify", verify()).await;
+            assert_eq!(check.files_conflicted, 1, "{mode:?} {damaged_side}");
+            let fixed = run_as(&b, &config, "repair", repair()).await;
+            ok(&fixed);
+            assert_eq!(b.tree("src"), b.tree("dst"), "{mode:?} {damaged_side}: both sides hold the source version");
+            assert!(before.is_subset(&b.everything()), "{mode:?} {damaged_side}: a version was lost");
+            assert_eq!(b.archived().len(), 1, "{mode:?} {damaged_side}: the replaced version is archived");
+            let again = run_as(&b, &config, "verify", verify()).await;
+            assert_eq!((again.status, again.files_conflicted), (RunStatus::Succeeded, 0), "{mode:?} {damaged_side}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn repair_versioned_writes_a_fresh_snapshot_and_leaves_the_old_one_alone() {
+    let b = Bench::new();
+    let config = b.config(Mode::Versioned, true, newer_wins());
+    b.put("src", "a.txt", "alpha");
+    b.put("src", "b.txt", "bravo");
+    ok(&b.run(&config).await);
+    let old = snapshots_in(&b).last().unwrap().clone();
+    b.corrupt("dst", &format!("{old}/b.txt"));
+    let damaged = snapshot_tree(&b, &old);
+    run_as(&b, &config, "verify", verify()).await;
+    ok(&run_as(&b, &config, "repair", repair()).await);
+    let snapshots = snapshots_in(&b);
+    assert_eq!(snapshots.len(), 2);
+    let new = snapshots.last().unwrap();
+    assert_eq!(snapshot_tree(&b, new), b.tree("src"), "the new snapshot holds the intact version");
+    assert_eq!(snapshot_tree(&b, &old), damaged, "the old snapshot is untouched");
+    let dst = b.side("dst");
+    assert_eq!(inode(&dst.join(&old).join("a.txt")), inode(&dst.join(new).join("a.txt")), "intact files are still linked");
+    assert_ne!(inode(&dst.join(&old).join("b.txt")), inode(&dst.join(new).join("b.txt")), "the damaged file is copied fresh");
+}
+
+#[tokio::test]
+async fn repair_two_way_keeps_both_versions_on_both_sides() {
+    for damaged_side in ["dst", "src"] {
+        let b = Bench::new();
+        let config = b.config(Mode::Bidirectional, true, newer_wins());
+        b.put("src", "a.txt", "alpha");
+        b.put("src", "dir/b.txt", "bravo");
+        ok(&b.run(&config).await);
+        b.corrupt(damaged_side, "dir/b.txt");
+        let before = b.everything();
+        let check = run_as(&b, &config, "verify", verify()).await;
+        assert_eq!(check.files_conflicted, 1, "{damaged_side}");
+        let fixed = run_as(&b, &config, "repair", repair()).await;
+        ok(&fixed);
+        assert_eq!(fixed.files_changed, 1);
+        assert!(before.is_subset(&b.everything()), "{damaged_side}: a version was lost");
+        ok(&b.run(&config).await);
+        let (src, dst) = (b.tree("src"), b.tree("dst"));
+        assert_eq!(src, dst, "{damaged_side}: after the next sync both sides match");
+        assert_eq!(src.len(), 3, "{damaged_side}: a.txt, dir/b.txt and the kept version: {src:?}");
+        assert!(src.keys().any(|path| path.starts_with("dir/b.target-") && path.ends_with(".txt")), "{src:?}");
+        let values: BTreeSet<String> = src.into_values().collect();
+        assert!(before.iter().filter(|content| content.contains("ravo")).all(|content| values.contains(content)), "{damaged_side}: both versions are on the sides");
+    }
+}
