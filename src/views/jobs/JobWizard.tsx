@@ -52,6 +52,7 @@ import { ModeStep } from "./ModeStep";
 import { NameStep } from "./NameStep";
 import { PlaceStep } from "./PlaceStep";
 import { TriggerStep } from "./TriggerStep";
+import { usePro } from "../../hooks/usePro";
 
 interface JobWizardProps {
   open: boolean;
@@ -80,15 +81,8 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
   const config = state.config;
   const t = useT();
   const w = t.wizard;
-  // Versions are clonq Pro; without a licence the card says so instead of failing on save.
-  const [pro, setPro] = useState(true);
-  useEffect(() => {
-    if (!open) return;
-    api
-      .licenceStatus()
-      .then((status) => setPro(status.state === "active" || status.state === "unchecked"))
-      .catch(() => setPro(false));
-  }, [open]);
+  // Pro options are locked until the backend confirms the licence, and stay locked without it.
+  const pro = usePro(open) === true;
   const nav = useNav();
   const toast = useJobToast();
   const [session, setSession] = useState("closed");

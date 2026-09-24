@@ -342,8 +342,7 @@ export interface RunEntryPage {
   total: number;
 }
 
-/** Which end of a job an archive belongs to. */
-/** "snapshots": the dated snapshot folders of a versioned job, which live in its target. */
+/** Which end of a job an archive belongs to; "snapshots" are a versioned job's dated folders in its target. */
 export type ArchiveSide = "source" | "target" | "snapshots";
 
 export interface Snapshot {

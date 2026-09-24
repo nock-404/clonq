@@ -2,7 +2,7 @@ import { KeyRound } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useT } from "../i18n";
 import { api } from "../lib/api";
-import { formatDay } from "../lib/format";
+import { formatDate } from "../lib/format";
 import { messageLabel } from "../lib/labels";
 import type { LicenceStatus } from "../lib/types";
 import { UiButton, UiInput, UiNotice, UiPanel } from "../ui";
@@ -40,7 +40,7 @@ export function LicencePanel() {
     }
   };
 
-  const until = (date: string | null) => (date ? t.updatesUntil(formatDay(date)) : t.updatesForGood);
+  const until = (date: string | null) => (date ? t.updatesUntil(formatDate(date)) : t.updatesForGood);
 
   const line =
     status === null
@@ -48,7 +48,7 @@ export function LicencePanel() {
       : status.state === "active"
         ? `${t.active(status.email)} ${until(status.updatesUntil)}`
         : status.state === "notCovered"
-          ? t.notCovered(status.updatesUntil ? formatDay(status.updatesUntil) : "", formatDay(status.released))
+          ? t.notCovered(status.updatesUntil ? formatDate(status.updatesUntil) : "", formatDate(status.released))
           : status.state === "revoked"
             ? t.revoked
             : status.state === "unchecked"
@@ -65,7 +65,7 @@ export function LicencePanel() {
           </div>
         ) : entering ? (
           <div className="flex flex-col gap-2">
-            <UiInput value={key} onChange={setKey} placeholder="CLONQ1-…" mono autoFocus onKeyDown={(event) => event.key === "Enter" && void activate()} />
+            <UiInput value={key} onChange={setKey} placeholder="CLONQ1-…" label={t.enter} mono autoFocus onKeyDown={(event) => event.key === "Enter" && void activate()} />
             <div className="flex gap-2">
               <UiButton variant="primary" icon={KeyRound} disabled={!key.trim() || busy} onPress={() => void activate()}>
                 {busy ? t.checking : t.activate}

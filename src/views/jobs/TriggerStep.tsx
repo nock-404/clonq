@@ -127,7 +127,7 @@ export function TriggerStep({ triggers, onTriggers, enabled, onEnabled, drives, 
             <>
               {r.verifyBefore}
               <span className="w-16">
-                <UiInput type="number" value={triggers.verifyDays} disabled={!triggers.verify} onChange={(verifyDays) => set({ verifyDays })} />
+                <UiInput type="number" value={triggers.verifyDays} disabled={!triggers.verify} label={r.verify} onChange={(verifyDays) => set({ verifyDays })} />
               </span>
               {r.verifyAfter}
             </>
@@ -144,7 +144,7 @@ export function TriggerStep({ triggers, onTriggers, enabled, onEnabled, drives, 
             <>
               {r.watchdogBefore}
               <span className="w-16">
-                <UiInput type="number" value={triggers.watchdogDays} disabled={!triggers.watchdog} onChange={(watchdogDays) => set({ watchdogDays })} />
+                <UiInput type="number" value={triggers.watchdogDays} disabled={!triggers.watchdog} label={r.watchdog} onChange={(watchdogDays) => set({ watchdogDays })} />
               </span>
               {r.watchdogAfter}
             </>

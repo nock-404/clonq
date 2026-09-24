@@ -143,8 +143,7 @@ export const wizard = {
 
   mode: {
     groupLabel: "Copy mode",
-    // The four cards stand side by side; the chosen one's description runs under them.
-    hint: "Each picture shows what a run does with the target.",
+    // The four cards stand in a 2 × 2 grid, each with its own description.
     mirror: "The target becomes an exact copy; anything extra is deleted.",
     backup: "New and changed files go to the target; nothing is deleted.",
     bidirectional: "Each side takes over new, changed and deleted files.",
@@ -257,12 +256,12 @@ export const wizard = {
     afterLabel: "Previous job",
     afterPlaceholder: "Choose job",
     verify: "Check the content regularly",
-    verifyDescription: "Compares source and target by content and reports silent damage. Changes nothing; reads every file, so it takes a while.",
+    verifyDescription: "clonq compares source and target by content and reports silent damage. It changes nothing, but reads every file, so it takes a while.",
     verifyPro: "Part of clonq Pro.",
     verifyBefore: "every",
     verifyAfter: "days",
     watchdog: "Warn when backups stop",
-    watchdogDescription: "A notice when the job has not finished a run successfully for this long, for example because the drive was not connected.",
+    watchdogDescription: "clonq tells you when the job has not finished a run successfully for this long, for example because the drive was not connected.",
     watchdogBefore: "after",
     watchdogAfter: "days",
     automation: "Automation",

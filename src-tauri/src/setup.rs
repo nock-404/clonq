@@ -530,11 +530,14 @@ fn reachable(place: &Place, config: &Config, volumes: &[MountedVolume], state: &
 #[tauri::command]
 pub async fn save_job(app: AppHandle, state: State<'_, AppState>, job: JobInput) -> Result<Job> {
     let name = require_name(&job.name)?;
-    // A versioned job is a Pro feature: it can only be created with a licence that covers this version.
-    if job.mode == crate::config::Mode::Versioned && !crate::licence::Store::new(&state.config_dir).pro() {
+    let config = state.config.read().expect("config lock").clone();
+    // Pro features are needed to start using them; a job that already uses them stays editable
+    // when the licence ends (Pro never takes away what exists).
+    let existing = job.id.as_deref().and_then(|id| config.job(id));
+    let pro = crate::licence::Store::new(&state.config_dir).pro();
+    if job.mode == crate::config::Mode::Versioned && !pro && existing.is_none_or(|old| old.mode != crate::config::Mode::Versioned) {
         return Err(Error::Job("versioned backups are part of clonq Pro: enter a licence in Settings".into()));
     }
-    let config = state.config.read().expect("config lock").clone();
     let volumes = locations::mounted_volumes();
     let source = reachable(&job.source, &config, &volumes, &state)?;
     let target = reachable(&job.target, &config, &volumes, &state)?;
@@ -600,7 +603,7 @@ pub async fn save_job(app: AppHandle, state: State<'_, AppState>, job: JobInput)
         return Err(Error::Job("this folder holds the snapshots; choose another folder for the new mode".into()));
     }
     if job.encrypted {
-        if !crate::licence::Store::new(&state.config_dir).pro() {
+        if !pro && !was_encrypted {
             return Err(Error::Job("encrypted cloud copies are part of clonq Pro: enter a licence in Settings".into()));
         }
         if !matches!(target, Resolved::Cloud { .. }) {

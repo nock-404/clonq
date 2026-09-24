@@ -42,6 +42,7 @@ function inputOf(job: Job, from: string, to: string): JobInput {
     enabled: job.enabled,
     archive: job.archive,
     conflicts: job.conflicts,
+    encrypted: job.encrypted,
   };
 }
 

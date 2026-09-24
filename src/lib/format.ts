@@ -98,6 +98,11 @@ export function formatDay(iso: string): string {
   return new Date(`${iso}T12:00:00`).toLocaleDateString(locale(), { weekday: "short", day: "numeric", month: "short" });
 }
 
+/** A date with its year, e.g. for how long a licence covers updates: "24. Sept. 2027". */
+export function formatDate(iso: string): string {
+  return new Date(`${iso}T12:00:00`).toLocaleDateString(locale(), { day: "numeric", month: "short", year: "numeric" });
+}
+
 /** "2026-09-23_14-05-09" as a readable local date and time. */
 export function formatStamp(stamp: string): string {
   // Since 0.3.2 the name ends in milliseconds ("…_14-05-09-123"); older names have none.

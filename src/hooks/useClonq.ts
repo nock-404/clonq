@@ -76,14 +76,15 @@ export async function refreshLocations() {
 async function refreshRuns() {
   try {
     const jobs = state.config?.jobs ?? [];
-    const [latest, recent, overview, week, ...stats] = await Promise.all([
+    const [latest, recent, overview, ...stats] = await Promise.all([
       api.latestRuns(),
       api.recentRuns(RECENT_LIMIT),
       api.overview(),
-      api.weeklyReport(),
       ...jobs.map((job) => api.jobStats(job.id)),
     ]);
-    set({ latest: byJob(latest), recent, overview, week, stats: byJob(stats) });
+    set({ latest: byJob(latest), recent, overview, stats: byJob(stats) });
+    // The week report is an extra: when it fails, everything else is still up to date.
+    api.weeklyReport().then((week) => set({ week }), () => undefined);
   } catch (error) {
     set({ error: String(error) });
   }

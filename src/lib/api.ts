@@ -68,6 +68,8 @@ export const api = {
   openMainWindow: (jobId?: string) => invoke<void>("open_main_window", { jobId: jobId ?? null }),
   quit: () => invoke<void>("quit"),
   licenceStatus: () => invoke<LicenceStatus>("licence_status"),
+  /** Whether Pro features may be used, decided as the backend decides it. */
+  licencePro: () => invoke<boolean>("licence_pro"),
   /** Checks and saves a pasted key; rejects with the reason when it is not valid. */
   enterLicence: (key: string) => invoke<LicenceStatus>("enter_licence", { key }),
   removeLicence: () => invoke<LicenceStatus>("remove_licence"),

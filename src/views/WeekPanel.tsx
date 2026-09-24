@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
 import { useT } from "../i18n";
-import { api } from "../lib/api";
+import { usePro } from "../hooks/usePro";
 import { formatBytes, formatCount } from "../lib/format";
 import type { WeeklyReport } from "../lib/types";
 import { UiPanel } from "../ui";
@@ -14,14 +13,8 @@ interface WeekPanelProps {
 /** clonq Pro's weekly report: the last seven days per job, and how long each target's space lasts. */
 export function WeekPanel({ week, onOpenJob }: WeekPanelProps) {
   const o = useT().shell.overview.week;
-  const [pro, setPro] = useState(true);
-  useEffect(() => {
-    api
-      .licenceStatus()
-      .then((status) => setPro(status.state === "active" || status.state === "unchecked"))
-      .catch(() => setPro(false));
-  }, []);
-
+  const pro = usePro();
+  if (pro === null) return null;
   if (!pro) {
     return (
       <UiPanel title={o.title}>

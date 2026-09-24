@@ -60,9 +60,7 @@ const SHORTCUTS: { mode: ShownMode; key: string }[] = [
 ];
 
 /**
- * The four cards, side by side in one row. A card is too narrow for a sentence, so each shows its
- * picture, title and caption, and the chosen mode's description runs under the row: the step
- * keeps the height it had with three cards.
+ * The four cards in a 2 × 2 grid, each with its picture, title and description.
  */
 function modeOptions(): { mode: ShownMode; key: string; description: string; extra: string }[] {
   const t = texts().wizard.mode;

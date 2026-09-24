@@ -63,10 +63,18 @@ function CheckResult({ run, canRun, mode }: DryRunResultProps) {
   const t = d.check;
   const failed = run.status === "failed" || run.status === "cancelled";
   const damaged = !failed && run.filesConflicted > 0;
-  const line = failed ? (run.message ? messageLabel(run.message) : t.failed) : damaged && run.message ? messageLabel(run.message) : t.intact;
+  const line = failed
+    ? run.message
+      ? messageLabel(run.message)
+      : t.failed
+    : run.message
+      ? messageLabel(run.message)
+      : run.filesNew > 0
+        ? t.intactPending(run.filesNew)
+        : t.intact;
   return (
     <section
-      className={`flex flex-col gap-3 rounded-[var(--radius-panel)] px-4 py-3 ring-[0.0625rem] ring-inset ${damaged ? "bg-danger-soft ring-danger/40" : failed ? "bg-warn-soft ring-warn/40" : "bg-ok-soft ring-ok/40"}`}
+      className={`flex flex-col gap-3 rounded-[var(--radius-panel)] px-4 py-3 ring-[0.0625rem] ring-inset ${damaged ? "bg-danger-soft ring-danger/40" : failed || run.status === "partial" ? "bg-warn-soft ring-warn/40" : "bg-ok-soft ring-ok/40"}`}
     >
       <div className="flex items-start gap-3">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">

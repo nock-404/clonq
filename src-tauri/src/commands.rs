@@ -63,7 +63,7 @@ pub fn licence_covers_update(state: State<'_, AppState>, published: String) -> c
 
 /// The last seven days: runs, data and space per target, with the watchdog's verdict.
 #[tauri::command]
-pub fn weekly_report(state: State<'_, AppState>) -> Result<crate::report::WeeklyReport> {
+pub async fn weekly_report(state: State<'_, AppState>) -> Result<crate::report::WeeklyReport> {
     let config = state.config.read().expect("config lock").clone();
     crate::report::weekly(&state.history, &config, chrono::Utc::now())
 }
@@ -138,6 +138,12 @@ pub fn quit(app: AppHandle) {
 #[tauri::command]
 pub fn licence_status(state: State<'_, AppState>) -> crate::licence::Status {
     crate::licence::Store::new(&state.config_dir).status()
+}
+
+/// Whether Pro features may be used now, decided exactly as the backend decides it.
+#[tauri::command]
+pub fn licence_pro(state: State<'_, AppState>) -> bool {
+    crate::licence::Store::new(&state.config_dir).pro()
 }
 
 /// Checks and saves a pasted licence key.
