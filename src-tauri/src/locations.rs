@@ -251,7 +251,7 @@ pub fn ssh_command(port: u16, identity_file: &str) -> Vec<String> {
         "-o".into(),
         "IdentitiesOnly=yes".into(),
         "-o".into(),
-        format!("UserKnownHostsFile={}", crate::ssh::known_hosts().display()),
+        crate::ssh::known_hosts_option(),
         "-o".into(),
         "StrictHostKeyChecking=yes".into(),
         "-o".into(),
