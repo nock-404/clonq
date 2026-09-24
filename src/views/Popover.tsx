@@ -174,9 +174,9 @@ export function Popover() {
           <>
             <UiLogo variant="mark" size="xs" label="clonq" />
             <span className={`size-1.5 shrink-0 rounded-full bg-current ${toneText[summary.tone]}`} />
-            <span className="truncate" title={summary.text}>
+            {/* The bar is narrow next to its buttons: the state stays visible, today's amount moves into the tooltip. */}
+            <span className="truncate" title={today > 0 ? `${summary.text} · ${t.shell.popover.today(formatBytes(today))}` : summary.text}>
               {summary.short}
-              {today > 0 ? ` · ${t.shell.popover.today(formatBytes(today))}` : ""}
             </span>
           </>
         }

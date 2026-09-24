@@ -501,7 +501,7 @@ dependencies = [
 
 [[package]]
 name = "clonq"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "base64 0.23.1",
  "cc",

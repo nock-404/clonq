@@ -15,7 +15,7 @@ export const detail: Shape<typeof source> = {
   reading: "Wird gelesen …",
   showInFinder: "Im Finder zeigen",
   dryRun: "Probelauf",
-  runs: (_count, shown) => `${shown} Läufe`,
+  runs: (count, shown) => `${shown} ${count === 1 ? "Lauf" : "Läufe"}`,
   data: "Menge",
   counts: {
     created: "Neu",
@@ -55,7 +55,7 @@ export const detail: Shape<typeof source> = {
     recent: "Zuletzt übertragen",
     changes30: "Änderungen, letzte 30 Tage",
     changesPerDay: "Geänderte Daten pro Tag",
-    dayBar: (day, bytes, _files, filesShown, runs) => `${day}: ${bytes}, ${filesShown} Dateien, ${runs} Läufe`,
+    dayBar: (day, bytes, files, filesShown, runs) => `${day}: ${bytes}, ${filesShown} ${files === 1 ? "Datei" : "Dateien"}, ${runs} ${runs === 1 ? "Lauf" : "Läufe"}`,
     changesMost: "Ändert sich am meisten",
     sevenDays: "7 Tage",
     topLevel: "(oberste Ebene)",
@@ -154,7 +154,7 @@ export const detail: Shape<typeof source> = {
     snapshotsTitle: (shown) => `${shown} Snapshots, nur lesbar`,
     snapshotsButton: (shown) => `Snapshots · ${shown}`,
     hideHidden: "Versteckte Einträge ausblenden",
-    showHidden: (_count, shown) => `${shown} versteckte Einträge zeigen`,
+    showHidden: (count, shown) => (count === 1 ? "Einen versteckten Eintrag zeigen" : `${shown} versteckte Einträge zeigen`),
     noHidden: "Keine versteckten Einträge",
     boxSnapshotsHidden:
       "Die Snapshots dieser Storage Box sind nicht sichtbar. In der Hetzner Console lässt sich bei der Storage Box unter „Snapshots“ das Snapshot-Verzeichnis einblenden.",

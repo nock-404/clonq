@@ -20,6 +20,13 @@
 - Vorschau-Server: Vite auf Port 1440 (`preview.html?window=main&scene=running&job=work-to-m2mini`, `&sheet=addLocation|jobWizard`, `&location=box`). Weitere alte Vite-Prozesse auf 1430/1441/1442/1443/1452 aufräumen, sobald der Workflow fertig ist.
 - Danach einhängen: `ArchivePanel` und Konfliktregeln ins Job-Detail/Assistenten, `FileBrowser` in `LocationDetail`, Hostschlüssel-Bestätigung (API: `prepareServer(name, host, port)` → `hostKeys`, dann `trustServer(locationId)`) in den Server-Ablauf, `connectLocation` für SMB.
 
+## Sprachen (24.09.2026)
+
+- Englisch ist führend, Deutsch Übersetzung. Texte liegen in `src/i18n/en/<bereich>.ts`, die deutschen in `src/i18n/de/` mit identischer Form (`Shape<T>` erzwingt das per TypeScript). Komponenten: `const t = useT()`, außerhalb von React `texts()` zur Aufrufzeit, nie beim Laden eines Moduls.
+- Einstellung `ui.language` (system/en/de); Formatierung über `locale()`, Rust-Mitteilungen über `Language::resolved()` (sys-locale).
+- Neue Sprache: `src/i18n/en` nach `src/i18n/<code>` kopieren, übersetzen, in `CATALOGS` und `LANGUAGES` (src/i18n/index.ts) eintragen, den Code in `Language` (src/lib/types.ts) und im Rust-Enum ergänzen, Mitteilungstexte in `scheduler.rs::after_run`.
+- Werkzeuge: rsync 3.5.1 (aus Quellcode) und rclone 1.75.1 liegen im Bundle; `./scripts/fetch-tools.sh` einmal vor `pnpm tauri dev`.
+
 ## Veröffentlichung (23.09.2026, 17:25)
 
 - `nock-404/clonq` ist öffentlich (Apache 2.0) mit bereinigter Historie (Beispieldaten ohne Arbeits- und Privatnamen). Das alte private Repo heißt `nock-404/clonq-privat` (Remote `privat`), der alte Stand liegt lokal im Tag `pre-public-backup` – diesen Tag nie pushen, kein `git push --tags`.

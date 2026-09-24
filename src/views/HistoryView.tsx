@@ -27,8 +27,14 @@ export function HistoryView({ state }: HistoryViewProps) {
     {
       key: "when",
       header: h.start,
-      width: "w-36",
-      render: (run) => <span className="text-xs text-ink-soft tabular">{formatDateTime(run.startedAt)}</span>,
+      width: "w-40",
+      // The trigger sits under the time, so the job name gets the width.
+      render: (run) => (
+        <div className="flex flex-col gap-0.5">
+          <span className="text-xs whitespace-nowrap text-ink-soft tabular">{formatDateTime(run.startedAt)}</span>
+          <span className="text-[0.6875rem] text-ink-faint">{triggers[run.trigger] ?? run.trigger}</span>
+        </div>
+      ),
     },
     {
       key: "job",
@@ -54,19 +60,13 @@ export function HistoryView({ state }: HistoryViewProps) {
     {
       key: "status",
       header: h.status,
-      width: "w-32",
-      render: (run) => <UiBadge tone={statusTone[run.status]}>{statusLabel(run.status)}</UiBadge>,
-    },
-    {
-      key: "trigger",
-      header: h.trigger,
       width: "w-24",
-      render: (run) => <span className="text-xs text-ink-faint">{triggers[run.trigger] ?? run.trigger}</span>,
+      render: (run) => <UiBadge tone={statusTone[run.status]}>{statusLabel(run.status)}</UiBadge>,
     },
     {
       key: "files",
       header: h.files,
-      width: "w-44",
+      width: "w-36",
       align: "end",
       render: (run) => (
         <span className="text-xs tabular">
@@ -81,7 +81,7 @@ export function HistoryView({ state }: HistoryViewProps) {
     {
       key: "bytes",
       header: t.detail.data,
-      width: "w-24",
+      width: "w-20",
       align: "end",
       render: (run) => <span className="text-xs tabular">{formatBytes(run.bytesNew + run.bytesChanged)}</span>,
     },
@@ -92,7 +92,7 @@ export function HistoryView({ state }: HistoryViewProps) {
       align: "end",
       render: (run) => {
         const seconds = durationSeconds(run);
-        return <span className="text-xs text-ink-faint tabular">{seconds === null ? h.running : formatDuration(seconds)}</span>;
+        return <span className="text-xs whitespace-nowrap text-ink-faint tabular">{seconds === null ? h.running : formatDuration(seconds)}</span>;
       },
     },
   ];

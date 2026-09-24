@@ -302,7 +302,7 @@ export function FileBrowser({ location, now, connected = true }: FileBrowserProp
         <>
           <span className="w-16 text-right">{entry.dir ? "" : formatBytes(entry.size)}</span>
           {/* Next to a preview the list is narrow; the date of the file shown is in the preview. */}
-          {preview || atSnapshotList ? null : <span className="w-28 text-right">{entry.modified ? fixedMoment(new Date(entry.modified)) : ""}</span>}
+          {preview || atSnapshotList ? null : <span className="w-36 text-right whitespace-nowrap">{entry.modified ? fixedMoment(new Date(entry.modified)) : ""}</span>}
           {entry.dir ? <ChevronRight className="size-3.5 text-ink-faint" strokeWidth={2.2} /> : <span className="w-3.5" />}
         </>
       ),

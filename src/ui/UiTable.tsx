@@ -29,7 +29,7 @@ export function UiTable<T>({ columns, rows, rowKey, empty, onRowPress }: UiTable
               <th
                 key={column.key}
                 className={[
-                  "px-3 py-2 text-[0.6875rem] font-medium text-ink-faint",
+                  "px-3 py-2 text-[0.6875rem] font-medium whitespace-nowrap text-ink-faint",
                   column.width ?? "",
                   column.align === "end" ? "text-right" : "",
                 ].join(" ")}
