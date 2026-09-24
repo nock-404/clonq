@@ -37,6 +37,10 @@ export const messages: Shape<typeof source> = {
   contentDiffers: (count) =>
     count === 1 ? "Eine Datei unterscheidet sich im Inhalt, obwohl Größe und Datum gleich sind." : `${count} Dateien unterscheiden sich im Inhalt, obwohl Größe und Datum gleich sind.`,
   couldNotRepair: (path, reason) => `${path} ließ sich nicht reparieren: ${reason}`,
+  encryptionPro: "Verschlüsselte Cloud-Kopien gehören zu clonq Pro. Trag in den Einstellungen eine Lizenz ein.",
+  encryptionNeedsCloud: "Verschlüsseln geht nur mit einer Cloud als Ziel.",
+  encryptionNeedsEmpty: "Zum Verschlüsseln braucht es einen leeren Zielordner. Wähle einen neuen.",
+  encryptedFolderInUse: "In diesem Ordner liegt die verschlüsselte Kopie. Wähle für eine Kopie ohne Verschlüsselung einen leeren Ordner.",
   noSnapshotToCheck: "Es gibt noch keinen Snapshot, der sich prüfen ließe.",
   licenceWithdrawn: "Diese Lizenz für clonq Pro wurde zurückgezogen.",
   versionedNeedsLocalAndFolder: "Versionen brauchen eine Quelle auf diesem Mac und als Ziel einen Ordner, ein Laufwerk oder einen Server.",

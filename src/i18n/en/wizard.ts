@@ -157,6 +157,10 @@ export const wizard = {
     versionedNoCloud: "Versions need a folder, drive or server as the target, not a cloud.",
     versionedLocalSource: "Versions need a source on this Mac.",
     versionedUnavailable: "not here",
+    encryptTitle: "Encrypt",
+    encryptOn: "Files and their names are encrypted on this Mac before upload; the cloud only stores unreadable data. After saving, clonq shows the password.",
+    encryptOff: "The cloud stores the files as they are.",
+    encryptPro: "Part of clonq Pro.",
     keepTitle: "How long snapshots are kept",
     keepRule: "Every snapshot of the last 24 hours, the newest of each day for 30 days, after that the newest of each week. The newest snapshot is never removed.",
 

@@ -33,6 +33,7 @@ import {
   preferLabel,
   reachProblem,
   samePlace,
+  cloudTarget,
   saveFailure,
   sortExcludes,
   stepLabel,
@@ -536,6 +537,7 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
                 onArchive={(archive) => change({ archive })}
                 conflicts={draft.conflicts}
                 onConflicts={(conflicts) => change({ conflicts })}
+                encryption={{ cloud: cloudTarget(draft, config), pro, on: draft.encrypted, onChange: (encrypted) => change({ encrypted }) }}
                 onSubmit={advance}
                 shortcuts={!confirmDiscard}
               />

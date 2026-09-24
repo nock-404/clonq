@@ -39,6 +39,10 @@ export const messages = {
   contentDiffers: (count: number) =>
     count === 1 ? "One file differs in content although its size and date match." : `${count} files differ in content although their size and date match.`,
   couldNotRepair: (path: string, reason: string) => `Could not repair ${path}: ${reason}`,
+  encryptionPro: "Encrypted cloud copies are part of clonq Pro. Enter a licence in Settings.",
+  encryptionNeedsCloud: "Encryption needs a cloud as the target.",
+  encryptionNeedsEmpty: "Encryption needs an empty target folder. Choose a new one.",
+  encryptedFolderInUse: "This folder holds the encrypted copy. Choose an empty folder for a copy without encryption.",
   noSnapshotToCheck: "There is no snapshot to check yet.",
   licenceWithdrawn: "This clonq Pro licence has been withdrawn.",
   versionedNeedsLocalAndFolder: "Versioned backups need a source on this Mac and a folder, drive or server as the target.",

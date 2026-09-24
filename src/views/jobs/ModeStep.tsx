@@ -1,4 +1,4 @@
-import { Archive, History, ListFilter, ShieldAlert, Zap } from "lucide-react";
+import { Archive, History, ListFilter, Lock, ShieldAlert, Zap } from "lucide-react";
 import { useEffect, useEffectEvent, useId, useState, type KeyboardEvent, type ReactNode } from "react";
 import { texts, useT } from "../../i18n";
 import { modeLabel } from "../../lib/labels";
@@ -40,6 +40,8 @@ interface ModeStepProps {
   onArchive: (archive: ArchiveDraft) => void;
   conflicts: Conflicts;
   onConflicts: (conflicts: Conflicts) => void;
+  /** Shown only with a cloud as the target. */
+  encryption: { cloud: boolean; pro: boolean; on: boolean; onChange: (on: boolean) => void };
   /** Enter in the pattern field with nothing to add: go on, like Enter anywhere else. */
   onSubmit: () => void;
   /** False while something covers the step, e.g. the question whether to discard the draft; 1 to 3 then do nothing. */
@@ -124,6 +126,7 @@ export function ModeStep({
   onArchive,
   conflicts,
   onConflicts,
+  encryption,
   onSubmit,
   shortcuts,
 }: ModeStepProps) {
@@ -298,6 +301,17 @@ export function ModeStep({
             </span>
           </UiDisclosureRow>
         )}
+
+        {encryption.cloud ? (
+          <UiSettingRow
+            icon={Lock}
+            title={m.encryptTitle}
+            description={!encryption.pro && !encryption.on ? m.encryptPro : encryption.on ? m.encryptOn : m.encryptOff}
+            control={
+              <UiSwitch checked={encryption.on} onChange={encryption.onChange} label={m.encryptTitle} disabled={!encryption.pro && !encryption.on} />
+            }
+          />
+        ) : null}
 
         <UiDisclosureRow
           icon={ListFilter}

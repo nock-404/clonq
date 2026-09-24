@@ -110,6 +110,8 @@ export interface Job {
   triggers: Triggers;
   archive: Archive;
   conflicts: Conflicts;
+  /** Files and names are encrypted before they reach the cloud target (Pro). */
+  encrypted: boolean;
 }
 
 export interface Config {
@@ -188,6 +190,7 @@ export interface JobInput {
   archive?: Archive;
   /** Defaults to newer wins, loser kept. */
   conflicts?: Conflicts;
+  encrypted?: boolean;
 }
 
 export type RunStatus = "running" | "succeeded" | "partial" | "blocked" | "failed" | "cancelled";

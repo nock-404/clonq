@@ -22,6 +22,15 @@ export const detail: Shape<typeof source> = {
     run: "Jetzt starten",
     dismiss: "Schließen",
   },
+  encryption: {
+    title: "Verschlüsselung",
+    explain: "Dateien und Namen werden schon auf diesem Mac verschlüsselt. Ohne dieses Passwort lässt sich die Kopie nicht öffnen, auch nicht mit clonq, wenn dieser Mac verloren geht. Bewahre es sicher auf, etwa in deinem Passwort-Manager.",
+    show: "Passwort anzeigen",
+    copy: "Kopieren",
+    copied: "Kopiert",
+    missing: "Das Passwort liegt nicht auf diesem Mac. Ohne es lässt sich die verschlüsselte Kopie nicht lesen.",
+    rclone: "Um die Kopie nur mit rclone zu öffnen: ein crypt-Remote über dem Cloud-Ordner mit diesem Passwort, Dateinamen-Verschlüsselung „standard“, Ordnernamen verschlüsselt, ohne zweites Passwort.",
+  },
   check: {
     title: "Prüflauf",
     intact: "Quelle und Ziel stimmen inhaltlich überein.",

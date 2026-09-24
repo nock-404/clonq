@@ -40,6 +40,7 @@ import { ringOf } from "../ui/rings";
 import { ArchivePanel } from "./ArchivePanel";
 import { SnapshotsPanel } from "./SnapshotsPanel";
 import { DryRunResult } from "./DryRunResult";
+import { EncryptionKey } from "./EncryptionKey";
 import { JobHeader } from "./jobs/JobHeader";
 
 interface JobDetailProps {
@@ -264,6 +265,8 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
           {durationSeconds(latest) !== null ? ` · ${formatDuration(durationSeconds(latest) ?? 0)}` : ""}
         </span>
       ) : null}
+
+      {job.encrypted ? <EncryptionKey jobId={job.id} /> : null}
 
       {/* ↵ on a link, list, field or button in the archive belongs to it; it never starts the job. */}
       {job.mode === "versioned" ? (

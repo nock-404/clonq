@@ -57,6 +57,8 @@ export const api = {
   jobStats: (jobId: string) => invoke<JobStats>("job_stats", { jobId }),
   overview: () => invoke<Overview>("overview"),
   weeklyReport: () => invoke<WeeklyReport>("weekly_report"),
+  /** The password of an encrypted job, or null when it has none. */
+  encryptionKey: (jobId: string) => invoke<string | null>("encryption_key", { jobId }),
   setUiSettings: (settings: UiSettings) => invoke<Config>("set_ui_settings", { settings }),
   runJob: (jobId: string, options: RunOptions = {}) =>
     invoke<string>("run_job", { jobId, dryRun: options.dryRun ?? false, force: options.force ?? false }),

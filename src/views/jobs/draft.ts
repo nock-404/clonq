@@ -54,6 +54,8 @@ export interface Draft {
   archive: ArchiveDraft;
   /** Only used by a two-way job, but kept while another mode is tried. */
   conflicts: Conflicts;
+  /** Only means something with a cloud as the target (Pro). */
+  encrypted: boolean;
   triggers: TriggerDraft;
   /** Whether the triggers act; without triggers it does not matter. */
   enabled: boolean;
@@ -103,6 +105,7 @@ export function draftFrom(job: Job | undefined, config: Config | null): Draft {
       maxDeletePercent: String(job.safety.maxDeletePercent),
       archive: { enabled: job.archive.enabled, keepDays: String(job.archive.keepDays) },
       conflicts: { ...job.conflicts },
+      encrypted: job.encrypted,
       triggers: triggerDraft(job.triggers),
       enabled: job.enabled,
       name: job.name,
@@ -118,6 +121,7 @@ export function draftFrom(job: Job | undefined, config: Config | null): Draft {
     maxDeletePercent: String(DEFAULT_DELETE_PERCENT),
     archive: { enabled: true, keepDays: String(DEFAULT_KEEP_DAYS) },
     conflicts: { ...DEFAULT_CONFLICTS },
+    encrypted: false,
     triggers: triggerDraft(null),
     enabled: true,
     name: "",
@@ -496,7 +500,13 @@ export function toInput(draft: Draft, job: Job | undefined, name: string, config
     // While the archive is off its days cannot be typed, so a stray value falls back to the last good one.
     archive: { enabled: draft.archive.enabled, keepDays: keepDaysOf(draft.archive.keepDays) ?? job?.archive.keepDays ?? DEFAULT_KEEP_DAYS },
     conflicts: { ...draft.conflicts },
+    encrypted: draft.encrypted && cloudTarget(draft, config),
   };
+}
+
+/** Whether the target is a cloud, which is what encryption needs. */
+export function cloudTarget(draft: Draft, config: Config | null): boolean {
+  return (draft.target ? locationOf(draft.target, config)?.kind.type : undefined) === "cloud";
 }
 
 /** The job as the Rust side would take it back, e.g. to undo a deletion. */
@@ -514,6 +524,7 @@ export function inputOf(job: Job): JobInput {
     enabled: job.enabled,
     archive: job.archive,
     conflicts: job.conflicts,
+    encrypted: job.encrypted,
   };
 }
 

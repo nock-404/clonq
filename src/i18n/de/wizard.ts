@@ -157,6 +157,10 @@ export const wizard: Shape<typeof source> = {
     versionedNoCloud: "Versionen brauchen einen Ordner, ein Laufwerk oder einen Server als Ziel, keine Cloud.",
     versionedLocalSource: "Versionen brauchen eine Quelle auf diesem Mac.",
     versionedUnavailable: "hier nicht",
+    encryptTitle: "Verschlüsseln",
+    encryptOn: "Dateien und ihre Namen werden schon auf diesem Mac verschlüsselt; die Cloud speichert nur Unlesbares. Nach dem Speichern zeigt clonq das Passwort.",
+    encryptOff: "Die Cloud speichert die Dateien, wie sie sind.",
+    encryptPro: "Gehört zu clonq Pro.",
     keepTitle: "Wie lange Snapshots bleiben",
     keepRule: "Jeder Snapshot der letzten 24 Stunden, der neueste jedes Tages für 30 Tage, danach der neueste jeder Woche. Der neueste Snapshot wird nie entfernt.",
 

@@ -18,6 +18,15 @@ export const detail = {
     run: "Run now",
     dismiss: "Dismiss",
   },
+  encryption: {
+    title: "Encryption",
+    explain: "Files and names are encrypted on this Mac before upload. Without this password the copy cannot be opened, not even by clonq once this Mac is lost. Keep it somewhere safe, for example in your password manager.",
+    show: "Show password",
+    copy: "Copy",
+    copied: "Copied",
+    missing: "The password is not on this Mac. Without it the encrypted copy cannot be read.",
+    rclone: "To open the copy with rclone alone: a crypt remote over the cloud folder with this password, file name encryption “standard”, directory names encrypted, no second password.",
+  },
   check: {
     title: "Integrity check",
     intact: "Source and target match in content.",

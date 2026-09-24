@@ -37,6 +37,8 @@ mockIPC(
         const files = params.get("files");
         return files ? { ...scene.overview, totals: { ...scene.overview.totals, files: Number(files) } } : scene.overview;
       }
+      case "encryption_key":
+        return "K7Q2M-X9PLA-4TRWZ-H3NCE-8VDJF";
       case "weekly_report": {
         // ?week=empty shows a first week without space measurements.
         const day = 86_400_000;
@@ -218,12 +220,20 @@ if (root) {
   // ?frameWidth=760 draws the main window at another width, e.g. its minimum.
   const frameWidth = params.get("frameWidth");
   if (frameWidth) root.style.width = `${Number(frameWidth) / 16}rem`;
+  const frameHeight = params.get("frameHeight");
+  if (frameHeight) root.style.height = `${Number(frameHeight) / 16}rem`;
 }
 
 await import("../src/main");
 
 // ?job=<id> opens that job in the main window, as the popover would.
 const jobParam = params.get("job");
+// ?encryptJob=<id> shows that job as an encrypted cloud copy.
+const encryptJob = params.get("encryptJob");
+if (encryptJob) for (const job of scene.config.jobs) if (job.id === encryptJob) job.encrypted = true;
+// ?cloudJob=<id> points that job at Google Drive (English data), where encryption is offered.
+const cloudJob = params.get("cloudJob");
+if (cloudJob) for (const job of scene.config.jobs) if (job.id === cloudJob) job.target = { location: "gdrive", path: "Photos" };
 if (jobParam) setTimeout(() => void emit("show-job", jobParam), 300);
 // ?dryResult=1|none sends a finished dry run for ?job, as the backend does at the end of one.
 const dryParam = params.get("dryResult");
@@ -613,6 +623,7 @@ function jobWizardSave(input: JobInput): Promise<Job> {
     triggers: input.triggers,
     archive: input.archive ?? { enabled: true, keepDays: 30 },
     conflicts: input.conflicts ?? { prefer: "newer", loser: "keep" },
+    encrypted: input.encrypted ?? false,
   };
   // The store asks for stats of every job once the config changes.
   scene.stats[id] ??= {
