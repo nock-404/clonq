@@ -51,7 +51,7 @@ export function UiNumberField({ value, onChange, label, before, after, invalid =
         className={[
           "hairline h-7 w-12 rounded-[var(--radius-control)] bg-well px-2 text-right text-[0.8125rem] text-ink tabular outline-none",
           "focus:bg-hover disabled:opacity-50",
-          invalid ? "text-danger ring-[0.0625rem] ring-danger/80" : "",
+          invalid ? "text-danger ring-[0.0625rem] ring-inset ring-danger/80" : "",
         ].join(" ")}
       />
       {after ? <span aria-hidden>{after}</span> : null}

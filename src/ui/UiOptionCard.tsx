@@ -33,7 +33,7 @@ export function UiOptionCard({ title, description, art, selected, onPress, disab
       className={[
         "relative flex w-full rounded-[var(--radius-panel)] text-left transition-[background-color,box-shadow] duration-150",
         tall ? "flex-col gap-3 p-3" : "items-center gap-3 px-3 py-2.5",
-        selected ? "bg-selected ring-[0.0625rem] ring-accent/70" : "hairline bg-well hover:bg-hover",
+        selected ? "border-[0.0625rem] border-transparent bg-selected ring-[0.0625rem] ring-inset ring-accent/70" : "hairline bg-well hover:bg-hover",
         disabled ? "pointer-events-none opacity-40" : "",
       ].join(" ")}
     >

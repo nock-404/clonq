@@ -102,7 +102,7 @@ export function UiListbox({ items, label, active, onActive, onOpen, onBack, busy
         aria-busy={busy}
         data-own-enter={active !== null ? "" : undefined}
         onKeyDown={onKeyDown}
-        className={`flex flex-col rounded-[var(--radius-control)] outline-none transition-opacity focus-visible:ring-[0.125rem] focus-visible:ring-accent/50 ${busy ? "opacity-45" : ""}`}
+        className={`flex flex-col rounded-[var(--radius-control)] outline-none transition-opacity focus-visible:ring-[0.125rem] focus-visible:ring-inset focus-visible:ring-accent/50 ${busy ? "opacity-45" : ""}`}
       >
         {items.map((item) => (
           <div

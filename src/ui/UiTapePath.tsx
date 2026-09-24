@@ -281,7 +281,7 @@ interface SocketProps {
 
 /** Where the tape comes from or goes to; its box is centred on the tape line. */
 function Socket({ end, label, lit, emptyText, wholeText }: SocketProps) {
-  const frame = lit ? "bg-raised ring-[0.0625rem] ring-accent/70" : end ? "hairline bg-raised" : "hairline-dashed";
+  const frame = lit ? "border-[0.0625rem] border-transparent bg-raised ring-[0.0625rem] ring-inset ring-accent/70" : end ? "hairline bg-raised" : "hairline-dashed";
   return (
     <div className="relative w-[10rem] shrink-0">
       <span className={`absolute top-[1.625rem] left-0.5 font-mono text-[0.625rem] font-medium tracking-wider uppercase ${lit ? "text-accent" : "text-ink-faint"}`}>

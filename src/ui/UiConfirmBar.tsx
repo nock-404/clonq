@@ -20,8 +20,8 @@ interface UiConfirmBarProps {
 }
 
 const frames = {
-  danger: "bg-danger-soft ring-[0.0625rem] ring-danger/45",
-  warn: "bg-warn-soft ring-[0.0625rem] ring-warn/45",
+  danger: "bg-danger-soft ring-[0.0625rem] ring-inset ring-danger/45",
+  warn: "bg-warn-soft ring-[0.0625rem] ring-inset ring-warn/45",
 };
 
 /**
