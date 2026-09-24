@@ -390,7 +390,7 @@ impl History {
         let connection = self.connection.lock().expect("history lock");
         let started: Option<String> = connection
             .query_row(
-                "SELECT started_at FROM runs WHERE job_id = ?1 AND trigger IN ('verify', 'verifyScheduled') ORDER BY started_at DESC LIMIT 1",
+                "SELECT started_at FROM runs WHERE job_id = ?1 AND trigger IN ('verify', 'verifyScheduled') AND status != 'cancelled' ORDER BY started_at DESC LIMIT 1",
                 [job_id],
                 |row| row.get(0),
             )
@@ -421,6 +421,16 @@ impl History {
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(samples)
+    }
+
+    /// Whether a real run of the job, other than `except`, started after `since`.
+    pub fn ran_since(&self, job_id: &str, since: DateTime<Utc>, except: &str) -> Result<bool> {
+        let connection = self.connection.lock().expect("history lock");
+        Ok(connection.query_row(
+            "SELECT EXISTS (SELECT 1 FROM runs WHERE job_id = ?1 AND dry_run = 0 AND started_at > ?2 AND id != ?3)",
+            params![job_id, since.to_rfc3339(), except],
+            |row| row.get(0),
+        )?)
     }
 
     /// The log of the job's newest integrity check.

@@ -74,9 +74,17 @@ impl KeyError {
 /// The public key from its build-time text: 32 raw bytes in base64, or an SPKI PEM whose
 /// last 32 bytes of DER are the key.
 pub fn public_key(text: &str) -> Option<VerifyingKey> {
+    /// SPKI DER for Ed25519: this 12-byte header, then the 32 key bytes.
+    const SPKI: [u8; 12] = [0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00];
     let body: String = text.lines().filter(|line| !line.starts_with("-----")).collect::<Vec<_>>().join("");
     let bytes = STANDARD.decode(body.trim()).ok()?;
-    let raw: [u8; 32] = bytes.get(bytes.len().checked_sub(32)?..)?.try_into().ok()?;
+    // Exactly a raw key or exactly a public-key SPKI; anything else (a private key pasted by
+    // mistake, say) is refused instead of taking its last 32 bytes.
+    let raw: [u8; 32] = match bytes.len() {
+        32 => bytes.as_slice().try_into().ok()?,
+        44 if bytes[..12] == SPKI => bytes[12..].try_into().ok()?,
+        _ => return None,
+    };
     VerifyingKey::from_bytes(&raw).ok()
 }
 
@@ -118,19 +126,31 @@ pub struct Signed {
 #[derive(Debug, Deserialize)]
 struct Revoked {
     v: u32,
+    /// When the service made the list; an older list never replaces a newer one.
+    #[serde(default)]
+    at: Option<String>,
     revoked: Vec<String>,
+}
+
+fn genuine_list(signed: &Signed, verifying: &VerifyingKey) -> Option<Revoked> {
+    let signature = Signature::from_slice(&URL_SAFE_NO_PAD.decode(&signed.signature).ok()?).ok()?;
+    verifying.verify_strict(signed.list.as_bytes(), &signature).ok()?;
+    let list: Revoked = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(&signed.list).ok()?).ok()?;
+    (list.v == 1).then_some(list)
 }
 
 /// The licence ids on a revocation list, if its signature is genuine.
 pub fn revoked_ids(signed: &Signed, verifying: &VerifyingKey) -> Option<Vec<String>> {
-    let signature = Signature::from_slice(&URL_SAFE_NO_PAD.decode(&signed.signature).ok()?).ok()?;
-    verifying.verify_strict(signed.list.as_bytes(), &signature).ok()?;
-    let list: Revoked = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(&signed.list).ok()?).ok()?;
-    (list.v == 1).then_some(list.revoked)
+    genuine_list(signed, verifying).map(|list| list.revoked)
+}
+
+fn made_at(list: &Revoked) -> Option<chrono::DateTime<chrono::Utc>> {
+    list.at.as_deref().and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok()).map(|at| at.with_timezone(&chrono::Utc))
 }
 
 fn released() -> NaiveDate {
-    NaiveDate::parse_from_str(RELEASED, "%Y-%m-%d").unwrap_or(NaiveDate::MIN)
+    // An unreadable build date must not unlock every licence: it counts as the newest version.
+    NaiveDate::parse_from_str(RELEASED, "%Y-%m-%d").unwrap_or(NaiveDate::MAX)
 }
 
 /// Where the key and the last good revocation list are kept.
@@ -181,9 +201,23 @@ impl Store {
     /// Keeps a fetched revocation list, but only a genuine one: a wrong or broken answer never
     /// replaces the last good list.
     pub fn keep_revocations(&self, answer: &str) -> bool {
-        let Some(verifying) = built_in_key() else { return false };
+        match built_in_key() {
+            Some(verifying) => self.keep_revocations_with(answer, &verifying),
+            None => false,
+        }
+    }
+
+    fn keep_revocations_with(&self, answer: &str, verifying: &VerifyingKey) -> bool {
         let Ok(signed) = serde_json::from_str::<Signed>(answer) else { return false };
-        if revoked_ids(&signed, &verifying).is_none() {
+        let Some(list) = genuine_list(&signed, verifying) else { return false };
+        // A replayed older list must not lift a newer revocation.
+        let kept = std::fs::read_to_string(self.dir.join(REVOKED_FILE))
+            .ok()
+            .and_then(|text| serde_json::from_str::<Signed>(&text).ok())
+            .and_then(|signed| genuine_list(&signed, verifying));
+        if let (Some(kept), Some(new)) = (kept.as_ref().and_then(made_at), made_at(&list))
+            && new < kept
+        {
             return false;
         }
         std::fs::write(self.dir.join(REVOKED_FILE), answer).is_ok()
@@ -207,6 +241,26 @@ pub fn allows(dir: &Path, config: &crate::config::Config, job_id: &str) -> crate
         return Ok(());
     }
     require(dir, "versioned backups are part of clonq Pro: enter a licence in Settings")
+}
+
+/// A refusal from `allows` or `allows_check` in the interface language, for notifications
+/// (the app itself translates the English text through its catalog).
+pub fn refusal_text(english: &str, german: bool) -> String {
+    if !german {
+        let mut text = english.to_string();
+        if let Some(first) = text.get_mut(..1) {
+            first.make_ascii_uppercase();
+        }
+        return format!("{text}.");
+    }
+    if let Some(until) = english.strip_prefix("your clonq Pro licence covers versions released until ").and_then(|rest| rest.split(';').next()) {
+        return format!("Deine Lizenz für clonq Pro gilt für Versionen bis zum {until}; diese Version ist neuer. Der Job läuft erst wieder mit einer gültigen Lizenz.");
+    }
+    match english {
+        "this clonq Pro licence has been withdrawn" => "Diese Lizenz für clonq Pro wurde zurückgezogen. Der Job läuft erst wieder mit einer gültigen Lizenz.".into(),
+        "the integrity check is part of clonq Pro: enter a licence in Settings" => "Der Prüflauf gehört zu clonq Pro. Trage in den Einstellungen eine Lizenz ein.".into(),
+        _ => "Versionen gehören zu clonq Pro. Trage in den Einstellungen eine Lizenz ein; bis dahin läuft dieser Job nicht.".into(),
+    }
 }
 
 /// Refuses an integrity check without Pro.
@@ -364,5 +418,32 @@ mod tests {
         assert!(cover_for(active(Some("2027-09-24")), day("2027-09-24")).covered, "released on the last day is covered");
         assert!(cover_for(active(None), day("2040-01-01")).covered, "updates for good");
         assert!(cover_for(Status::None, day("2040-01-01")).covered, "without Pro an update takes nothing away");
+    }
+
+    #[test]
+    fn a_private_key_or_other_blob_is_not_taken_as_the_public_key() {
+        let (_, verifying) = pair();
+        // PKCS#8 of an Ed25519 private key is 48 bytes; its tail is the secret seed.
+        let mut private = vec![0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20];
+        private.extend_from_slice(&verifying.to_bytes());
+        assert_eq!(public_key(&STANDARD.encode(&private)), None);
+        assert_eq!(public_key(&STANDARD.encode([0_u8; 40])), None);
+    }
+
+    #[test]
+    fn an_older_revocation_list_never_replaces_a_newer_one() {
+        let (signing, verifying) = pair();
+        let dir = std::env::temp_dir().join(format!("clonq-revoked-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Store::new(&dir);
+        let answer = |at: &str, ids: &str| {
+            let list = URL_SAFE_NO_PAD.encode(format!(r#"{{"v":1,"at":"{at}","revoked":[{ids}]}}"#));
+            let signature = URL_SAFE_NO_PAD.encode(signing.sign(list.as_bytes()).to_bytes());
+            format!(r#"{{"list":"{list}","signature":"{signature}"}}"#)
+        };
+        assert!(store.keep_revocations_with(&answer("2026-10-02T08:00:00Z", r#""lic_1""#), &verifying));
+        assert!(!store.keep_revocations_with(&answer("2026-10-01T08:00:00Z", ""), &verifying), "an old list is replayed");
+        assert!(store.keep_revocations_with(&answer("2026-10-03T08:00:00Z", r#""lic_1","lic_2""#), &verifying));
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

@@ -1121,3 +1121,101 @@ fn encryption_is_refused_for_targets_that_are_not_clouds() {
     let error = crate::locations::resolve_target(&config.jobs[0], &config, &[]).unwrap_err();
     assert!(error.to_string().contains("encryption needs a cloud"), "{error}");
 }
+
+#[tokio::test]
+async fn a_scheduled_check_is_recognised_and_a_cancelled_one_does_not_count_as_done() {
+    let b = Bench::new();
+    let config = b.config(Mode::Mirror, false, newer_wins());
+    for n in 0..3000 {
+        b.put("src", &format!("d{}/f{n}.txt", n % 30), &format!("file {n} with some content to hash"));
+    }
+    ok(&b.run(&config).await);
+    b.engine.start(&config, "job", crate::scheduler::reason::VERIFY, verify()).unwrap();
+    assert!(b.engine.running_with("job", crate::scheduler::reason::VERIFY));
+    assert!(!b.engine.running_with("job", "manual"));
+    b.engine.cancel("job");
+    while b.engine.is_running("job") {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let last = b.history.recent(10).unwrap().into_iter().next().unwrap();
+    assert_eq!(last.status, RunStatus::Cancelled, "the check was stopped before it finished");
+    assert_eq!(b.history.last_verify("job").unwrap(), None, "a stopped check comes back later");
+}
+
+#[tokio::test]
+async fn a_cloud_check_counts_unsynced_edits_and_new_files_but_not_as_damage() {
+    let b = Bench::new();
+    let config = b.encrypted(Mode::Mirror, false).await;
+    b.put("src", "a.txt", "alpha");
+    b.put("src", "b.txt", "bravo");
+    ok(&b.run(&config).await);
+    b.put("src", "a.txt", "alpha, edited later");
+    b.put("src", "new.txt", "not copied yet");
+    let run = b.run_with(&config, verify()).await;
+    assert_eq!(run.status, RunStatus::Succeeded, "{:?}", run.message);
+    assert_eq!((run.files_conflicted, run.files_changed, run.files_new), (0, 1, 1));
+}
+
+#[tokio::test]
+async fn a_two_way_check_does_not_call_an_edit_on_either_side_damage() {
+    let b = Bench::new();
+    let config = b.config(Mode::Bidirectional, true, newer_wins());
+    b.put("src", "a.txt", "alpha");
+    b.put("src", "b.txt", "bravo");
+    ok(&b.run(&config).await);
+    b.put("dst", "b.txt", "bravo, edited on the other side");
+    let run = b.run_with(&config, verify()).await;
+    assert_eq!((run.status, run.files_conflicted), (RunStatus::Succeeded, 0), "{:?}", run.message);
+}
+
+#[tokio::test]
+async fn a_check_that_cannot_reach_the_target_fails_instead_of_passing() {
+    let b = Bench::new();
+    let config = b.encrypted(Mode::Mirror, false).await;
+    b.put("src", "a.txt", "alpha");
+    ok(&b.run(&config).await);
+    // The crypt remote vanishes, as after a lost rclone.conf.
+    let status = std::process::Command::new(tool("rclone")).args(["config", "delete", &crate::cloud::crypt_name("job"), "--config"]).arg(b.root.join("rclone.conf")).status().unwrap();
+    assert!(status.success());
+    let run = b.run_with(&config, verify()).await;
+    assert_eq!(run.status, RunStatus::Failed, "{:?}", run.message);
+}
+
+#[tokio::test]
+async fn a_damaged_encrypted_file_is_repaired_and_the_old_one_archived() {
+    let b = Bench::new();
+    let config = b.encrypted(Mode::Mirror, false).await;
+    b.put("src", "a.txt", "alpha alpha alpha");
+    ok(&b.run(&config).await);
+    let (path, _) = raw(&b.side("dst")).into_iter().next().unwrap();
+    let at = fs::metadata(&path).unwrap().modified().unwrap();
+    let mut bytes = fs::read(&path).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 0x01;
+    fs::write(&path, bytes).unwrap();
+    fs::File::options().write(true).open(&path).unwrap().set_modified(at).unwrap();
+    assert_eq!(run_as(&b, &config, "verify", verify()).await.files_conflicted, 1);
+    let fixed = run_as(&b, &config, "repair", repair()).await;
+    ok(&fixed);
+    let again = run_as(&b, &config, "verify", verify()).await;
+    assert_eq!((again.status, again.files_conflicted), (RunStatus::Succeeded, 0), "{:?}", again.message);
+    assert_eq!(b.decrypt_with(&b.password().await).await, b.tree("src"));
+    // The archive's own name is encrypted as well; clonq lists it through the crypt remote.
+    let job = config.job("job").unwrap();
+    let archived = crate::archive::snapshots(job, &config, &b.root.join("rclone.conf"), crate::archive::Side::Target).await.unwrap();
+    assert_eq!(archived.len(), 1, "the replaced version is archived");
+}
+
+#[tokio::test]
+async fn a_repair_after_a_newer_sync_asks_for_a_new_check() {
+    // Cloud repairs work from the check's list of files, which a later sync makes stale.
+    let b = Bench::new();
+    let config = b.encrypted(Mode::Mirror, false).await;
+    b.put("src", "a.txt", "alpha");
+    ok(&b.run(&config).await);
+    run_as(&b, &config, "verify", verify()).await;
+    ok(&b.run(&config).await);
+    let repaired = run_as(&b, &config, "repair", repair()).await;
+    assert_eq!(repaired.status, RunStatus::Failed);
+    assert!(repaired.message.unwrap_or_default().contains("run the check again"));
+}

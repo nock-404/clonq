@@ -38,7 +38,8 @@ pub async fn measure(job: &Job, config: &Config, rclone_config: &Path, volumes: 
             // and a server account is one file system.
             let (host, _) = destination.split_once(':')?;
             let mut command = tokio::process::Command::new(ssh.first()?);
-            command.args(&ssh[1..]).arg(host).arg("df").arg("-k").arg(".");
+            // -P keeps each file system on one line, whatever its name; the Storage Box knows it too.
+            command.args(&ssh[1..]).arg(host).arg("df").arg("-Pk").arg(".");
             let output = tokio::time::timeout(std::time::Duration::from_secs(30), command.output()).await.ok()?.ok()?;
             parse_df(&String::from_utf8_lossy(&output.stdout))
         }
@@ -251,7 +252,8 @@ pub fn bytes_text(bytes: i64, german: bool) -> String {
     let units = ["bytes", "KB", "MB", "GB", "TB"];
     let mut value = bytes.max(0) as f64;
     let mut unit = 0;
-    while value >= 1000.0 && unit < units.len() - 1 {
+    // 999.96 KB would print as "1000.0 KB"; it is 1.0 MB.
+    while value >= 999.95 && unit < units.len() - 1 {
         value /= 1000.0;
         unit += 1;
     }
@@ -275,7 +277,9 @@ pub fn summary(report: &WeeklyReport, german: bool) -> String {
         (1, false) => parts.push("One job needs attention.".into()),
         (n, false) => parts.push(format!("{n} jobs need attention.")),
     }
-    if let Some(target) = report.filling_first() {
+    if let Some(full) = report.targets.iter().find(|target| target.free == 0) {
+        parts.push(if german { format!("{} ist voll.", full.name) } else { format!("{} is full.", full.name) });
+    } else if let Some(target) = report.filling_first() {
         let days = target.days_until_full.unwrap_or_default().round().max(1.0) as i64;
         parts.push(if german {
             format!("{} ist in etwa {days} {} voll.", target.name, if days == 1 { "Tag" } else { "Tagen" })
@@ -323,6 +327,10 @@ mod tests {
         assert_eq!(summary(&report, false), "18.6 GB backed up in 17 runs. 2 jobs need attention. M2mini will be full in about 42 days.");
         let quiet = WeeklyReport { jobs: vec![job(0, 1, None)], targets: vec![target(None)], ..report };
         assert_eq!(summary(&quiet, false), "6.2 GB backed up in 1 run.");
+        let full = WeeklyReport { targets: vec![TargetSpace { free: 0, ..target(Some(3.0)) }], ..quiet };
+        assert_eq!(summary(&full, true), "6,2 GB in 1 Lauf gesichert. M2mini ist voll.");
+        assert_eq!(bytes_text(999_990, false), "1.0 MB");
+        assert_eq!(bytes_text(999, false), "999 bytes");
     }
 
     #[test]

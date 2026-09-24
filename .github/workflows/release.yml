@@ -38,6 +38,9 @@ jobs:
       # rsync (built from source) and rclone go into the app bundle.
       - run: ./scripts/fetch-tools.sh
 
+      # The day licences compare against (src-tauri/build.rs), fixed for this release.
+      - run: echo "CLONQ_RELEASE_DATE=$(date -u +%Y-%m-%d)" >> "$GITHUB_ENV"
+
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

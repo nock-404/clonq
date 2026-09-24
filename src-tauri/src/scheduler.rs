@@ -87,15 +87,37 @@ fn fire(app: &AppHandle, job_id: &str, why: &str) -> bool {
     if state.history.last_real_status(job_id).ok().flatten() == Some(RunStatus::Blocked) {
         return false;
     }
-    // A Pro job without a licence that covers this version says so once, instead of failing quietly.
+    // A Pro job without a licence that covers this version must never stop quietly: once a day
+    // it records a failed run with the reason (the job shows red everywhere) and says so.
     if let Err(refused) = crate::licence::allows(&state.config_dir, &config, job_id) {
         scheduler.backoff.lock().expect("backoff").insert(job_id.to_string(), Instant::now() + BACKOFF);
-        static TOLD: std::sync::Mutex<Option<HashSet<String>>> = std::sync::Mutex::new(None);
-        if TOLD.lock().expect("told").get_or_insert_with(HashSet::new).insert(job_id.to_string()) {
+        static TOLD: std::sync::Mutex<Option<HashMap<String, Instant>>> = std::sync::Mutex::new(None);
+        let mut told = TOLD.lock().expect("told");
+        let told = told.get_or_insert_with(HashMap::new);
+        if told.get(job_id).is_none_or(|at| at.elapsed() >= Duration::from_secs(24 * 60 * 60)) {
+            told.insert(job_id.to_string(), Instant::now());
+            let _ = state.engine.record_refusal(job_id, why, &refused.to_string());
             let name = config.job(job_id).map_or(job_id.to_string(), |job| job.name.clone());
-            let _ = app.notification().builder().title(name).body(refused.to_string()).show();
+            let german = config.ui.language.resolved() == Language::De;
+            let _ = app.notification().builder().title(name).body(crate::licence::refusal_text(&refused.to_string(), german)).show();
         }
         return false;
+    }
+    // A backup always comes first: a scheduled integrity check in its way is stopped (it only
+    // reads, and counts as not done, so it comes back later) and the backup starts after it.
+    if state.engine.running_with(job_id, reason::VERIFY) {
+        state.engine.cancel(job_id);
+        let (app, job_id, why) = (app.clone(), job_id.to_string(), why.to_string());
+        tauri::async_runtime::spawn(async move {
+            for _ in 0..600 {
+                if !app.state::<AppState>().engine.is_running(&job_id) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            fire(&app, &job_id, &why);
+        });
+        return true;
     }
     match state.engine.start(&config, job_id, why, RunOptions::default()) {
         Ok(_) => {

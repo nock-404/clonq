@@ -91,6 +91,8 @@ pub struct RunOptions {
 struct Active {
     live: LiveRun,
     cancel: watch::Sender<bool>,
+    /// Why the run started; a scheduled integrity check gives way to a real run.
+    trigger: String,
 }
 
 /// Where the engine reports to: the app's event bus, or a collector in tests.
@@ -127,6 +129,52 @@ impl Engine {
     /// Whether any job is running right now.
     pub fn busy(&self) -> bool {
         !self.active.lock().expect("active lock").is_empty()
+    }
+
+    /// Records a run that could not start at all, with the reason, so the history, the job view
+    /// and the menu bar show the job as failed instead of silently old.
+    pub fn record_refusal(&self, job_id: &str, trigger: &str, message: &str) -> Result<()> {
+        let now = Utc::now();
+        let run = Run {
+            id: uuid::Uuid::new_v4().to_string(),
+            job_id: job_id.to_string(),
+            trigger: trigger.to_string(),
+            dry_run: false,
+            started_at: now,
+            finished_at: Some(now),
+            status: RunStatus::Failed,
+            files_total: 0,
+            files_transferred: 0,
+            files_new: 0,
+            files_changed: 0,
+            files_deleted: 0,
+            files_conflicted: 0,
+            bytes_transferred: 0,
+            bytes_new: 0,
+            bytes_changed: 0,
+            source_bytes: 0,
+            literal_bytes: 0,
+            matched_bytes: 0,
+            wire_bytes: 0,
+            target_entries: 0,
+            exit_code: None,
+            message: Some(message.to_string()),
+            log_path: String::new(),
+            plan_key: String::new(),
+        };
+        self.history.insert(&run)?;
+        self.history.finish(&run, &[], &[])?;
+        (self.emit)(EVENT_RUNS_CHANGED, serde_json::Value::Null);
+        Ok(())
+    }
+
+    pub fn is_running(&self, job_id: &str) -> bool {
+        self.active.lock().expect("active lock").contains_key(job_id)
+    }
+
+    /// Whether the job's current run is one started only by `trigger`.
+    pub fn running_with(&self, job_id: &str, trigger: &str) -> bool {
+        self.active.lock().expect("active lock").get(job_id).is_some_and(|entry| entry.trigger == trigger)
     }
 
     pub fn cancel(&self, job_id: &str) -> bool {
@@ -206,7 +254,7 @@ impl Engine {
                 status: Some(RunStatus::Running),
                 message: None,
             };
-            active.insert(job.id.clone(), Active { live, cancel: cancel_tx });
+            active.insert(job.id.clone(), Active { live, cancel: cancel_tx, trigger: trigger.to_string() });
         }
         if let Err(error) = self.history.insert(&run) {
             self.active.lock().expect("active lock").remove(&job.id);
@@ -288,6 +336,9 @@ impl Engine {
         let two_way = matches!(plan.tool, Tool::Bisync { .. });
         if options.repair && two_way {
             return self.repair_two_way(job, plan, run, log).await;
+        }
+        if options.repair && matches!(plan.tool, Tool::Rclone { .. }) {
+            return self.repair_rclone(job, plan, run, log).await;
         }
         if job.mode == Mode::Mirror && !two_way {
             self.check_remote_source(plan).await?;
@@ -859,19 +910,19 @@ impl Engine {
                         return Ok(());
                     }
                 };
-                // One line per file: "= same", "* differs", "- missing in target", "+ only in target", "! error".
+                // One line per file (measured with rclone 1.75.1): "= same", "* differs",
+                // "+ only in the source" (not copied yet), "- only in the target", "! could not check".
                 let text = String::from_utf8_lossy(&output.stdout);
-                let mut differ = 0_i64;
-                let mut missing = 0_i64;
-                let mut errors = 0_i64;
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let mut differing = Vec::new();
+                let (mut missing, mut errors, mut lines) = (0_i64, 0_i64, 0_i64);
                 for line in text.lines() {
-                    let (mark, path) = line.split_at(line.len().min(2));
-                    match mark.trim() {
-                        "*" => {
-                            differ += 1;
-                            log.write_all(format!("{DIFFERS}{path}\n").as_bytes()).await?;
-                        }
-                        "-" => missing += 1,
+                    // "X path": the mark, a space, the path exactly as it is (spaces included).
+                    let Some((mark, path)) = line.split_once(' ') else { continue };
+                    lines += 1;
+                    match mark {
+                        "*" => differing.push(path.to_string()),
+                        "+" => missing += 1,
                         "!" => {
                             errors += 1;
                             log.write_all(format!("! could not check: {path}\n").as_bytes()).await?;
@@ -879,16 +930,54 @@ impl Engine {
                         _ => {}
                     }
                 }
-                run.files_conflicted = differ;
-                run.files_new = missing;
                 run.exit_code = output.status.code();
-                // rclone check exits 1 when it found differences; that is a result, not a failure.
-                let failed = !matches!(output.status.code(), Some(0 | 1)) || errors > 0 && differ == 0 && missing == 0;
-                run.status = if failed { RunStatus::Failed } else if differ > 0 { RunStatus::Partial } else { RunStatus::Succeeded };
-                run.message = if failed {
-                    Some(String::from_utf8_lossy(&output.stderr).lines().last().unwrap_or("rclone check failed").trim().to_string())
+                // A clean result exits 0; differences exit 1. Exit 1 without a single result line,
+                // or a critical error, means rclone could not compare at all (a lost sign-in, a
+                // missing remote): that is a failure, never "no damage".
+                let broken = !matches!(output.status.code(), Some(0 | 1))
+                    || (output.status.code() == Some(1) && lines == 0)
+                    || stderr.contains("CRITICAL")
+                    || stderr.contains("Failed to create file system");
+                if broken {
+                    run.status = RunStatus::Failed;
+                    run.message = Some(stderr.lines().last().unwrap_or("rclone check failed").trim().to_string());
+                    return Ok(());
+                }
+                // Without a hash both sides know, check compares sizes only: no content check.
+                if stderr.contains("No common hash found") {
+                    run.status = RunStatus::Failed;
+                    run.message = Some("source and target share no checksum, so the content cannot be compared without downloading it".into());
+                    return Ok(());
+                }
+                // Changed since the last sync is not damage: only same size and same date with
+                // other content is. Both sides are listed for just the differing files.
+                let mut silent = Vec::new();
+                if !differing.is_empty() {
+                    let source = listing(&plan.program, config, &plan.source, &differing).await?;
+                    let target = listing(&plan.program, config, &plan.target, &differing).await?;
+                    for path in &differing {
+                        let same_look = match (source.get(path), target.get(path)) {
+                            (Some((a_size, a_time)), Some((b_size, b_time))) => a_size == b_size && (*a_time - *b_time).num_seconds().abs() <= 1,
+                            _ => false,
+                        };
+                        if same_look {
+                            silent.push(path.clone());
+                        }
+                    }
+                }
+                for path in &silent {
+                    log.write_all(format!("{DIFFERS}{path}\n").as_bytes()).await?;
+                }
+                run.files_conflicted = silent.len() as i64;
+                run.files_changed = (differing.len() - silent.len()) as i64;
+                run.files_new = missing;
+                run.status = if !silent.is_empty() || errors > 0 { RunStatus::Partial } else { RunStatus::Succeeded };
+                run.message = if !silent.is_empty() {
+                    Some(format!("{} file(s) differ in content although size and date match", silent.len()))
+                } else if errors > 0 {
+                    Some(format!("{errors} file(s) could not be checked"))
                 } else {
-                    (differ > 0).then(|| format!("{differ} file(s) differ in content between source and target"))
+                    None
                 };
             }
         }
@@ -896,12 +985,13 @@ impl Engine {
     }
 
     /// Repairs a two-way job: for every file the last integrity check found, the target's
-    /// version is renamed to "<name>.target-<time>.<ext>" and the source's version copied
-    /// in its place. Nothing is lost, whichever side was damaged; the next sync brings the
-    /// kept version to the source as well, so both sides show both versions.
+    /// version is copied to "<name>.target-<time>.<ext>" and the source's version copied
+    /// over the original. Copy, never move: whatever fails in between, the file is never
+    /// missing (a missing file would make the next sync delete it on the other side too).
+    /// The next sync brings the kept version to the source as well, so both sides show both.
     async fn repair_two_way(&self, job: &Job, plan: &Plan, run: &mut Run, log: &mut BufWriter<tokio::fs::File>) -> Result<()> {
         let Tool::Bisync { config } = &plan.tool else { unreachable!("two-way jobs use bisync") };
-        let paths = self.damaged_paths(&job.id)?;
+        let paths = self.damaged_paths(&job.id, &run.id)?;
         let stamp = archive_stamp(run.started_at);
         let join = |base: &str, path: &str| {
             let base = base.trim_end_matches('/');
@@ -910,11 +1000,13 @@ impl Engine {
         let mut repaired = 0_i64;
         for path in &paths {
             let kept = kept_name(path, "target", &stamp);
-            for (verb, from, to) in [("moveto", join(&plan.target, path), join(&plan.target, &kept)), ("copyto", join(&plan.source, path), join(&plan.target, path))] {
+            for (verb, from, to) in [("copyto", join(&plan.target, path), join(&plan.target, &kept)), ("copyto", join(&plan.source, path), join(&plan.target, path))] {
+                // --ignore-times: the damaged copy has the same size and date, which copyto would skip.
                 let output = Command::new(&plan.program)
                     .arg(verb)
                     .arg(&from)
                     .arg(&to)
+                    .arg("--ignore-times")
                     .arg("--config")
                     .arg(config)
                     .env("LC_ALL", "C")
@@ -939,11 +1031,61 @@ impl Engine {
         Ok(())
     }
 
-    /// The files the job's last integrity check found damaged, from its log.
-    fn damaged_paths(&self, job_id: &str) -> Result<Vec<String>> {
+    /// The files the job's last integrity check found damaged, from its log. A sync since then
+    /// may have changed them, so the list is only used while it is the newest word on the job.
+    fn damaged_paths(&self, job_id: &str, this_run: &str) -> Result<Vec<String>> {
         let Some(log) = self.history.last_verify_log(job_id)? else { return Ok(Vec::new()) };
+        if let Some(checked) = self.history.last_verify(job_id)?
+            && self.history.ran_since(job_id, checked, this_run)?
+        {
+            return Err(Error::Job("the job ran since the last integrity check; run the check again before repairing".into()));
+        }
         let text = std::fs::read_to_string(log).unwrap_or_default();
-        Ok(text.lines().filter_map(|line| line.strip_prefix(DIFFERS)).map(|path| path.trim().to_string()).filter(|path| !path.is_empty()).collect())
+        // The path is exactly what follows the mark, spaces at either end included.
+        Ok(text.lines().filter_map(|line| line.strip_prefix(DIFFERS)).filter(|path| !path.is_empty()).map(str::to_string).collect())
+    }
+
+    /// Repairs a one-way cloud job: only the damaged files are uploaded again, compared by
+    /// nothing (--ignore-times), and the replaced versions go to the archive. A run with
+    /// --checksum would not do: encrypted and many cloud files have no hash to compare.
+    async fn repair_rclone(&self, job: &Job, plan: &Plan, run: &mut Run, log: &mut BufWriter<tokio::fs::File>) -> Result<()> {
+        let Tool::Rclone { config } = &plan.tool else { unreachable!("one-way cloud jobs use rclone") };
+        let paths = self.damaged_paths(&job.id, &run.id)?;
+        if paths.is_empty() {
+            run.status = RunStatus::Succeeded;
+            return Ok(());
+        }
+        let list = self.log_dir.join(format!("{}.repair", run.id));
+        tokio::fs::write(&list, paths.join("\n")).await?;
+        let output = Command::new(&plan.program)
+            .arg("copy")
+            .arg(&plan.source)
+            .arg(&plan.target)
+            .arg("--config")
+            .arg(config)
+            .arg("--files-from-raw")
+            .arg(&list)
+            .arg("--ignore-times")
+            .args(plan.archive_args(&archive_stamp(run.started_at)))
+            .env("LC_ALL", "C")
+            .stdin(Stdio::null())
+            .kill_on_drop(true)
+            .output()
+            .await;
+        let _ = tokio::fs::remove_file(&list).await;
+        let output = output?;
+        run.exit_code = output.status.code();
+        if !output.status.success() {
+            run.status = RunStatus::Failed;
+            run.message = Some(String::from_utf8_lossy(&output.stderr).lines().last().unwrap_or("rclone copy failed").trim().to_string());
+            return Ok(());
+        }
+        for path in &paths {
+            log.write_all(format!("> repaired: {path} (the replaced version is in the archive)\n").as_bytes()).await?;
+        }
+        run.files_changed = paths.len() as i64;
+        run.status = RunStatus::Succeeded;
+        Ok(())
     }
 
     /// Lists the snapshots, removes unfinished ones (not in a dry run), and plans this run into a
@@ -1560,6 +1702,32 @@ fn signal_group(group: Option<i32>, signal: i32) {
 /// Archive folder names sort by time: `2026-09-23_14-05-09`.
 /// Milliseconds are part of the name: two runs in the same second must never share a folder,
 /// or the second would overwrite what the first kept.
+/// Size and modification time of some files under a remote path, keyed by relative path.
+async fn listing(program: &str, config: &Path, spec: &str, paths: &[String]) -> Result<HashMap<String, (i64, chrono::DateTime<Utc>)>> {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    struct Entry {
+        path: String,
+        size: i64,
+        mod_time: chrono::DateTime<Utc>,
+    }
+    let list = std::env::temp_dir().join(format!("clonq-files-{}", uuid::Uuid::new_v4()));
+    tokio::fs::write(&list, paths.join("\n")).await?;
+    let output = Command::new(program)
+        .args(["lsjson", "-R", "--files-only", "--no-mimetype", "--files-from-raw"])
+        .arg(&list)
+        .arg(spec)
+        .arg("--config")
+        .arg(config)
+        .env("LC_ALL", "C")
+        .output()
+        .await;
+    let _ = tokio::fs::remove_file(&list).await;
+    let output = output?;
+    let entries: Vec<Entry> = serde_json::from_slice(&output.stdout).unwrap_or_default();
+    Ok(entries.into_iter().map(|entry| (entry.path, (entry.size, entry.mod_time))).collect())
+}
+
 /// How the integrity check marks a damaged file in its log; a repair reads it back.
 const DIFFERS: &str = "! content differs: ";
 

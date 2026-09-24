@@ -561,9 +561,7 @@ pub async fn save_job(app: AppHandle, state: State<'_, AppState>, job: JobInput)
     }
     let id = job.id.clone().unwrap_or_else(|| new_id(&name));
     let rclone_config = state.config_dir.join("rclone.conf");
-    let before = config.job(&id);
-    let was_encrypted = before.is_some_and(|existing| existing.encrypted);
-    let same_target = before.is_some_and(|existing| existing.target.location == job.target.location && existing.target.path.trim_matches('/') == job.target.path.trim_matches('/'));
+    let was_encrypted = config.job(&id).is_some_and(|existing| existing.encrypted);
     if job.encrypted {
         if !crate::licence::Store::new(&state.config_dir).pro() {
             return Err(Error::Job("encrypted cloud copies are part of clonq Pro: enter a licence in Settings".into()));
@@ -573,17 +571,23 @@ pub async fn save_job(app: AppHandle, state: State<'_, AppState>, job: JobInput)
         }
     }
     // Encrypted and plain files must never share a folder: a mirror would take the others for
-    // leftovers. So encryption starts, stops or moves only into an empty folder.
-    if (job.encrypted || was_encrypted)
-        && !(job.encrypted && was_encrypted && same_target)
-        && let Resolved::Cloud { spec } = &target
+    // leftovers. An encrypted job goes into an empty folder or one that opens with its own
+    // password (edited, moved to a new sign-in, or restored after deleting); a job without
+    // encryption never goes into a folder that holds its encrypted copy.
+    if let Resolved::Cloud { spec } = &target
+        && (job.encrypted || was_encrypted)
         && !cloud::is_empty(&config.rclone_path, &rclone_config, spec).await?
     {
-        return Err(Error::Job(if job.encrypted {
-            "encryption needs an empty target folder; choose a new one".into()
-        } else {
-            "this folder holds the encrypted copy; choose an empty folder for a copy without encryption".into()
-        }));
+        let own = match cloud::crypt_password(&config.rclone_path, &rclone_config, &id).await? {
+            Some(password) => cloud::decrypts(&config.rclone_path, &rclone_config, spec, &password).await?,
+            None => false,
+        };
+        if job.encrypted && !own {
+            return Err(Error::Job("encryption needs an empty target folder; choose a new one".into()));
+        }
+        if !job.encrypted && own {
+            return Err(Error::Job("this folder holds the encrypted copy; choose an empty folder for a copy without encryption".into()));
+        }
     }
     if job.encrypted
         && let Resolved::Cloud { spec } = &target

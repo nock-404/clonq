@@ -356,6 +356,18 @@ pub async fn crypt_password(rclone: &str, config_file: &Path, job_id: &str) -> R
     Ok(Some(String::from_utf8_lossy(&revealed.stdout).trim().to_string()))
 }
 
+/// Whether everything at the top of `spec` opens with `password`: then the folder holds this
+/// job's own encrypted copy (a wrong password or plain files show as "undecryptable").
+pub async fn decrypts(rclone: &str, config_file: &Path, spec: &str, password: &str) -> Result<bool> {
+    let obscured = Command::new(rclone).args(["obscure", password]).output().await?;
+    let obscured = String::from_utf8_lossy(&obscured.stdout).trim().to_string();
+    let remote = format!(":crypt,remote='{}',password='{obscured}':", spec.replace('\'', ""));
+    let output = Command::new(rclone).args(["lsf", "--max-depth", "1", &remote, "--config"]).arg(config_file).output().await?;
+    let listed = String::from_utf8_lossy(&output.stdout);
+    let complaints = String::from_utf8_lossy(&output.stderr);
+    Ok(output.status.success() && !listed.trim().is_empty() && !complaints.contains("undecryptable"))
+}
+
 /// Whether a remote folder holds nothing yet (a folder that does not exist counts as empty).
 pub async fn is_empty(rclone: &str, config_file: &Path, spec: &str) -> Result<bool> {
     let output = Command::new(rclone).args(["lsf", "--max-depth", "1", spec, "--config"]).arg(config_file).output().await?;
