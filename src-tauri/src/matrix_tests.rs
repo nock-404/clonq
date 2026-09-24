@@ -164,7 +164,7 @@ fn collect(root: &Path, dir: &Path, tree: &mut Tree, inside_archive: bool) {
         }
         if path.is_dir() {
             collect(root, &path, tree, inside_archive);
-        } else if name != ".DS_Store" {
+        } else if name != ".DS_Store" && !(inside_archive && name == crate::engine::KEEP) {
             let relative = path.strip_prefix(root).unwrap().to_string_lossy().into_owned();
             tree.insert(relative, fs::read_to_string(&path).unwrap_or_else(|_| "<binary>".into()));
         }
@@ -1297,4 +1297,65 @@ async fn a_versioned_target_must_be_empty_or_hold_only_snapshots() {
     assert!(!crate::versions::only_snapshots_remote(&tool("rsync"), &[], &base).await.unwrap(), "the same through rsync, as on a server");
     fs::remove_dir_all(b.side("dst").join("Photos")).unwrap();
     assert!(crate::versions::only_snapshots_remote(&tool("rsync"), &[], &base).await.unwrap(), "{complete:?}");
+}
+
+#[tokio::test]
+async fn the_archive_of_a_repair_outlives_the_keep_days_and_hides_its_marker() {
+    let b = Bench::new();
+    let mut config = b.config(Mode::Mirror, true, newer_wins());
+    config.jobs[0].archive.keep_days = 1;
+    b.put("src", "a.txt", "alpha");
+    ok(&b.run(&config).await);
+    b.corrupt("dst", "a.txt");
+    run_as(&b, &config, "verify", verify()).await;
+    ok(&run_as(&b, &config, "repair", repair()).await);
+    let archive = b.side("dst").join(ARCHIVE_DIR);
+    let repaired = fs::read_dir(&archive).unwrap().flatten().next().unwrap().path();
+    assert!(repaired.join(crate::engine::KEEP).is_file());
+    // Both made old: the repair's archive and an ordinary one.
+    fs::rename(&repaired, archive.join("2020-01-01_10-00-00-000")).unwrap();
+    fs::create_dir_all(archive.join("2020-01-02_10-00-00-000")).unwrap();
+    fs::write(archive.join("2020-01-02_10-00-00-000/old.txt"), "old").unwrap();
+    b.put("src", "b.txt", "bravo");
+    ok(&b.run(&config).await);
+    assert!(archive.join("2020-01-01_10-00-00-000").exists(), "the repair's archive stays");
+    assert!(!archive.join("2020-01-02_10-00-00-000").exists(), "an ordinary old archive goes");
+    let job = config.job("job").unwrap();
+    let files = crate::archive::files(job, &config, &b.root.join("rclone.conf"), crate::archive::Side::Target, "2020-01-01_10-00-00-000").await.unwrap();
+    assert_eq!(files.iter().map(|file| file.path.as_str()).collect::<Vec<_>>(), vec!["a.txt"], "the marker is not listed");
+}
+
+#[tokio::test]
+async fn the_archive_of_an_encrypted_repair_outlives_the_keep_days() {
+    let b = Bench::new();
+    let mut config = b.encrypted(Mode::Mirror, true).await;
+    config.jobs[0].archive.keep_days = 1;
+    b.put("src", "a.txt", "alpha alpha alpha");
+    ok(&b.run(&config).await);
+    let (path, _) = raw(&b.side("dst")).into_iter().next().unwrap();
+    let at = fs::metadata(&path).unwrap().modified().unwrap();
+    let mut bytes = fs::read(&path).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 0x01;
+    fs::write(&path, bytes).unwrap();
+    fs::File::options().write(true).open(&path).unwrap().set_modified(at).unwrap();
+    run_as(&b, &config, "verify", verify()).await;
+    ok(&run_as(&b, &config, "repair", repair()).await);
+    let conf = b.root.join("rclone.conf");
+    let job = config.job("job").unwrap().clone();
+    let stamp = crate::archive::snapshots(&job, &config, &conf, crate::archive::Side::Target).await.unwrap()[0].stamp.clone();
+    let crypt = crate::cloud::crypt_name("job");
+    let moved = std::process::Command::new(tool("rclone"))
+        .arg("moveto")
+        .arg(format!("{crypt}:{ARCHIVE_DIR}/{stamp}"))
+        .arg(format!("{crypt}:{ARCHIVE_DIR}/2020-01-01_10-00-00-000"))
+        .arg("--config")
+        .arg(&conf)
+        .status()
+        .unwrap();
+    assert!(moved.success());
+    b.put("src", "b.txt", "bravo");
+    ok(&b.run(&config).await);
+    let left = crate::archive::snapshots(&job, &config, &conf, crate::archive::Side::Target).await.unwrap();
+    assert!(left.iter().any(|snapshot| snapshot.stamp == "2020-01-01_10-00-00-000"), "{left:?}");
 }

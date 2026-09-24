@@ -350,6 +350,8 @@ export interface Snapshot {
   stamp: string;
   files: number;
   bytes: number;
+  /** What a repair replaced: never removed by the archive's cleanup. */
+  kept: boolean;
 }
 
 export interface ArchivedFile {

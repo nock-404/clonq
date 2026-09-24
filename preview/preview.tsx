@@ -1037,7 +1037,13 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
         return later(job === "documents-versions" && emptied !== job ? versionStamps : [], 250);
       case "archive_snapshots":
         return later(
-          (archives[job] ?? []).map((item) => ({ stamp: item.stamp, files: item.files.length, bytes: item.files.reduce((sum, [, size]) => sum + size, 0) })),
+          // ?keptArchive=1 marks the oldest archive folder as kept by a repair.
+          (archives[job] ?? []).map((item, index, all) => ({
+            stamp: item.stamp,
+            files: item.files.length,
+            bytes: item.files.reduce((sum, [, size]) => sum + size, 0),
+            kept: Boolean(params.get("keptArchive")) && index === all.length - 1,
+          })),
           250,
         );
       case "archive_files": {

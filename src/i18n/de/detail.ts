@@ -136,6 +136,7 @@ export const detail: Shape<typeof source> = {
     viewLocation: (name) => `${name} ansehen`,
     loading: "Das Archiv wird gelesen …",
     empty: "Bisher ist nichts aufbewahrt. Sobald ein Lauf im Ziel etwas löscht oder überschreibt, erscheint die vorige Fassung hier.",
+    keptByRepair: "bei einer Reparatur ersetzt, bleibt erhalten",
     daysLeft: (days, shown) => (days <= 0 ? "abgelaufen" : days === 1 ? "noch ein Tag" : `noch ${shown} Tage`),
     expiredHint: "Die Frist ist abgelaufen. Der nächste Lauf räumt diesen Stand auf.",
     topLevel: "Oberste Ebene",

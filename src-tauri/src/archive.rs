@@ -16,6 +16,8 @@ pub struct Snapshot {
     pub stamp: String,
     pub files: usize,
     pub bytes: u64,
+    /// What a repair replaced: never removed by the archive's cleanup.
+    pub kept: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -159,13 +161,18 @@ fn parse_list_only(text: &str) -> Vec<ArchivedFile> {
 pub async fn snapshots(job: &Job, config: &Config, rclone_config: &Path, side: Side) -> Result<Vec<Snapshot>> {
     let root = archive_root(job, config, side)?;
     let files = list_files(&root, config, rclone_config).await?;
-    let mut by_stamp: std::collections::BTreeMap<String, (usize, u64)> = std::collections::BTreeMap::new();
+    let mut by_stamp: std::collections::BTreeMap<String, (usize, u64, bool)> = std::collections::BTreeMap::new();
     for file in files {
-        let Some((stamp, _)) = file.path.split_once('/') else { continue };
+        let Some((stamp, rest)) = file.path.split_once('/') else { continue };
         if is_stamp(stamp) {
             let entry = by_stamp.entry(stamp.to_string()).or_default();
-            entry.0 += 1;
-            entry.1 += file.size;
+            // clonq's own markers are not counted as files.
+            if rest == crate::engine::KEEP {
+                entry.2 = true;
+            } else if rest != crate::versions::MARKER && rest != crate::versions::PARTIAL {
+                entry.0 += 1;
+                entry.1 += file.size;
+            }
         }
     }
     // Unfinished snapshots are not offered: they may miss files and are removed on the next run.
@@ -173,7 +180,7 @@ pub async fn snapshots(job: &Job, config: &Config, rclone_config: &Path, side: S
         let complete: std::collections::BTreeSet<String> = version_list(job, config).await?.into_iter().collect();
         by_stamp.retain(|stamp, _| complete.contains(stamp));
     }
-    Ok(by_stamp.into_iter().rev().map(|(stamp, (files, bytes))| Snapshot { stamp, files, bytes }).collect())
+    Ok(by_stamp.into_iter().rev().map(|(stamp, (files, bytes, kept))| Snapshot { stamp, files, bytes, kept }).collect())
 }
 
 /// Files of one snapshot, paths relative to the snapshot.
@@ -187,11 +194,20 @@ pub async fn files(job: &Job, config: &Config, rclone_config: &Path, side: Side,
         .into_iter()
         .filter_map(|file| {
             let rest = file.path.strip_prefix(&format!("{stamp}/"))?;
+            // clonq's own markers are not the user's files.
+            if [crate::versions::MARKER, crate::versions::PARTIAL, crate::engine::KEEP].contains(&rest) {
+                return None;
+            }
             Some(ArchivedFile { path: rest.to_string(), size: file.size })
         })
         .collect();
     files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(files)
+}
+
+/// Excludes for clonq's own marker files at the top of a snapshot or archive folder.
+fn own_markers() -> Vec<String> {
+    [crate::versions::MARKER, crate::versions::PARTIAL, crate::engine::KEEP].iter().map(|name| format!("--exclude=/{name}")).collect()
 }
 
 /// Copies a snapshot (or one path inside it) to a new folder; returns that folder.
@@ -212,7 +228,8 @@ pub async fn restore(job: &Job, config: &Config, rclone_config: &Path, side: Sid
         Resolved::Local(path) => {
             let source = inner.as_ref().map_or(path.join(stamp), |inner| path.join(stamp).join(inner));
             Command::new(&config.rsync_path)
-                .args(["-a", "--mkpath", &format!("--exclude=/{}", crate::versions::MARKER)])
+                .args(["-a", "--mkpath"])
+                .args(own_markers())
                 .arg(rsync_source(&source))
                 .arg(format!("{}/", destination.display()))
                 .status()
@@ -222,7 +239,8 @@ pub async fn restore(job: &Job, config: &Config, rclone_config: &Path, side: Sid
             let source = inner.as_ref().map_or(format!("{remote}/{stamp}"), |inner| format!("{remote}/{stamp}/{inner}"));
             Command::new(&config.rsync_path)
                 .arg(format!("--rsh={}", crate::engine::shell_join(ssh)))
-                .args(["-a", "--secluded-args", &format!("--exclude=/{}", crate::versions::MARKER)])
+                .args(["-a", "--secluded-args"])
+                .args(own_markers())
                 .arg(format!("{source}{}", if inner.is_none() { "/" } else { "" }))
                 .arg(format!("{}/", destination.display()))
                 .status()
@@ -236,7 +254,7 @@ pub async fn restore(job: &Job, config: &Config, rclone_config: &Path, side: Sid
                 None => destination.clone(),
             };
             let verb = if inner.is_some() { "copyto" } else { "copy" };
-            Command::new(&config.rclone_path).arg(verb).arg(&source).arg(&target).arg("--config").arg(rclone_config).status().await?
+            Command::new(&config.rclone_path).arg(verb).arg(&source).arg(&target).args(own_markers()).arg("--config").arg(rclone_config).status().await?
         }
     };
     if !status.success() {
@@ -325,7 +343,7 @@ mod tests {
         let rclone_config = root.join("rclone.conf");
 
         let list = snapshots(&job, &config, &rclone_config, Side::Target).await.unwrap();
-        assert_eq!(list, vec![Snapshot { stamp: stamp.into(), files: 2, bytes: 10 }]);
+        assert_eq!(list, vec![Snapshot { stamp: stamp.into(), files: 2, bytes: 10, kept: false }]);
         let inside = files(&job, &config, &rclone_config, Side::Target, stamp).await.unwrap();
         assert_eq!(inside.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), vec!["a.txt", "sub/b.txt"]);
 

@@ -510,6 +510,9 @@ impl Engine {
         {
             self.finish_snapshot(base_plan, snapshot, run.status == RunStatus::Partial, log).await?;
         }
+        if options.repair && run.status.completed() && snapshot.is_none() {
+            mark_kept(plan, &archive_stamp(run.started_at)).await;
+        }
         if !options.dry_run && run.status.completed() && job.archive.enabled && snapshot.is_none() {
             self.prune_archive(plan, job.archive.keep_days, log).await;
         }
@@ -1091,6 +1094,7 @@ impl Engine {
             run.message = Some(String::from_utf8_lossy(&output.stderr).lines().last().unwrap_or("rclone copy failed").trim().to_string());
             return Ok(());
         }
+        mark_kept(plan, &archive_stamp(run.started_at)).await;
         for path in &paths {
             log.write_all(format!("> repaired: {path} (the replaced version is in the archive)\n").as_bytes()).await?;
         }
@@ -1592,6 +1596,31 @@ async fn delete_snapshots(plan: &Plan, names: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// Marks the archive folder of a repair so the archive's cleanup never removes it. Where the
+/// repair replaced nothing there is no folder, and the marker is simply not written.
+async fn mark_kept(plan: &Plan, stamp: &str) {
+    let folder = format!("{}/{ARCHIVE_DIR}/{stamp}", plan.target.trim_end_matches('/'));
+    let marker = std::env::temp_dir().join(format!("clonq-keep-{}", uuid::Uuid::new_v4()));
+    if std::fs::write(&marker, stamp).is_err() {
+        return;
+    }
+    match (&plan.tool, &plan.target_path) {
+        (Tool::Rsync, Some(target)) => {
+            let dir = target.join(ARCHIVE_DIR).join(stamp);
+            if dir.is_dir() {
+                let _ = std::fs::write(dir.join(KEEP), stamp);
+            }
+        }
+        (Tool::Rsync, None) => {
+            let _ = Command::new(&plan.program).env("LC_ALL", "C").args(plan.rsh()).arg("--secluded-args").arg(&marker).arg(format!("{folder}/{KEEP}")).output().await;
+        }
+        (Tool::Rclone { config } | Tool::Bisync { config }, _) => {
+            let _ = Command::new(&plan.program).arg("copyto").arg(&marker).arg(format!("{folder}/{KEEP}")).arg("--config").arg(config).output().await;
+        }
+    }
+    let _ = std::fs::remove_file(&marker);
+}
+
 /// Removes a folder clonq made (a snapshot, an archive folder) with everything in it. rsync
 /// copies what protects the originals: the "everyone deny delete" ACL macOS puts on
 /// Documents and Desktop, read-only folders, locked files. Those are lifted inside this
@@ -1612,7 +1641,7 @@ fn prune_local(archive: &Path, cutoff: &str) -> Result<usize> {
     let mut removed = 0;
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        if entry.path().is_dir() && is_stamp(&name) && name.as_str() < cutoff {
+        if entry.path().is_dir() && is_stamp(&name) && name.as_str() < cutoff && !entry.path().join(KEEP).exists() {
             remove_tree(&entry.path())?;
             removed += 1;
         }
@@ -1622,8 +1651,14 @@ fn prune_local(archive: &Path, cutoff: &str) -> Result<usize> {
 
 async fn prune_rclone(program: &str, config: &Path, archive: &str, cutoff: &str) -> Result<usize> {
     let listed = cloud::list_dirs(program, config, archive).await.unwrap_or_default();
+    // Folders a repair marked stay; without knowing which those are, nothing is removed.
+    let Ok(marked) = Command::new(program).args(["lsf", "-R", "--files-only", "--include", &format!("/*/{KEEP}"), archive, "--config"]).arg(config).output().await else { return Ok(0) };
+    if !marked.status.success() && !listed.is_empty() {
+        return Ok(0);
+    }
+    let kept: Vec<String> = String::from_utf8_lossy(&marked.stdout).lines().filter_map(|line| line.strip_suffix(&format!("/{KEEP}"))).map(str::to_string).collect();
     let mut removed = 0;
-    for name in listed.into_iter().filter(|name| is_stamp(name) && name.as_str() < cutoff) {
+    for name in listed.into_iter().filter(|name| is_stamp(name) && name.as_str() < cutoff && !kept.contains(name)) {
         let output = Command::new(program).args(["purge", &format!("{archive}/{name}"), "--config"]).arg(config).output().await?;
         if output.status.success() {
             removed += 1;
@@ -1637,15 +1672,23 @@ async fn prune_ssh(plan: &Plan, cutoff: &str) -> Result<usize> {
     // syncs an empty folder over it with a filter that only matches old stamps.
     let archive = format!("{}/{ARCHIVE_DIR}/", plan.target.trim_end_matches('/'));
     let rsh: Vec<String> = plan.base_args.iter().filter(|arg| arg.starts_with("--rsh=")).cloned().collect();
-    let listing = Command::new(&plan.program).env("LC_ALL", "C").args(&rsh).arg("--list-only").arg(&archive).output().await?;
+    let listing = Command::new(&plan.program)
+        .env("LC_ALL", "C")
+        .args(&rsh)
+        .args(["--list-only", "--secluded-args", "-r", "--include=/*/", &format!("--include=/*/{KEEP}"), "--exclude=*"])
+        .arg(&archive)
+        .output()
+        .await?;
     if !listing.status.success() {
         return Ok(0);
     }
-    let old: Vec<String> = String::from_utf8_lossy(&listing.stdout)
-        .lines()
-        .filter_map(|line| line.split_whitespace().last())
-        .filter(|name| is_stamp(name) && *name < cutoff)
-        .map(str::to_string)
+    let text = String::from_utf8_lossy(&listing.stdout);
+    let names: Vec<&str> = text.lines().filter_map(|line| line.split_whitespace().last()).collect();
+    let kept: Vec<&str> = names.iter().filter_map(|name| name.strip_suffix(&format!("/{KEEP}"))).collect();
+    let old: Vec<String> = names
+        .iter()
+        .filter(|name| is_stamp(name) && **name < cutoff && !kept.contains(name))
+        .map(|name| name.to_string())
         .collect();
     if old.is_empty() {
         return Ok(0);
@@ -1653,7 +1696,7 @@ async fn prune_ssh(plan: &Plan, cutoff: &str) -> Result<usize> {
     let empty = std::env::temp_dir().join(format!("clonq-empty-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&empty)?;
     let mut command = Command::new(&plan.program);
-    command.env("LC_ALL", "C").args(&rsh).args(["-r", "--delete"]);
+    command.env("LC_ALL", "C").args(&rsh).args(["-r", "--delete", "--secluded-args"]);
     for name in &old {
         command.arg(format!("--include=/{name}/***"));
     }
@@ -1781,6 +1824,10 @@ async fn listing(program: &str, config: &Path, spec: &str, paths: &[String]) -> 
     let entries: Vec<Entry> = serde_json::from_slice(&output.stdout).unwrap_or_default();
     Ok(entries.into_iter().map(|entry| (entry.path, (entry.size, entry.mod_time))).collect())
 }
+
+/// In an archive folder: the versions a repair replaced, never removed by the archive's cleanup
+/// (if the source was the damaged side, they are the only intact ones).
+pub const KEEP: &str = ".clonq-keep";
 
 /// How the integrity check marks a damaged file in its log; a repair reads it back.
 const DIFFERS: &str = "! content differs: ";

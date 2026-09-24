@@ -366,3 +366,26 @@ async fn box_versioned_removes_an_unfinished_snapshot_with_read_only_folders() {
     assert_eq!(complete.len(), 1);
     fs::set_permissions(r.root.join("src/ReadOnly"), std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
 }
+
+#[tokio::test]
+#[ignore]
+async fn box_archive_cleanup_keeps_what_a_repair_replaced() {
+    let mut r = Remote::new(Mode::Mirror, true);
+    r.config.jobs[0].archive.keep_days = 1;
+    r.put("a.txt", "alpha");
+    ok(&r.run("manual", RunOptions::default()).await);
+    r.corrupt("dst/a.txt");
+    r.run("verify", RunOptions { verify: true, ..Default::default() }).await;
+    ok(&r.run("repair", RunOptions { repair: true, ..Default::default() }).await);
+    let listing = r.box_run(&["ls", &format!("{}/dst/{ARCHIVE_DIR}", r.base)]);
+    let stamp = listing.split_whitespace().next().unwrap_or_else(|| panic!("no archive: {listing}")).to_string();
+    // Both made old: the repair's archive and an ordinary one.
+    r.box_run(&["mv", &format!("{}/dst/{ARCHIVE_DIR}/{stamp}", r.base), &format!("{}/dst/{ARCHIVE_DIR}/2020-01-01_10-00-00-000", r.base)]);
+    r.box_run(&["mkdir", &format!("{}/dst/{ARCHIVE_DIR}/2020-01-02_10-00-00-000", r.base)]);
+    r.box_run(&["touch", &format!("{}/dst/{ARCHIVE_DIR}/2020-01-02_10-00-00-000/old.txt", r.base)]);
+    r.put("b.txt", "bravo");
+    ok(&r.run("manual", RunOptions::default()).await);
+    let left = r.box_run(&["ls", &format!("{}/dst/{ARCHIVE_DIR}", r.base)]);
+    assert!(left.contains("2020-01-01_10-00-00-000"), "the repair's archive stays: {left}");
+    assert!(!left.contains("2020-01-02_10-00-00-000"), "an ordinary old archive goes: {left}");
+}
