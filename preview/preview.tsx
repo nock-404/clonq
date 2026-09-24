@@ -37,6 +37,17 @@ mockIPC(
         const files = params.get("files");
         return files ? { ...scene.overview, totals: { ...scene.overview.totals, files: Number(files) } } : scene.overview;
       }
+      // ?update=covered|notCovered: a newer release is out, with or without licence cover.
+      case "plugin:updater|check":
+        return params.get("update")
+          ? { rid: 1, currentVersion: "0.3.6", version: "0.4.0", date: "2027-10-01 10:00:00.0 +00:00:00", body: "", rawJson: {} }
+          : null;
+      case "licence_covers_update":
+        return params.get("update") === "notCovered"
+          ? { covered: false, updatesUntil: "2027-09-24", renewUrl: "https://licences.example.org/buy" }
+          : { covered: true, updatesUntil: null, renewUrl: null };
+      case "licence_pro":
+        return params.get("licence") !== "none";
       case "encryption_key":
         return "K7Q2M-X9PLA-4TRWZ-H3NCE-8VDJF";
       case "weekly_report": {
@@ -1383,3 +1394,19 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
   }
 }
 // --- end Modus -------------------------------------------------------------------------------
+
+// ?click=<text> presses the first button whose text contains <text>, once it is there.
+const clickParam = params.get("click");
+if (clickParam) {
+  void (async () => {
+    const until = performance.now() + 6000;
+    while (performance.now() < until) {
+      const button = [...document.querySelectorAll("button")].find((item) => (item.textContent ?? "").includes(clickParam));
+      if (button) {
+        button.click();
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  })();
+}

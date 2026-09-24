@@ -130,6 +130,7 @@ export const shell = {
     restartsAfter: "clonq restarts afterwards.",
     notCovered: (until: string) =>
       `Your clonq Pro licence covers versions released until ${until}; this one is newer. After installing it, Pro features stop and jobs that need them no longer run. Everything else keeps working, and existing snapshots stay readable.`,
+    notCoveredShort: "Your clonq Pro licence does not cover this version. Settings has the details.",
     renew: "Renew licence",
     installAnyway: "Install anyway",
     restarting: "clonq is restarting…",

@@ -214,7 +214,7 @@ export function ArchivePanel({ job, revision, side, target, reach, now }: Archiv
           ) : null}
         </>
       ),
-      hint: job.archive.enabled && !snapshot.kept && days <= 0 ? a.expiredHint : undefined,
+      hint: snapshot.kept ? a.keptHint : job.archive.enabled && days <= 0 ? a.expiredHint : undefined,
     };
   });
 

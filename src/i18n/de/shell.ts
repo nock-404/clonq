@@ -132,6 +132,7 @@ export const shell: Shape<typeof source> = {
     install: "Installieren",
     notCovered: (until) =>
       `Deine Lizenz für clonq Pro gilt für Versionen bis zum ${until}; diese ist neuer. Nach der Installation stehen die Pro-Funktionen nicht mehr zur Verfügung, und Jobs, die sie brauchen, laufen nicht mehr. Alles andere funktioniert weiter, vorhandene Snapshots bleiben lesbar.`,
+    notCoveredShort: "Deine Lizenz für clonq Pro gilt nicht für diese Version. Die Einstellungen nennen die Einzelheiten.",
     renew: "Lizenz verlängern",
     installAnyway: "Trotzdem installieren",
     restartsAfter: "clonq startet danach neu.",

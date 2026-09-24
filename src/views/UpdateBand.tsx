@@ -8,7 +8,7 @@ import { UiButton, UiProgressBar } from "../ui";
 import { UiLogo } from "../ui/UiLogo";
 
 /** A newer clonq is out: a small band with one button. Invisible while there is nothing to install. */
-export function UpdateBand() {
+export function UpdateBand({ detailed = false }: { detailed?: boolean }) {
   const update = useUpdate();
   const t = useT().shell.update;
   if (update.phase !== "available" && update.phase !== "downloading" && update.phase !== "restarting") return null;
@@ -21,7 +21,7 @@ export function UpdateBand() {
       </div>
       {update.phase === "available" && !update.cover.covered ? (
         <div className="flex flex-col items-start gap-1.5">
-          <span className="text-[0.6875rem] leading-snug text-warn">{t.notCovered(update.cover.updatesUntil ? formatDate(update.cover.updatesUntil) : "")}</span>
+          <span className="text-[0.6875rem] leading-snug text-warn">{detailed ? t.notCovered(update.cover.updatesUntil ? formatDate(update.cover.updatesUntil) : "") : t.notCoveredShort}</span>
           <div className="flex flex-wrap gap-2">
             {update.cover.renewUrl ? (
               <UiButton variant="primary" onPress={() => void openUrl(update.cover.renewUrl ?? "")}>
@@ -77,7 +77,7 @@ export function UpdateCheck() {
         {t.check}
       </UiButton>
       {line ? <span className={`text-xs ${update.phase === "failed" ? "text-danger" : "text-ink-soft"}`}>{line}</span> : null}
-      <UpdateBand />
+      <UpdateBand detailed />
     </div>
   );
 }
