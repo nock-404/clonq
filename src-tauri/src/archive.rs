@@ -42,6 +42,8 @@ pub enum Side {
     Source,
     #[default]
     Target,
+    /// The snapshots of a versioned job, which lie in the target itself.
+    Snapshots,
 }
 
 fn archive_root(job: &Job, config: &Config, side: Side) -> Result<Resolved> {
@@ -49,6 +51,10 @@ fn archive_root(job: &Job, config: &Config, side: Side) -> Result<Resolved> {
         Side::Target => &job.target,
         Side::Source if job.mode == crate::config::Mode::Bidirectional => &job.source,
         Side::Source => return Err(Error::Job("only two-way jobs keep an archive on the source".into())),
+        Side::Snapshots if job.mode == crate::config::Mode::Versioned => {
+            return locations::resolve(&job.target, config, &locations::mounted_volumes());
+        }
+        Side::Snapshots => return Err(Error::Job("only versioned jobs keep snapshots".into())),
     };
     let target = locations::resolve(place, config, &locations::mounted_volumes())?;
     Ok(match target {
@@ -196,13 +202,18 @@ pub async fn restore(job: &Job, config: &Config, rclone_config: &Path, side: Sid
     let status = match &root {
         Resolved::Local(path) => {
             let source = inner.as_ref().map_or(path.join(stamp), |inner| path.join(stamp).join(inner));
-            Command::new(&config.rsync_path).args(["-a", "--mkpath"]).arg(rsync_source(&source)).arg(format!("{}/", destination.display())).status().await?
+            Command::new(&config.rsync_path)
+                .args(["-a", "--mkpath", &format!("--exclude=/{}", crate::versions::MARKER)])
+                .arg(rsync_source(&source))
+                .arg(format!("{}/", destination.display()))
+                .status()
+                .await?
         }
         Resolved::Remote { destination: remote, ssh, .. } => {
             let source = inner.as_ref().map_or(format!("{remote}/{stamp}"), |inner| format!("{remote}/{stamp}/{inner}"));
             Command::new(&config.rsync_path)
                 .arg(format!("--rsh={}", crate::engine::shell_join(ssh)))
-                .args(["-a", "--secluded-args"])
+                .args(["-a", "--secluded-args", &format!("--exclude=/{}", crate::versions::MARKER)])
                 .arg(format!("{source}{}", if inner.is_none() { "/" } else { "" }))
                 .arg(format!("{}/", destination.display()))
                 .status()
@@ -244,6 +255,23 @@ fn rsync_source(path: &Path) -> String {
 
 fn sanitize(name: &str) -> String {
     name.chars().map(|c| if c == '/' || c == ':' { '-' } else { c }).collect()
+}
+
+/// The complete snapshots of a versioned job, newest first.
+pub async fn version_list(job: &Job, config: &Config) -> Result<Vec<String>> {
+    if job.mode != crate::config::Mode::Versioned {
+        return Err(Error::Job("only versioned jobs keep snapshots".into()));
+    }
+    let (mut complete, _) = match locations::resolve(&job.target, config, &locations::mounted_volumes())? {
+        Resolved::Local(path) => crate::versions::list_local(&path),
+        Resolved::Remote { destination, ssh, .. } => {
+            let rsh = vec![format!("--rsh={}", crate::engine::shell_join(&ssh))];
+            crate::versions::list_remote(&config.rsync_path, &rsh, &format!("{}/", destination.trim_end_matches('/'))).await?
+        }
+        Resolved::Cloud { .. } => return Err(Error::Job("versioned backups need a folder, drive or server as the target".into())),
+    };
+    complete.reverse();
+    Ok(complete)
 }
 
 #[cfg(test)]
@@ -311,3 +339,4 @@ mod tests {
         assert_eq!(sanitize("WORK → M2mini/Box"), "WORK → M2mini-Box");
     }
 }
+

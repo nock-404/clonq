@@ -2001,6 +2001,37 @@ mod tests {
 mod plan_tests {
     use super::*;
 
+    /// The server path of delete_snapshots (rsync syncing an empty folder with a filter) run
+    /// against a local folder: it must remove exactly the named snapshots and nothing else.
+    #[tokio::test]
+    async fn deleting_snapshots_on_a_server_removes_only_those_folders() {
+        let root = std::env::temp_dir().join(format!("clonq-delete-{}", uuid::Uuid::new_v4()));
+        for dir in ["2026-01-01_10-00-00-000", "2026-01-02_10-00-00-000", "2026-01-03_10-00-00-000", "Photos"] {
+            std::fs::create_dir_all(root.join(dir).join("inner")).unwrap();
+            std::fs::write(root.join(dir).join("inner/f.txt"), dir).unwrap();
+        }
+        std::fs::write(root.join("notes.txt"), "user file").unwrap();
+        let rsync = format!("{}/binaries/rsync-aarch64-apple-darwin", env!("CARGO_MANIFEST_DIR"));
+        let plan = Plan {
+            tool: Tool::Rsync,
+            program: rsync,
+            base_args: vec![],
+            source: String::new(),
+            target: root.to_string_lossy().into_owned(),
+            source_path: None,
+            target_path: None,
+        };
+        // "Photos" is no snapshot name and must be ignored even if asked for.
+        let names = vec!["2026-01-01_10-00-00-000".to_string(), "2026-01-02_10-00-00-000".to_string(), "Photos".to_string()];
+        delete_snapshots(&plan, &names).await.unwrap();
+        assert!(!root.join("2026-01-01_10-00-00-000").exists());
+        assert!(!root.join("2026-01-02_10-00-00-000").exists());
+        assert!(root.join("2026-01-03_10-00-00-000/inner/f.txt").exists(), "a snapshot not named must stay");
+        assert!(root.join("Photos/inner/f.txt").exists(), "a user folder must stay");
+        assert_eq!(std::fs::read_to_string(root.join("notes.txt")).unwrap(), "user file");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
     #[test]
     fn rsh_quotes_paths_with_spaces() {
         let joined = shell_join(&["/usr/bin/ssh".into(), "-i".into(), "/Users/m/Library/Application Support/k".into()]);

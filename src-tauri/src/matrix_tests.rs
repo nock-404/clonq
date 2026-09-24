@@ -712,3 +712,43 @@ async fn versioned_refuses_an_empty_source() {
     assert_ne!(run.status, RunStatus::Succeeded);
     assert!(snapshots_in(&b).is_empty());
 }
+
+#[tokio::test]
+async fn versioned_snapshots_are_listed_and_restored_without_the_marker() {
+    use crate::archive::{restore, version_list, Side};
+    let b = Bench::new();
+    let config = b.config(Mode::Versioned, true, newer_wins());
+    b.put("src", "doc.txt", "v1");
+    ok(&b.run(&config).await);
+    b.put("src", "doc.txt", "v2");
+    ok(&b.run(&config).await);
+    let job = &config.jobs[0];
+    let list = version_list(job, &config).await.unwrap();
+    assert_eq!(list.len(), 2);
+    assert!(list[0] > list[1], "newest first");
+    let downloads = b.root.join("downloads");
+    let rclone = b.root.join("rclone.conf");
+    let folder = restore(job, &config, &rclone, Side::Snapshots, &downloads, &list[1], None).await.unwrap();
+    assert_eq!(fs::read_to_string(folder.join("doc.txt")).unwrap(), "v1", "the older snapshot restores the older version");
+    assert!(!folder.join(crate::versions::MARKER).exists(), "the marker is clonq's own and must not be restored");
+}
+
+#[tokio::test]
+async fn versioned_remote_listing_reads_complete_and_unfinished_snapshots() {
+    // The server listing runs rsync --list-only; against a local path it prints the same lines.
+    let b = Bench::new();
+    let config = b.config(Mode::Versioned, true, newer_wins());
+    b.put("src", "doc.txt", "v1");
+    ok(&b.run(&config).await);
+    let unfinished = b.side("dst").join("2099-01-01_00-00-00-000");
+    fs::create_dir_all(&unfinished).unwrap();
+    fs::write(unfinished.join("doc.txt"), "half").unwrap();
+    fs::create_dir_all(b.side("dst").join("Photos")).unwrap();
+    let base = format!("{}/", b.side("dst").display());
+    let (complete, incomplete) = crate::versions::list_remote(&tool("rsync"), &[], &base).await.unwrap();
+    assert_eq!(complete, crate::versions::list_local(&b.side("dst")).0);
+    assert_eq!(incomplete, vec!["2099-01-01_00-00-00-000".to_string()]);
+    // A target folder that does not exist yet has no snapshots, and that is not an error.
+    let missing = format!("{}/", b.root.join("nothing-here").display());
+    assert_eq!(crate::versions::list_remote(&tool("rsync"), &[], &missing).await.unwrap(), (vec![], vec![]));
+}

@@ -133,6 +133,7 @@ pub fn run() {
             commands::archive_snapshots,
             commands::archive_files,
             commands::restore_archive,
+            commands::version_snapshots,
             commands::browse_list,
             commands::browse_preview,
             commands::browse_download,

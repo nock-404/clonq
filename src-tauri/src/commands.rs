@@ -139,6 +139,13 @@ pub async fn archive_files(state: State<'_, AppState>, job_id: String, side: Opt
     crate::archive::files(&job, &config, &state.config_dir.join("rclone.conf"), side.unwrap_or_default(), &stamp).await
 }
 
+/// The snapshots of a versioned job, newest first.
+#[tauri::command]
+pub async fn version_snapshots(state: State<'_, AppState>, job_id: String) -> Result<Vec<String>> {
+    let (job, config) = job_and_config(&state, &job_id)?;
+    crate::archive::version_list(&job, &config).await
+}
+
 /// Restores a snapshot or one file of it into a new folder in Downloads and returns that folder.
 #[tauri::command]
 pub async fn restore_archive(
