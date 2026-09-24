@@ -2,7 +2,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import { api } from "../lib/api";
-import type { Config, JobStats, LiveRun, LocationStatus, MountedVolume, Overview, Run } from "../lib/types";
+import type { Config, JobStats, LiveRun, LocationStatus, MountedVolume, Overview, Run, WeeklyReport } from "../lib/types";
 import { setLanguage } from "../i18n";
 import { setReelStyle } from "../ui/reels/style";
 
@@ -16,6 +16,7 @@ export interface ClonqState {
   /** Stats of every job, by job id; refreshed whenever a run ends. */
   stats: Record<string, JobStats>;
   overview: Overview | null;
+  week: WeeklyReport | null;
   /** Reachability of every location, by location id. */
   locations: Record<string, LocationStatus>;
   /** Drives mounted right now. */
@@ -36,6 +37,7 @@ let state: ClonqState = {
   recent: [],
   stats: {},
   overview: null,
+  week: null,
   locations: {},
   volumes: [],
   dryRuns: {},
@@ -74,13 +76,14 @@ export async function refreshLocations() {
 async function refreshRuns() {
   try {
     const jobs = state.config?.jobs ?? [];
-    const [latest, recent, overview, ...stats] = await Promise.all([
+    const [latest, recent, overview, week, ...stats] = await Promise.all([
       api.latestRuns(),
       api.recentRuns(RECENT_LIMIT),
       api.overview(),
+      api.weeklyReport(),
       ...jobs.map((job) => api.jobStats(job.id)),
     ]);
-    set({ latest: byJob(latest), recent, overview, stats: byJob(stats) });
+    set({ latest: byJob(latest), recent, overview, week, stats: byJob(stats) });
   } catch (error) {
     set({ error: String(error) });
   }

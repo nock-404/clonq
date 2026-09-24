@@ -155,6 +155,13 @@ const MIGRATIONS: &[&str] = &[
      );",
     "ALTER TABLE runs ADD COLUMN files_conflicted INTEGER NOT NULL DEFAULT 0;",
     "ALTER TABLE runs ADD COLUMN plan_key TEXT NOT NULL DEFAULT '';",
+    "CREATE TABLE space_samples (
+         location_id TEXT NOT NULL,
+         at TEXT NOT NULL,
+         total INTEGER NOT NULL,
+         free INTEGER NOT NULL
+     );
+     CREATE INDEX space_location_at ON space_samples (location_id, at DESC);",
 ];
 
 impl History {
@@ -389,6 +396,31 @@ impl History {
             )
             .optional()?;
         Ok(started.as_deref().map(parse_time))
+    }
+
+    /// Keeps one measurement of a location's space.
+    pub fn add_space(&self, location_id: &str, at: DateTime<Utc>, total: u64, free: u64) -> Result<()> {
+        let connection = self.connection.lock().expect("history lock");
+        connection.execute(
+            "INSERT INTO space_samples (location_id, at, total, free) VALUES (?1, ?2, ?3, ?4)",
+            params![location_id, at.to_rfc3339(), total as i64, free as i64],
+        )?;
+        Ok(())
+    }
+
+    /// A location's space measurements since `since`, oldest first: (time, total, free).
+    pub fn space_since(&self, location_id: &str, since: DateTime<Utc>) -> Result<Vec<(DateTime<Utc>, u64, u64)>> {
+        let connection = self.connection.lock().expect("history lock");
+        let mut statement = connection.prepare("SELECT at, total, free FROM space_samples WHERE location_id = ?1 AND at >= ?2 ORDER BY at")?;
+        let samples = statement
+            .query_map(params![location_id, since.to_rfc3339()], |row| {
+                let at: String = row.get(0)?;
+                let total: i64 = row.get(1)?;
+                let free: i64 = row.get(2)?;
+                Ok((parse_time(&at), total.max(0) as u64, free.max(0) as u64))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(samples)
     }
 
     /// The log of the job's newest integrity check.

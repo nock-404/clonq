@@ -19,6 +19,8 @@ export interface UiSettings {
   notifySuccess: boolean;
   reels: Reels;
   language: Language;
+  /** The weekly report as a notification on Monday morning (Pro). */
+  weeklyReport: boolean;
 }
 
 export interface Place {
@@ -71,6 +73,8 @@ export interface Triggers {
   afterJob: string | null;
   /** An integrity check every this many days (Pro). */
   verifyEveryDays: number | null;
+  /** A notice when the job has not succeeded for this many days (Pro). */
+  watchdogDays: number | null;
 }
 
 /** Deleted and overwritten files are kept in `.clonq-archiv/<time>/` on the target. */
@@ -284,6 +288,35 @@ export interface JobStats {
   daily: DayChange[];
   topFolders: FolderChange[];
   totals: Totals;
+}
+
+export interface JobWeek {
+  jobId: string;
+  name: string;
+  runs: number;
+  succeeded: number;
+  failed: number;
+  bytes: number;
+  files: number;
+  lastSuccessAt: string | null;
+  overdueDays: number | null;
+}
+
+export interface TargetSpace {
+  locationId: string;
+  name: string;
+  total: number;
+  free: number;
+  measuredAt: string;
+  daysUntilFull: number | null;
+}
+
+/** The last seven days (clonq Pro's weekly report). */
+export interface WeeklyReport {
+  from: string;
+  to: string;
+  jobs: JobWeek[];
+  targets: TargetSpace[];
 }
 
 export interface Overview {

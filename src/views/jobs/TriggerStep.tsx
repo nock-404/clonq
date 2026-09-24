@@ -1,4 +1,4 @@
-import { CalendarClock, FileClock, Link2, ShieldCheck, Timer, Usb } from "lucide-react";
+import { BellRing, CalendarClock, FileClock, Link2, ShieldCheck, Timer, Usb } from "lucide-react";
 import { locale, useT } from "../../i18n";
 import type { Config, Location } from "../../lib/types";
 import { UiInput, UiKbd } from "../../ui";
@@ -113,6 +113,9 @@ export function TriggerStep({ triggers, onTriggers, enabled, onEnabled, drives, 
             }
           />
         ) : null}
+      </div>
+
+      <div className="hairline flex flex-col rounded-[var(--radius-panel)] bg-well">
         <UiSwitchRow
           icon={ShieldCheck}
           title={r.verify}
@@ -127,6 +130,23 @@ export function TriggerStep({ triggers, onTriggers, enabled, onEnabled, drives, 
                 <UiInput type="number" value={triggers.verifyDays} disabled={!triggers.verify} onChange={(verifyDays) => set({ verifyDays })} />
               </span>
               {r.verifyAfter}
+            </>
+          }
+        />
+        <UiSwitchRow
+          icon={BellRing}
+          title={r.watchdog}
+          description={!pro && !triggers.watchdog ? r.verifyPro : triggers.watchdog ? r.watchdogDescription : undefined}
+          checked={triggers.watchdog}
+          disabled={!pro && !triggers.watchdog}
+          onChange={(watchdog) => set({ watchdog })}
+          inline={
+            <>
+              {r.watchdogBefore}
+              <span className="w-16">
+                <UiInput type="number" value={triggers.watchdogDays} disabled={!triggers.watchdog} onChange={(watchdogDays) => set({ watchdogDays })} />
+              </span>
+              {r.watchdogAfter}
             </>
           }
         />

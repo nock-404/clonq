@@ -42,6 +42,13 @@ pub fn overview(state: State<'_, AppState>) -> Result<Overview> {
     stats::overview(&state.history, &job_ids, chrono::Utc::now())
 }
 
+/// The last seven days: runs, data and space per target, with the watchdog's verdict.
+#[tauri::command]
+pub fn weekly_report(state: State<'_, AppState>) -> Result<crate::report::WeeklyReport> {
+    let config = state.config.read().expect("config lock").clone();
+    crate::report::weekly(&state.history, &config, chrono::Utc::now())
+}
+
 #[tauri::command]
 pub fn set_ui_settings(app: AppHandle, state: State<'_, AppState>, settings: UiSettings) -> Result<Config> {
     let config = {

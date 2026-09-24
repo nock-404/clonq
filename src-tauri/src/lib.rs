@@ -9,6 +9,7 @@ mod glass;
 mod history;
 mod licence;
 mod locations;
+mod report;
 #[cfg(test)]
 mod matrix_tests;
 mod rclone_output;
@@ -129,6 +130,7 @@ pub fn run() {
             commands::run_job,
             commands::verify_job,
             commands::repair_job,
+            commands::weekly_report,
             commands::cancel_job,
             commands::open_main_window,
             commands::quit,

@@ -34,6 +34,8 @@ export interface TriggerDraft {
   afterJob: string | null;
   verify: boolean;
   verifyDays: string;
+  watchdog: boolean;
+  watchdogDays: string;
 }
 
 /** The archive as the form holds it: the days as typed, kept while the archive is off. */
@@ -79,6 +81,8 @@ function triggerDraft(triggers: Triggers | null): TriggerDraft {
     afterJob: triggers?.afterJob ?? null,
     verify: triggers?.verifyEveryDays != null,
     verifyDays: String(triggers?.verifyEveryDays ?? 7),
+    watchdog: triggers?.watchdogDays != null,
+    watchdogDays: String(triggers?.watchdogDays ?? 3),
   };
 }
 
@@ -283,6 +287,7 @@ export function triggerProblem(triggers: TriggerDraft): string | null {
   if (triggers.daily && !TIME.test(triggers.dailyAt.trim())) return t.time;
   if (triggers.after && !triggers.afterJob) return t.noAfterJob;
   if (triggers.verify && wholeNumber(triggers.verifyDays) === null) return t.verifyDays;
+  if (triggers.watchdog && wholeNumber(triggers.watchdogDays) === null) return t.watchdogDays;
   return null;
 }
 
@@ -316,6 +321,7 @@ function toTriggers(triggers: TriggerDraft): Triggers {
     dailyAt: triggers.daily ? triggers.dailyAt.trim() : null,
     afterJob: triggers.after ? triggers.afterJob : null,
     verifyEveryDays: triggers.verify ? wholeNumber(triggers.verifyDays) : null,
+    watchdogDays: triggers.watchdog ? wholeNumber(triggers.watchdogDays) : null,
   };
 }
 

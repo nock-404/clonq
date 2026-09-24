@@ -34,6 +34,30 @@ mockIPC(
         return scene.stats[String((args as { jobId?: string } | undefined)?.jobId)];
       case "overview":
         return scene.overview;
+      case "weekly_report": {
+        // ?week=empty shows a first week without space measurements.
+        const day = 86_400_000;
+        const now = Date.now();
+        const jobs = scene.config.jobs.map((job, index) => ({
+          jobId: job.id,
+          name: job.name,
+          runs: [38, 7, 0, 3][index] ?? 1,
+          succeeded: [38, 6, 0, 3][index] ?? 1,
+          failed: [0, 1, 0, 0][index] ?? 0,
+          bytes: [12_400_000_000, 2_100_000_000, 0, 380_000_000][index] ?? 0,
+          files: [1_204, 310, 0, 41][index] ?? 0,
+          lastSuccessAt: new Date(now - [0.02, 0.4, 9, 1][index]! * day).toISOString(),
+          overdueDays: index === 2 ? 9 : null,
+        }));
+        const targets =
+          params.get("week") === "empty"
+            ? []
+            : [
+                { locationId: "box", name: englishData ? "Storage Box" : "Storage Box", total: 1_000_000_000_000, free: 212_000_000_000, measuredAt: new Date(now).toISOString(), daysUntilFull: 41.6 },
+                { locationId: "m2mini", name: englishData ? "Photos Drive" : "M2mini", total: 2_000_000_000_000, free: 1_310_000_000_000, measuredAt: new Date(now).toISOString(), daysUntilFull: null },
+              ];
+        return { from: new Date(now - 7 * day).toISOString(), to: new Date(now).toISOString(), jobs, targets };
+      }
       case "location_statuses":
         return scene.locations;
       case "mounted_volumes":

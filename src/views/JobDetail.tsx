@@ -74,6 +74,10 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
     "mod+.": () => running && void jobActions.cancel(job.id),
   });
 
+  // The watchdog's verdict (Pro): counted from the last success, like the notification.
+  const lastSuccess = stats?.lastSuccessAt ? Date.parse(stats.lastSuccessAt) : null;
+  const overdueFor = lastSuccess !== null ? Math.floor((now - lastSuccess) / 86_400_000) : 0;
+  const overdue = job.triggers.watchdogDays !== null && lastSuccess !== null && overdueFor >= job.triggers.watchdogDays ? overdueFor : null;
   const curve = running ? live.throughput : last ? ratesOf(last.samples) : [];
   const peak = curve.length > 0 ? Math.max(...curve) : 0;
   const saved = last ? savedPercent(last) : null;
@@ -104,6 +108,7 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
         )}
       </JobHeader>
 
+      {overdue !== null ? <UiNotice tone="danger">{t.shell.overview.week.overdue(overdue)}</UiNotice> : null}
       {remote ? (
         <UiNotice tone="neutral">
           {j.waiting(blockerName, blockerReach)}

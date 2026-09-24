@@ -15,6 +15,7 @@ use crate::commands::EVENT_CONFIG_CHANGED;
 use crate::config::{ARCHIVE_DIR, Config, Job, Language, LocationKind, Mode};
 use crate::engine::RunOptions;
 use crate::history::{Run, RunStatus};
+use crate::report;
 use crate::locations::{self, Resolved};
 
 const TICK: Duration = Duration::from_secs(2);
@@ -165,8 +166,52 @@ pub fn volumes_mounted(app: &AppHandle, uuids: &HashSet<String>) {
     });
 }
 
+/// Watchdog notices and the weekly report (Pro), looked at once a minute.
+fn look_after(app: &AppHandle, config: &Config) {
+    static LAST: Mutex<Option<Instant>> = Mutex::new(None);
+    {
+        let mut last = LAST.lock().expect("look after");
+        if last.is_some_and(|at| at.elapsed() < Duration::from_secs(60)) {
+            return;
+        }
+        *last = Some(Instant::now());
+    }
+    let state = app.state::<AppState>();
+    if !crate::licence::Store::new(&state.config_dir).pro() {
+        return;
+    }
+    let now = Utc::now();
+    let german = config.ui.language.resolved() == Language::De;
+    let mut memory = report::Memory::load(&state.config_dir);
+    let mut changed = false;
+    for job in &config.jobs {
+        let last_success = state.history.last_completed(&job.id).ok().flatten().and_then(|detail| detail.run.finished_at);
+        let Some(days) = report::overdue_days(job, last_success, now) else { continue };
+        // One notice per silence: a new success starts the count again.
+        if memory.watchdog_told.get(&job.id) == Some(&last_success) {
+            continue;
+        }
+        let body = if german { format!("Seit {days} Tagen keine erfolgreiche Sicherung.") } else { format!("No successful backup for {days} days.") };
+        let _ = app.notification().builder().title(&job.name).body(body).show();
+        memory.watchdog_told.insert(job.id.clone(), last_success);
+        changed = true;
+    }
+    if config.ui.weekly_report && !config.jobs.is_empty() && report::report_due(memory.report_sent, now.with_timezone(&Local))
+        && let Ok(week) = report::weekly(&state.history, config, now)
+    {
+        let title = if german { "clonq – Wochenbericht" } else { "clonq – weekly report" };
+        let _ = app.notification().builder().title(title).body(report::summary(&week, german)).show();
+        memory.report_sent = Some(now);
+        changed = true;
+    }
+    if changed {
+        memory.save(&state.config_dir);
+    }
+}
+
 fn tick(app: &AppHandle) {
     let config = config(app);
+    look_after(app, &config);
     let now = Utc::now();
     let history = app.state::<AppState>().history.clone();
     for job in config.jobs.iter().filter(|job| job.enabled) {
@@ -323,6 +368,16 @@ fn is_excluded(path: &Path, root: &Path, excluded: &[String]) -> bool {
 /// Chained jobs and notifications once a run has ended.
 fn after_run(app: &AppHandle, run: &Run) {
     let config = config(app);
+    // Every finished real run measures its target, for the report's "full in N days".
+    if !run.dry_run && run.status.completed()
+        && let Some(job) = config.job(&run.job_id).cloned()
+    {
+        let state = app.state::<AppState>();
+        let (history, rclone_config, measured) = (state.history.clone(), state.config_dir.join("rclone.conf"), config.clone());
+        tauri::async_runtime::spawn(async move {
+            report::record_space(&history, &job, &measured, &rclone_config, Utc::now()).await;
+        });
+    }
     let german = config.ui.language.resolved() == Language::De;
     // A scheduled integrity check speaks up only when it found something or could not finish.
     if run.trigger == reason::VERIFY {

@@ -112,7 +112,7 @@ fn describe_volume(mount_point: &Path) -> Option<MountedVolume> {
     })
 }
 
-fn free_space(path: &Path) -> (Option<u64>, Option<u64>) {
+pub(crate) fn free_space(path: &Path) -> (Option<u64>, Option<u64>) {
     // `df -k` works for any local path and needs no extra crate.
     let Ok(output) = Command::new("/bin/df").arg("-k").arg(path).output() else { return (None, None) };
     let text = String::from_utf8_lossy(&output.stdout);

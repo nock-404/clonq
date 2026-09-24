@@ -79,6 +79,10 @@ export function SettingsView({ state }: SettingsViewProps) {
           <span className="text-xs text-ink-soft">{s.notificationsDetail}</span>
           <UiSwitch label={s.notifySuccess} checked={ui.notifySuccess} onChange={(notifySuccess) => save({ notifySuccess })} />
         </div>
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-xs text-ink-soft">{s.weeklyReportDetail}</span>
+          <UiSwitch label={s.weeklyReport} checked={ui.weeklyReport} onChange={(weeklyReport) => save({ weeklyReport })} />
+        </div>
       </UiPanel>
       <LicencePanel />
       <UiPanel title={s.about}>

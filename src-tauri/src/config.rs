@@ -40,11 +40,18 @@ pub struct UiSettings {
     pub reels: Reels,
     #[serde(default)]
     pub language: Language,
+    /// The weekly report as a notification on Monday morning (Pro).
+    #[serde(default = "yes")]
+    pub weekly_report: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Default for UiSettings {
     fn default() -> Self {
-        Self { accent: Accent::Amber, lamps: true, notify_success: false, reels: Reels::default(), language: Language::default() }
+        Self { accent: Accent::Amber, lamps: true, notify_success: false, reels: Reels::default(), language: Language::default(), weekly_report: true }
     }
 }
 
@@ -254,6 +261,9 @@ pub struct Triggers {
     /// An integrity check every this many days (Pro), counted from the last check.
     #[serde(default)]
     pub verify_every_days: Option<u64>,
+    /// A notice when the job has not succeeded for this many days (Pro).
+    #[serde(default)]
+    pub watchdog_days: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
