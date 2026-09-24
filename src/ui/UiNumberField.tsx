@@ -4,11 +4,11 @@ interface UiNumberFieldProps {
   /** The number as typed, so a half-typed value can be shown and judged. */
   value: string;
   onChange: (value: string) => void;
-  /** The field's name for assistive technology, e.g. "Schutzschwelle in Prozent". */
+  /** The field's name for assistive technology, e.g. "Deletion limit in percent". */
   label: string;
-  /** Words right before the field, e.g. "für". */
+  /** Words right before the field, e.g. "for". */
   before?: string;
-  /** Words right after the field, e.g. "%" or "Tage". */
+  /** Words right after the field, e.g. "%" or "days". */
   after?: string;
   /** Marks the field itself when its value is not accepted. */
   invalid?: boolean;
@@ -21,7 +21,7 @@ interface UiNumberFieldProps {
 }
 
 /**
- * A short whole number inside a sentence, e.g. "für [30] Tage". It carries its own name, and the
+ * A short whole number inside a sentence, e.g. "for [30] days". It carries its own name, and the
  * arrow keys count up and down as in a stepper.
  */
 export function UiNumberField({ value, onChange, label, before, after, invalid = false, disabled = false, min = 0, max = Number.MAX_SAFE_INTEGER, describedBy }: UiNumberFieldProps) {

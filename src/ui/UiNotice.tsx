@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import type { Tone } from "../lib/labels";
 import { UiIconButton } from "./UiIconButton";
 import { toneSoft } from "./tone";
+import { useT } from "../i18n";
 
 interface UiNoticeProps {
   children: ReactNode;
@@ -12,6 +13,7 @@ interface UiNoticeProps {
 }
 
 export function UiNotice({ children, tone = "warn", onDismiss, actions }: UiNoticeProps) {
+  const t = useT();
   return (
     <div className={`flex items-start gap-2 rounded-[var(--radius-control)] px-2.5 py-2 ${toneSoft[tone]}`}>
       <TriangleAlert className="mt-0.5 size-3.5 shrink-0" strokeWidth={2.2} />
@@ -19,7 +21,7 @@ export function UiNotice({ children, tone = "warn", onDismiss, actions }: UiNoti
         {children}
         {actions ? <div className="flex flex-wrap gap-1.5">{actions}</div> : null}
       </div>
-      {onDismiss ? <UiIconButton icon={X} label="Schließen" onPress={onDismiss} /> : null}
+      {onDismiss ? <UiIconButton icon={X} label={t.common.close} onPress={onDismiss} /> : null}
     </div>
   );
 }

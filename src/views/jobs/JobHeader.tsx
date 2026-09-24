@@ -75,7 +75,7 @@ export function JobHeader({ job, config, running, children }: JobHeaderProps) {
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex items-center gap-2">
             <h1 className="line-clamp-2 min-w-0 text-xl font-semibold tracking-tight break-words">{job.name}</h1>
-            <UiBadge>{modeLabel[job.mode]}</UiBadge>
+            <UiBadge>{modeLabel(job.mode)}</UiBadge>
           </div>
           <span className="text-xs break-words text-ink-faint">
             {placeLabel(job.source, config)} → {placeLabel(job.target, config)}

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import type { Tone } from "../lib/labels";
 import { UiKbd } from "./UiKbd";
 import { toneText } from "./tone";
+import { useT } from "../i18n";
 
 export interface UiAction {
   id: string;
@@ -24,6 +25,7 @@ interface UiActionPanelProps {
 
 /** The ⌘K panel: every action of the selected thing, searchable, with its shortcut. */
 export function UiActionPanel({ open, title, actions, onClose }: UiActionPanelProps) {
+  const t = useT();
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const input = useRef<HTMLInputElement>(null);
@@ -116,7 +118,7 @@ export function UiActionPanel({ open, title, actions, onClose }: UiActionPanelPr
                 setIndex(0);
               }}
               onKeyDown={onKeyDown}
-              placeholder="Aktion suchen …"
+              placeholder={t.common.searchActions}
               spellCheck={false}
               className="hairline-t h-9 w-full bg-transparent px-3 text-[0.8125rem] text-ink outline-none placeholder:text-ink-faint focus-visible:outline-none"
             />

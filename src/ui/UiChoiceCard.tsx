@@ -8,7 +8,7 @@ interface UiChoiceCardProps {
   selected: boolean;
   onPress: () => void;
   disabled?: boolean;
-  /** Extra line in the corner, e.g. "kommt bald" or a size. */
+  /** Extra line in the corner, e.g. "coming soon" or a size. */
   aside?: ReactNode;
 }
 

@@ -10,7 +10,7 @@ interface UiStatusLineProps {
   children: ReactNode;
   /** The whole text, for when the line is cut short. */
   title?: string;
-  /** A quiet action right after the text, e.g. "Im Finder zeigen". */
+  /** A quiet action right after the text, e.g. "Show in Finder". */
   action?: ReactNode;
 }
 

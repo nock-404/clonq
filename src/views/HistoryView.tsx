@@ -60,7 +60,7 @@ export function HistoryView({ state }: HistoryViewProps) {
       key: "status",
       header: "Status",
       width: "w-32",
-      render: (run) => <UiBadge tone={statusTone[run.status]}>{statusLabel[run.status]}</UiBadge>,
+      render: (run) => <UiBadge tone={statusTone[run.status]}>{statusLabel(run.status)}</UiBadge>,
     },
     {
       key: "trigger",

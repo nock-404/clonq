@@ -241,7 +241,7 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
 
       {latest ? (
         <span className="text-[0.6875rem] text-ink-faint">
-          Letzter Lauf: {statusLabel[latest.status]} · {formatRelative(latest.startedAt, now)}
+          Letzter Lauf: {statusLabel(latest.status)} · {formatRelative(latest.startedAt, now)}
           {durationSeconds(latest) !== null ? ` · ${formatDuration(durationSeconds(latest) ?? 0)}` : ""}
         </span>
       ) : null}

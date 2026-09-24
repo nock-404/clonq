@@ -1,4 +1,5 @@
 import { ChevronsUpDown } from "lucide-react";
+import { useT } from "../i18n";
 
 export interface UiSelectOption<T extends string> {
   value: T;
@@ -16,7 +17,8 @@ interface UiSelectProps<T extends string> {
 }
 
 /** One choice out of a list, opened as the native macOS menu. */
-export function UiSelect<T extends string>({ value, options, onChange, label, placeholder = "Bitte wählen", disabled = false }: UiSelectProps<T>) {
+export function UiSelect<T extends string>({ value, options, onChange, label, placeholder, disabled = false }: UiSelectProps<T>) {
+  const t = useT();
   return (
     <span className="relative inline-flex min-w-0">
       <select
@@ -34,7 +36,7 @@ export function UiSelect<T extends string>({ value, options, onChange, label, pl
       >
         {value === null ? (
           <option value="" disabled>
-            {placeholder}
+            {placeholder ?? t.common.choose}
           </option>
         ) : null}
         {options.map((option) => (

@@ -1,5 +1,6 @@
 import { Check, Copy } from "lucide-react";
 import { copyWords, useCopyValue } from "./useCopyValue";
+import { useT } from "../i18n";
 import { UiIconButton } from "./UiIconButton";
 
 export interface UiCopyItem {
@@ -34,16 +35,17 @@ export function UiCopyList({ items, label }: UiCopyListProps) {
 }
 
 function CopyRow({ item }: { item: UiCopyItem }) {
+  const t = useT();
   const { text, state, copy } = useCopyValue<HTMLSpanElement>(`${item.prefix ?? ""}${item.value}`);
   return (
     <li className="flex flex-col pt-1 pr-1 pb-2 pl-3 not-last:hairline-b">
       {/* One fixed height, so the note after copying does not move the value; the button may reach into the padding. */}
       <span className="flex h-6 items-center gap-2">
         <span className="min-w-0 flex-1 truncate font-mono text-[0.625rem] font-medium tracking-wider text-ink-faint uppercase">{item.label}</span>
-        {state !== "idle" ? <span className="shrink-0 text-[0.6875rem] leading-none text-accent">{copyWords[state]}</span> : null}
+        {state !== "idle" ? <span className="shrink-0 text-[0.6875rem] leading-none text-accent">{copyWords(state)}</span> : null}
         <UiIconButton
           icon={state === "copied" ? Check : Copy}
-          label={`${item.label} kopieren`}
+          label={t.common.copyNamed(item.label)}
           tone={state === "copied" ? "accent" : "neutral"}
           onPress={() => void copy()}
         />

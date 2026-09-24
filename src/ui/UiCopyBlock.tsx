@@ -1,6 +1,7 @@
 import { Check, Copy } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { UiIconButton } from "./UiIconButton";
+import { useT } from "../i18n";
 
 interface UiCopyBlockProps {
   value: string;
@@ -13,6 +14,7 @@ interface UiCopyBlockProps {
  * ⌘C copies it.
  */
 export function UiCopyBlock({ value, label }: UiCopyBlockProps) {
+  const t = useT();
   const text = useRef<HTMLSpanElement>(null);
   const [state, setState] = useState<"idle" | "copied" | "selected">("idle");
 
@@ -46,10 +48,10 @@ export function UiCopyBlock({ value, label }: UiCopyBlockProps) {
           {value}
         </span>
         {state !== "idle" ? (
-          <span className="text-[0.6875rem] text-accent">{state === "copied" ? "In die Zwischenablage kopiert." : "Markiert. Mit ⌘C kopieren."}</span>
+          <span className="text-[0.6875rem] text-accent">{state === "copied" ? t.common.copied : t.common.selectedForCopy}</span>
         ) : null}
       </div>
-      <UiIconButton icon={state === "copied" ? Check : Copy} label="Kopieren" tone={state === "copied" ? "accent" : "neutral"} onPress={() => void copy()} />
+      <UiIconButton icon={state === "copied" ? Check : Copy} label={t.common.copy} tone={state === "copied" ? "accent" : "neutral"} onPress={() => void copy()} />
     </div>
   );
 }

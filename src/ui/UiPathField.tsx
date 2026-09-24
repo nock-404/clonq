@@ -3,10 +3,10 @@ import { UiButton } from "./UiButton";
 
 interface UiPathFieldProps {
   label: string;
-  /** The chosen path as it should read, e.g. "~/Pictures/Fotoarchiv"; null while nothing is chosen. */
+  /** The chosen path as it should read, e.g. "~/Pictures/Photo archive"; null while nothing is chosen. */
   path: string | null;
   placeholder: string;
-  /** A button at the end of the field, e.g. "Anderer Ordner …". */
+  /** A button at the end of the field, e.g. "Choose another folder…". */
   action?: { label: string; onPress: () => void; disabled?: boolean };
   hint?: ReactNode;
 }

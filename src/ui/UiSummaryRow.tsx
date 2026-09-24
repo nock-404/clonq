@@ -8,7 +8,7 @@ interface UiSummaryRowProps {
   detail?: ReactNode;
   /** Makes the whole row a button that leads to where the value is set. */
   onPress?: () => void;
-  /** What pressing does, for assistive technology, e.g. "Quelle ändern". */
+  /** What pressing does, for assistive technology, e.g. "Change source". */
   pressLabel?: string;
 }
 

@@ -267,11 +267,11 @@ export function LocationDetail({ state, location, now }: LocationDetailProps) {
                       <UiBadge tone={source ? "accent" : "neutral"}>{source ? "Quelle" : "Ziel"}</UiBadge>
                       <span className="w-16">
                         <UiText variant="caption" tone="neutral">
-                          {modeLabel[job.mode]}
+                          {modeLabel(job.mode)}
                         </UiText>
                       </span>
                       <span className="w-28 text-right">
-                        <UiText variant="caption" tone={latest ? statusTone[latest.status] : "neutral"} title={latest ? statusLabel[latest.status] : undefined}>
+                        <UiText variant="caption" tone={latest ? statusTone[latest.status] : "neutral"} title={latest ? statusLabel(latest.status) : undefined}>
                           {latest ? formatRelative(latest.startedAt, now) : "noch nie gelaufen"}
                         </UiText>
                       </span>

@@ -6,7 +6,7 @@ interface UiLinkButtonProps {
   title?: string;
 }
 
-/** A quiet text action inside a line, e.g. "ändern" next to a summary value. */
+/** A quiet text action inside a line, e.g. "Change" next to a summary value. */
 export function UiLinkButton({ children, onPress, title }: UiLinkButtonProps) {
   return (
     <button

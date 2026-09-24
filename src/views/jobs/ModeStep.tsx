@@ -152,7 +152,7 @@ export function ModeStep({
             key={option.mode}
             layout="tall"
             art={<UiModeDiagram mode={option.mode} active={mode === option.mode} extraLabel={option.extra} />}
-            title={modeLabel[option.mode]}
+            title={modeLabel(option.mode)}
             shortcut={option.key}
             description={option.description}
             selected={mode === option.mode}

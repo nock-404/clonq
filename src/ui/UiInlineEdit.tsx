@@ -4,12 +4,13 @@ import { UiButton } from "./UiButton";
 import { UiIconButton } from "./UiIconButton";
 import { UiInput } from "./UiInput";
 import { UiKbd } from "./UiKbd";
+import { useT } from "../i18n";
 
 interface UiInlineEditProps {
   value: string;
   /** Saves the new value; resolves to an error text, or null when it worked. */
   onSave: (value: string) => Promise<string | null>;
-  /** Names the action, e.g. "Umbenennen". */
+  /** Names the action, e.g. "Rename". */
   label: string;
   /** How the value looks while it is not being edited. */
   children: ReactNode;
@@ -22,6 +23,7 @@ interface UiInlineEditProps {
 
 /** Shows a value with a pencil next to it; the pencil turns it into a field. Enter saves, Escape cancels. */
 export function UiInlineEdit({ value, onSave, label, children, keys, editing, onEditingChange }: UiInlineEditProps) {
+  const t = useT();
   const [ownEditing, setOwnEditing] = useState(false);
   const isEditing = editing ?? ownEditing;
   const [draft, setDraft] = useState(value);
@@ -95,10 +97,10 @@ export function UiInlineEdit({ value, onSave, label, children, keys, editing, on
           />
         </div>
         <UiButton variant="primary" keys={busy || draft.trim() === "" ? undefined : ["↵"]} disabled={busy || draft.trim() === ""} onPress={() => void save()}>
-          {busy ? "Wird gespeichert …" : "Speichern"}
+          {busy ? t.common.saving : t.common.save}
         </UiButton>
         <UiButton variant="ghost" keys={["esc"]} onPress={() => setEditing(false)}>
-          Abbrechen
+          {t.common.cancel}
         </UiButton>
       </div>
       {error ? <span className="text-[0.6875rem] text-danger">{error}</span> : null}

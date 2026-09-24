@@ -89,7 +89,7 @@ export function RunSheet({ open, runId, state, onClose }: RunSheetProps) {
       {run ? (
         <div className="flex flex-col gap-4">
           <div className="flex items-center gap-2">
-            <UiBadge tone={statusTone[run.status]}>{statusLabel[run.status]}</UiBadge>
+            <UiBadge tone={statusTone[run.status]}>{statusLabel(run.status)}</UiBadge>
             {would ? <UiBadge tone="accent">Nichts wurde verändert</UiBadge> : null}
           </div>
           {run.message ? <UiNotice tone={run.status === "failed" ? "danger" : "warn"}>{messageLabel(run.message)}</UiNotice> : null}

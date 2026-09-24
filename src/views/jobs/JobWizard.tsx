@@ -378,7 +378,7 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
 
   const triggers = input?.triggers;
   const automatic = triggers ? hasAutomatic(triggers) : false;
-  const sourceTag: UiTapeTag | null = draft.mode ? { text: modeLabel[draft.mode] } : null;
+  const sourceTag: UiTapeTag | null = draft.mode ? { text: modeLabel(draft.mode) } : null;
   // A two-way job carries its conflict rule under the tape, with the whole rule as the title.
   const twoWay = draft.mode === "bidirectional";
   const conflictNote: UiTapeTag | null = twoWay

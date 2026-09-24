@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect } from "react";
 import { UiButton } from "./UiButton";
 import { UiIconButton } from "./UiIconButton";
+import { useT } from "../i18n";
 
 export interface UiToastMessage {
   /** Changes for every new message, so the timer starts over. */
@@ -20,6 +21,7 @@ interface UiToastProps {
 
 /** A short confirmation at the bottom of the window, with at most one action, e.g. undo. */
 export function UiToast({ message, onDismiss }: UiToastProps) {
+  const t = useT();
   useEffect(() => {
     if (!message) return;
     const timer = window.setTimeout(onDismiss, message.duration ?? 5000);
@@ -52,7 +54,7 @@ export function UiToast({ message, onDismiss }: UiToastProps) {
                 {message.action.label}
               </UiButton>
             ) : null}
-            <UiIconButton icon={X} label="Ausblenden" onPress={onDismiss} />
+            <UiIconButton icon={X} label={t.common.dismiss} onPress={onDismiss} />
           </motion.div>
         ) : null}
       </AnimatePresence>

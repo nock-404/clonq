@@ -1,4 +1,5 @@
 import { useRef, useState, type KeyboardEvent } from "react";
+import { useT } from "../i18n";
 
 interface UiTimeFieldProps {
   /** "HH:MM", 24 hours. */
@@ -20,6 +21,7 @@ function split(value: string): [string, string] {
  * themselves, the arrow keys count up and down, and whatever is typed ends up as a valid time.
  */
 export function UiTimeField({ value, onChange, label, disabled = false }: UiTimeFieldProps) {
+  const t = useT();
   const [hours, minutes] = split(value);
   const [editing, setEditing] = useState<{ part: 0 | 1; text: string } | null>(null);
   const minuteRef = useRef<HTMLInputElement>(null);
@@ -68,7 +70,7 @@ export function UiTimeField({ value, onChange, label, disabled = false }: UiTime
       <input
         ref={part === 0 ? hourRef : minuteRef}
         inputMode="numeric"
-        aria-label={`${label}, ${part === 0 ? "Stunden" : "Minuten"}`}
+        aria-label={part === 0 ? t.common.hours(label) : t.common.minutes(label)}
         value={shown}
         disabled={disabled}
         onChange={(event) => type(part, event.target.value)}

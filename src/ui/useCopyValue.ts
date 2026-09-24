@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { texts } from "../i18n";
 
-/** How long "kopiert" or "markiert" stays visible. */
+/** How long "copied" or "selected" stays visible. */
 const SHOWN_MS = 2400;
 
 export type CopyState = "idle" | "copied" | "selected";
@@ -41,7 +42,7 @@ export function useCopyValue<T extends HTMLElement>(value: string) {
 }
 
 /** What the user reads after pressing copy. */
-export const copyWords: Record<Exclude<CopyState, "idle">, string> = {
-  copied: "In die Zwischenablage kopiert.",
-  selected: "Markiert. Mit ⌘C kopieren.",
-};
+export function copyWords(state: Exclude<CopyState, "idle">): string {
+  const t = texts().common;
+  return state === "copied" ? t.copied : t.selectedForCopy;
+}

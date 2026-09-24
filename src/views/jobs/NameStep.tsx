@@ -77,7 +77,7 @@ export function NameStep({ name, suggestion, suggested, taken, onName, ring, onR
                 pressLabel="Art und Ausschlüsse ändern"
                 detail={input.excludes.length > 0 ? <span className="font-mono">ohne {input.excludes.join("  ")}</span> : "Keine Ausschlüsse"}
               >
-                {modeLabel[input.mode]}
+                {modeLabel(input.mode)}
                 {deletesIn(input.mode) ? `, Schutzschwelle ${input.maxDeletePercent} %` : ""}
               </UiSummaryRow>
               {input.mode === "bidirectional" && input.conflicts ? (

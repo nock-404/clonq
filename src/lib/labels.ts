@@ -1,22 +1,16 @@
-// Every user-facing word for states and modes, in one place.
+// Every user-facing word for states and modes, in one place. The words come from the
+// catalog at call time, because the language can change while the app runs.
 
+import { locale, texts } from "../i18n";
 import type { Config, Location, Mode, Place, Reach, RunStatus } from "./types";
 
-export const statusLabel: Record<RunStatus, string> = {
-  running: "Läuft",
-  succeeded: "Erfolgreich",
-  partial: "Mit Warnungen",
-  blocked: "Gestoppt",
-  failed: "Fehlgeschlagen",
-  cancelled: "Abgebrochen",
-};
+export function statusLabel(status: RunStatus): string {
+  return texts().common.status[status];
+}
 
-export const modeLabel: Record<Mode, string> = {
-  mirror: "Spiegel",
-  backup: "Backup",
-  blind: "Blind Backup",
-  bidirectional: "Beidseitig",
-};
+export function modeLabel(mode: Mode): string {
+  return texts().common.mode[mode];
+}
 
 export type Tone = "neutral" | "accent" | "ok" | "warn" | "danger";
 
@@ -35,21 +29,17 @@ export function locationOf(place: Place, config: Config | null): Location | unde
   return config?.locations.find((location) => location.id === place.location);
 }
 
-/** "M2mini/WORK", "Storage Box/M2mini", "Schreibtisch" – a location name plus the path inside it. */
+/** "M2mini/WORK", "Storage Box/M2mini", "Desktop" – a location name plus the path inside it. */
 export function placeLabel(place: Place, config: Config | null): string {
   const location = locationOf(place, config);
-  const name = location?.name ?? "unbekannter Ort";
+  const name = location?.name ?? texts().common.unknownLocation;
   const path = place.path.replace(/^\/+|\/+$/g, "");
   return path ? `${name}/${path}` : name;
 }
 
-export const locationKindLabel: Record<Location["kind"]["type"], string> = {
-  folder: "Ordner auf dem Mac",
-  volume: "Laufwerk",
-  ssh: "Server (SSH)",
-  smb: "Netzlaufwerk",
-  cloud: "Cloud",
-};
+export function locationKindLabel(kind: Location["kind"]["type"]): string {
+  return texts().common.locationKind[kind];
+}
 
 export function locationDetail(location: Location): string {
   switch (location.kind.type) {
@@ -67,99 +57,97 @@ export function locationDetail(location: Location): string {
 }
 
 export function reachLabel(reach: Reach | undefined): { text: string; tone: Tone } {
+  const t = texts().common.reach;
   switch (reach?.state) {
     case "connected":
-      return { text: "verbunden", tone: "ok" };
+      return { text: t.connected, tone: "ok" };
     case "disconnected":
-      return { text: "nicht angeschlossen", tone: "neutral" };
+      return { text: t.disconnected, tone: "neutral" };
     case "missing":
-      return { text: "Ordner fehlt", tone: "danger" };
+      return { text: t.missing, tone: "danger" };
     case "untested":
-      return { text: "wird geprüft", tone: "neutral" };
+      return { text: t.untested, tone: "neutral" };
     case "failed":
-      return { text: "keine Verbindung", tone: "danger" };
+      return { text: t.failed, tone: "danger" };
     default:
-      return { text: "unbekannt", tone: "neutral" };
+      return { text: t.unknown, tone: "neutral" };
   }
 }
 
-/** Messages come from the Rust side in English; the known ones get German words. */
+/** Messages come from the Rust side in terse English; the known ones get a proper sentence in the interface language. */
 export function messageLabel(message: string): string {
+  const t = texts().messages;
   const rules: [RegExp, (m: RegExpMatchArray) => string][] = [
     // More specific than "source … does not exist" below, so it comes first.
-    [/^source folder (.+) does not exist$/, (m) => `Den Quellordner ${tidy(m[1])} gibt es nicht`],
-    [/^the deletion limit must be between 0 and 100 %$/, () => "Die Schutzschwelle muss zwischen 0 und 100 % liegen."],
-    [/^(.+) cannot be read$/, (m) => `${tidy(m[1])} lässt sich nicht lesen`],
-    [/^directory not found$/, () => "Diesen Ordner gibt es nicht mehr."],
-    [/^object not found$/, () => "Diese Datei gibt es nicht mehr."],
+    [/^source folder (.+) does not exist$/, (m) => t.sourceFolderMissing(tidy(m[1]))],
+    [/^the deletion limit must be between 0 and 100 %$/, () => t.deletionLimitRange],
+    [/^(.+) cannot be read$/, (m) => t.cannotRead(tidy(m[1]))],
+    [/^directory not found$/, () => t.directoryGone],
+    [/^object not found$/, () => t.objectGone],
     // The rest of these messages is English system text; it stays out of the sentence.
-    [/^file system: Permission denied/, () => "clonq hat für diese Datei keine Berechtigung."],
-    [/^file system: No such file or directory/, () => "Diese Datei oder diesen Ordner gibt es nicht mehr."],
-    [/^file system: /, () => "Der Zugriff auf das Dateisystem ist fehlgeschlagen."],
-    [/^source (.+) does not exist$/, (m) => `Quelle ${tidy(m[1])} gibt es nicht`],
-    [/^source (.+) is empty, nothing is changed$/, (m) => `Quelle ${tidy(m[1])} ist leer – es wurde nichts verändert`],
-    [/^source (.+) is not a folder$/, (m) => `Quelle ${tidy(m[1])} ist kein Ordner`],
-    [/^target folder (.+) does not exist$/, (m) => `Zielordner ${tidy(m[1])} gibt es nicht`],
-    [/^volume (.+) is not connected$/, (m) => `${tidy(m[1])} ist nicht angeschlossen`],
+    [/^file system: Permission denied/, () => t.permissionDenied],
+    [/^file system: No such file or directory/, () => t.noSuchFile],
+    [/^file system: /, () => t.fileSystemFailed],
+    [/^source (.+) does not exist$/, (m) => t.sourceMissing(tidy(m[1]))],
+    [/^source (.+) is empty, nothing is changed$/, (m) => t.sourceEmpty(tidy(m[1]))],
+    [/^source (.+) is not a folder$/, (m) => t.sourceNotFolder(tidy(m[1]))],
+    [/^target folder (.+) does not exist$/, (m) => t.targetFolderMissing(tidy(m[1]))],
+    [/^volume (.+) is not connected$/, (m) => t.volumeNotConnected(tidy(m[1]))],
     [
       /^would delete (\d+) of (\d+) entries on the target \(([\d.]+) %\), limit is ([\d.]+) %$/,
-      (m) => `Würde ${count(m[1])} von ${count(m[2])} Einträgen im Ziel löschen (${decimal(m[3])} %), erlaubt sind ${decimal(m[4])} %`,
+      (m) => t.wouldDelete(count(m[1]), count(m[2]), decimal(m[3]), decimal(m[4])),
     ],
-    [
-      /^deletion limit reached \((\d+) allowed\), the remaining deletions were skipped$/,
-      (m) => `Löschgrenze erreicht (${count(m[1])} erlaubt) – weitere Löschungen wurden übersprungen`,
-    ],
-    [/^location (.+) does not exist$/, () => "Einer der Orte dieses Jobs existiert nicht mehr"],
-    [/^folder (.+) does not exist$/, (m) => `Ordner ${tidy(m[1])} gibt es nicht`],
-    [/^(.+) is not connected$/, (m) => `${tidy(m[1])} ist nicht angeschlossen`],
-    [/^source and target are the same folder$/, () => "Quelle und Ziel sind derselbe Ordner"],
-    [/^the target lies inside the source; it would copy itself$/, () => "Das Ziel liegt in der Quelle – clonq würde sich selbst kopieren"],
-    [/^the source lies inside the target; a mirror would delete everything around it$/, () => "Die Quelle liegt im Ziel – ein Spiegel würde alles drumherum löschen"],
-    [/^a name is required$/, () => "Bitte einen Namen eingeben"],
-    [/^login refused: wrong user, password or key$/, () => "Anmeldung abgelehnt: Benutzer, Passwort oder Schlüssel falsch"],
-    [/^host name not found$/, () => "Server-Adresse nicht gefunden"],
-    [/^the server refused the connection on this port$/, () => "Der Server lehnt die Verbindung auf diesem Port ab"],
-    [/^no answer from the server \(timeout\)$/, () => "Keine Antwort vom Server (Zeitüberschreitung)"],
-    [/^still used by (.+)$/, (m) => `Wird noch benutzt von: ${m[1]}`],
-    [/^(.+) is already a location$/, (m) => `${tidy(m[1])} ist schon als Ort angelegt`],
-    [/^folders on external drives are added as a drive, not as a folder$/, () => "Ordner auf externen Laufwerken bitte als Laufwerk hinzufügen"],
-    [/^two-way sync stopped: .*too many deletes \(>(\d+)%, (\d+) of (\d+)\)/, (m) => `Beidseitiger Abgleich gestoppt: ${count(m[2])} von ${count(m[3])} Dateien würden gelöscht, erlaubt sind ${m[1]} %`],
-    [/^share (.+) is not connected$/, (m) => `Die Freigabe ${m[1]} ist nicht verbunden`],
-    [/^the address must start with smb:\/\/$/, () => "Die Adresse muss mit smb:// beginnen"],
-    [/^the address has no server$/, () => "In der Adresse fehlt der Server"],
-    [/^the address has no share name, e\.g\. smb:\/\/nas\/daten$/, () => "In der Adresse fehlt die Freigabe, zum Beispiel smb://nas/daten"],
-    [/^a user is required$/, () => "Bitte einen Benutzer eingeben"],
-    [/^the keychain refused the password: (.+)$/, (m) => `Der Schlüsselbund hat das Passwort abgelehnt: ${m[1]}`],
-    [/^the share could not be connected: (.*)$/, (m) => `Die Freigabe ließ sich nicht verbinden${m[1] ? `: ${m[1]}` : ""}`],
-    [/^the sign-in did not finish within five minutes$/, () => "Die Anmeldung wurde nicht innerhalb von fünf Minuten abgeschlossen"],
-    [/^no answer from the cloud \(timeout\)$/, () => "Keine Antwort vom Cloud-Speicher (Zeitüberschreitung)"],
-    [/^(.+) is required$/, (m) => `${m[1]} fehlt noch`],
-    [/^unknown cloud provider (.+)$/, (m) => `Unbekannter Cloud-Anbieter: ${m[1]}`],
-    [/^(.+) cannot be created: (.+)$/, (m) => `${tidy(m[1])} lässt sich nicht anlegen: ${m[2]}`],
-    [/^path (.+) must not climb out of its location$/, () => "Der Pfad darf den Ort nicht verlassen"],
-    [/^(.+) has not been tested yet$/, (m) => `${m[1]} wird noch geprüft`],
-    [/^(.+) no longer exists$/, (m) => `${m[1]} gibt es nicht mehr`],
-    [/^choose a location$/, () => "Bitte einen Ort wählen"],
-    [/^the jobs would start each other in a circle$/, () => "Die Jobs würden sich gegenseitig endlos starten"],
-    [/^the interval must be between 1 minute and one year$/, () => "Der Abstand muss zwischen einer Minute und einem Jahr liegen"],
-    [/^(.+) already exists$/, (m) => `${m[1]} gibt es dort schon`],
-    [/^the new name must be a plain name$/, () => "Der neue Name darf keinen Schrägstrich enthalten"],
-    [/^the file is too large for a preview$/, () => "Die Datei ist für eine Vorschau zu groß"],
-    [/^there is no preview for this kind of file$/, () => "Für diese Art Datei gibt es keine Vorschau"],
-    [/^moving to the Trash failed: (.+)$/, () => "Die Datei ließ sich nicht in den Papierkorb legen."],
-    [/^the location itself cannot be deleted here$/, () => "Der Ort selbst lässt sich hier nicht löschen"],
-    [/^restoring from the archive failed$/, () => "Das Wiederherstellen aus dem Archiv ist fehlgeschlagen"],
-    [/^(.+) is not an archive folder$/, (m) => `${m[1]} ist kein Archivordner`],
-    [/^path must not climb out of the archive$/, () => "Der Pfad darf das Archiv nicht verlassen"],
-    [/^the copy failed$/, () => "Das Kopieren ist fehlgeschlagen"],
-    [/^rename failed$/, () => "Das Umbenennen ist fehlgeschlagen"],
-    [/^the server's key was not read; start again$/, () => "Der Schlüssel des Servers wurde nicht gelesen. Bitte die Fingerabdrücke neu lesen."],
-    [/^unknown server draft; start again$/, () => "Dieser Entwurf für den Server ist unbekannt. Bitte von vorn beginnen."],
-    [/^the server's host key is not confirmed yet$/, () => "Der Schlüssel des Servers ist noch nicht bestätigt. Bitte die Fingerabdrücke prüfen."],
-    [/^the server's host key changed; check it before trusting it again$/, () => "Der Schlüssel des Servers hat sich geändert. Bitte die Fingerabdrücke prüfen, bevor clonq ihm wieder vertraut."],
-    [/^(.+) must be a single line$/, (m) => `${m[1]} darf keinen Zeilenumbruch enthalten`],
-    [/^source (.+) does not exist$/, (m) => `Quelle ${tidy(m[1])} gibt es nicht`],
-    [/^the app quit during this run$/, () => "clonq wurde während des Laufs beendet"],
+    [/^deletion limit reached \((\d+) allowed\), the remaining deletions were skipped$/, (m) => t.deletionLimitReached(count(m[1]))],
+    [/^location (.+) does not exist$/, () => t.locationGone],
+    [/^folder (.+) does not exist$/, (m) => t.folderMissing(tidy(m[1]))],
+    [/^(.+) is not connected$/, (m) => t.notConnected(tidy(m[1]))],
+    [/^source and target are the same folder$/, () => t.sameFolder],
+    [/^the target lies inside the source; it would copy itself$/, () => t.targetInsideSource],
+    [/^the source lies inside the target; a mirror would delete everything around it$/, () => t.sourceInsideTarget],
+    [/^a name is required$/, () => t.nameRequired],
+    [/^login refused: wrong user, password or key$/, () => t.loginRefused],
+    [/^host name not found$/, () => t.hostNotFound],
+    [/^the server refused the connection on this port$/, () => t.portRefused],
+    [/^no answer from the server \(timeout\)$/, () => t.serverTimeout],
+    [/^still used by (.+)$/, (m) => t.stillUsedBy(m[1] ?? "")],
+    [/^(.+) is already a location$/, (m) => t.alreadyLocation(tidy(m[1]))],
+    [/^folders on external drives are added as a drive, not as a folder$/, () => t.externalFolder],
+    [/^two-way sync stopped: .*too many deletes \(>(\d+)%, (\d+) of (\d+)\)/, (m) => t.twoWayStopped(count(m[2]), count(m[3]), m[1] ?? "")],
+    [/^share (.+) is not connected$/, (m) => t.shareNotConnected(m[1] ?? "")],
+    [/^the address must start with smb:\/\/$/, () => t.smbPrefix],
+    [/^the address has no server$/, () => t.noServer],
+    [/^the address has no share name, e\.g\. smb:\/\/nas\/daten$/, () => t.noShare],
+    [/^a user is required$/, () => t.userRequired],
+    [/^the keychain refused the password: (.+)$/, (m) => t.keychainRefused(m[1] ?? "")],
+    [/^the share could not be connected: (.*)$/, (m) => t.shareConnectFailed(m[1] ?? "")],
+    [/^the sign-in did not finish within five minutes$/, () => t.signInTimeout],
+    [/^no answer from the cloud \(timeout\)$/, () => t.cloudTimeout],
+    [/^(.+) is required$/, (m) => t.required(m[1] ?? "")],
+    [/^unknown cloud provider (.+)$/, (m) => t.unknownProvider(m[1] ?? "")],
+    [/^(.+) cannot be created: (.+)$/, (m) => t.cannotCreate(tidy(m[1]), m[2] ?? "")],
+    [/^path (.+) must not climb out of its location$/, () => t.pathLeavesLocation],
+    [/^(.+) has not been tested yet$/, (m) => t.notTestedYet(m[1] ?? "")],
+    [/^(.+) no longer exists$/, (m) => t.noLongerExists(m[1] ?? "")],
+    [/^choose a location$/, () => t.chooseLocation],
+    [/^the jobs would start each other in a circle$/, () => t.jobCycle],
+    [/^the interval must be between 1 minute and one year$/, () => t.intervalRange],
+    [/^(.+) already exists$/, (m) => t.alreadyExists(m[1] ?? "")],
+    [/^the new name must be a plain name$/, () => t.plainName],
+    [/^the file is too large for a preview$/, () => t.tooLargeForPreview],
+    [/^there is no preview for this kind of file$/, () => t.noPreview],
+    [/^moving to the Trash failed: (.+)$/, () => t.trashFailed],
+    [/^the location itself cannot be deleted here$/, () => t.cannotDeleteLocation],
+    [/^restoring from the archive failed$/, () => t.restoreFailed],
+    [/^(.+) is not an archive folder$/, (m) => t.notArchive(m[1] ?? "")],
+    [/^path must not climb out of the archive$/, () => t.pathLeavesArchive],
+    [/^the copy failed$/, () => t.copyFailed],
+    [/^rename failed$/, () => t.renameFailed],
+    [/^the server's key was not read; start again$/, () => t.hostKeyNotRead],
+    [/^unknown server draft; start again$/, () => t.unknownDraft],
+    [/^the server's host key is not confirmed yet$/, () => t.hostKeyUnconfirmed],
+    [/^the server's host key changed; check it before trusting it again$/, () => t.hostKeyChanged],
+    [/^(.+) must be a single line$/, (m) => t.singleLine(m[1] ?? "")],
+    [/^the app quit during this run$/, () => t.appQuit],
   ];
   for (const [pattern, render] of rules) {
     const match = message.match(pattern);
@@ -169,11 +157,11 @@ export function messageLabel(message: string): string {
 }
 
 function count(digits: string | undefined): string {
-  return Number(digits ?? 0).toLocaleString("de-DE");
+  return Number(digits ?? 0).toLocaleString(locale());
 }
 
 function decimal(value: string | undefined): string {
-  return Number(value ?? 0).toLocaleString("de-DE", { maximumFractionDigits: 1 });
+  return Number(value ?? 0).toLocaleString(locale(), { maximumFractionDigits: 1 });
 }
 
 function tidy(path: string | undefined): string {
