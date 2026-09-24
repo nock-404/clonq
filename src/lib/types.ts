@@ -302,6 +302,9 @@ export interface RunEntryPage {
   total: number;
 }
 
+/** Which end of a job an archive belongs to. */
+export type ArchiveSide = "source" | "target";
+
 export interface Snapshot {
   /** Folder name, e.g. "2026-09-23_14-05-09". */
   stamp: string;

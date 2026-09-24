@@ -2,7 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type {
+import type { ArchiveSide,
   ArchivedFile,
   BrowseEntry,
   FilePreview,
@@ -39,11 +39,12 @@ export const api = {
   recentRuns: (limit: number) => invoke<Run[]>("recent_runs", { limit }),
   runEntries: (runId: string, kind: EntryKind | null, query: string, offset: number, limit: number) =>
     invoke<RunEntryPage>("run_entries", { runId, kind, query, offset, limit }),
-  archiveSnapshots: (jobId: string) => invoke<Snapshot[]>("archive_snapshots", { jobId }),
-  archiveFiles: (jobId: string, stamp: string) => invoke<ArchivedFile[]>("archive_files", { jobId, stamp }),
+  /** `side` "source" exists only for two-way jobs, which archive on both ends. */
+  archiveSnapshots: (jobId: string, side: ArchiveSide = "target") => invoke<Snapshot[]>("archive_snapshots", { jobId, side }),
+  archiveFiles: (jobId: string, stamp: string, side: ArchiveSide = "target") => invoke<ArchivedFile[]>("archive_files", { jobId, side, stamp }),
   /** Copies into a new folder in Downloads; returns that folder. */
-  restoreArchive: (jobId: string, stamp: string, path?: string) =>
-    invoke<string>("restore_archive", { jobId, stamp, path: path ?? null }),
+  restoreArchive: (jobId: string, stamp: string, path?: string, side: ArchiveSide = "target") =>
+    invoke<string>("restore_archive", { jobId, side, stamp, path: path ?? null }),
   browseList: (location: string, path: string) => invoke<BrowseEntry[]>("browse_list", { location, path }),
   browsePreview: (location: string, path: string) => invoke<FilePreview>("browse_preview", { location, path }),
   /** Copies into Downloads/clonq-dateien; returns the copy. */

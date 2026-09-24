@@ -535,3 +535,28 @@ async fn metadata_hard_links_and_creation_dates_survive_a_mirror() {
     assert_eq!(fs::metadata(&copy).unwrap().nlink(), 2, "hard link turned into a copy");
     assert_eq!(fs::metadata(&copy).unwrap().modified().unwrap(), fs::metadata(&source).unwrap().modified().unwrap(), "modification time changed");
 }
+
+#[tokio::test]
+async fn two_way_archive_is_readable_and_restorable_on_both_ends() {
+    use crate::archive::{files, restore, snapshots, Side};
+    let b = Bench::new();
+    let config = b.config(Mode::Bidirectional, true, newer_wins());
+    b.put("src", "doc.txt", "v1");
+    b.put("src", "other.txt", "other");
+    ok(&b.run(&config).await);
+    // Changed in the target: the source's old version is replaced and must land in the source's archive.
+    b.put("dst", "doc.txt", "v2 from target");
+    ok(&b.run(&config).await);
+    let job = &config.jobs[0];
+    let rclone = b.root.join("rclone.conf");
+    let source = snapshots(job, &config, &rclone, Side::Source).await.unwrap();
+    assert_eq!(source.len(), 1, "the source's archive must be listed: {source:?}");
+    let listed = files(job, &config, &rclone, Side::Source, &source[0].stamp).await.unwrap();
+    assert!(listed.iter().any(|file| file.path == "doc.txt"), "{listed:?}");
+    let downloads = b.root.join("downloads");
+    let folder = restore(job, &config, &rclone, Side::Source, &downloads, &source[0].stamp, None).await.unwrap();
+    assert_eq!(fs::read_to_string(folder.join("doc.txt")).unwrap(), "v1");
+    // A one-way job has no archive on its source.
+    let mirror = b.config(Mode::Mirror, true, newer_wins());
+    assert!(snapshots(&mirror.jobs[0], &mirror, &rclone, Side::Source).await.is_err());
+}

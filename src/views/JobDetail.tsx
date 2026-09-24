@@ -1,5 +1,5 @@
 import { FlaskConical, Play, ShieldAlert, Square } from "lucide-react";
-import type { KeyboardEvent } from "react";
+import { useState, type KeyboardEvent } from "react";
 import type { ClonqState } from "../hooks/useClonq";
 import { useHotkeys } from "../hooks/useHotkeys";
 import { texts, useT } from "../i18n";
@@ -17,7 +17,7 @@ import { isRunning, jobActions, jobReady, progressLine } from "../lib/jobs";
 import { locationOf, messageLabel, reachLabel, statusLabel } from "../lib/labels";
 import { durationSeconds, ratesOf, savedPercent } from "../lib/runs";
 import { openSheet } from "../lib/nav";
-import type { Job } from "../lib/types";
+import type { ArchiveSide, Job } from "../lib/types";
 import {
   UiBadge,
   UiBars,
@@ -32,6 +32,7 @@ import {
   UiSparkline,
   UiStat,
   UiText,
+  UiSegmented,
 } from "../ui";
 import { UiLinkButton } from "../ui/UiLinkButton";
 import { ringOf } from "../ui/rings";
@@ -58,6 +59,9 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
   const blockerReach = readiness.blocker ? reachLabel(state.locations[readiness.blocker]?.reach).text : "";
   const blocked = !running && latest?.status === "blocked";
   const ring = ringOf(job.ring, index);
+  const [archiveSide, setArchiveSide] = useState<ArchiveSide>("target");
+  // Only a two-way job has an archive on its source.
+  const shownSide: ArchiveSide = job.mode === "bidirectional" ? archiveSide : "target";
   const t = useT();
   const d = t.detail;
   const j = d.job;
@@ -263,11 +267,25 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
             </UiText>
             <UiLinkButton onPress={() => openSheet({ kind: "jobWizard", jobId: job.id })}>{j.change}</UiLinkButton>
           </div>
+          {/* A two-way job keeps an archive on each end; one switch picks which is shown. */}
+          {job.mode === "bidirectional" ? (
+            <UiSegmented
+              label={j.archiveSide}
+              value={archiveSide}
+              onChange={setArchiveSide}
+              segments={(["target", "source"] as const).map((side) => ({
+                value: side,
+                label: locationOf(side === "target" ? job.target : job.source, state.config)?.name ?? (side === "target" ? j.sideTarget : j.sideSource),
+              }))}
+            />
+          ) : null}
           <ArchivePanel
+            key={shownSide}
             job={job}
             revision={`${latest?.id ?? ""}:${latest?.finishedAt ?? ""}`}
-            target={locationOf(job.target, state.config)}
-            reach={state.locations[job.target.location]?.reach}
+            side={shownSide}
+            target={locationOf(shownSide === "target" ? job.target : job.source, state.config)}
+            reach={state.locations[(shownSide === "target" ? job.target : job.source).location]?.reach}
             now={now}
           />
         </UiPanel>

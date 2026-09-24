@@ -114,23 +114,31 @@ fn job_and_config(state: &AppState, job_id: &str) -> Result<(crate::config::Job,
 }
 
 #[tauri::command]
-pub async fn archive_snapshots(state: State<'_, AppState>, job_id: String) -> Result<Vec<crate::archive::Snapshot>> {
+pub async fn archive_snapshots(state: State<'_, AppState>, job_id: String, side: Option<crate::archive::Side>) -> Result<Vec<crate::archive::Snapshot>> {
     let (job, config) = job_and_config(&state, &job_id)?;
-    crate::archive::snapshots(&job, &config, &state.config_dir.join("rclone.conf")).await
+    crate::archive::snapshots(&job, &config, &state.config_dir.join("rclone.conf"), side.unwrap_or_default()).await
 }
 
 #[tauri::command]
-pub async fn archive_files(state: State<'_, AppState>, job_id: String, stamp: String) -> Result<Vec<crate::archive::ArchivedFile>> {
+pub async fn archive_files(state: State<'_, AppState>, job_id: String, side: Option<crate::archive::Side>, stamp: String) -> Result<Vec<crate::archive::ArchivedFile>> {
     let (job, config) = job_and_config(&state, &job_id)?;
-    crate::archive::files(&job, &config, &state.config_dir.join("rclone.conf"), &stamp).await
+    crate::archive::files(&job, &config, &state.config_dir.join("rclone.conf"), side.unwrap_or_default(), &stamp).await
 }
 
 /// Restores a snapshot or one file of it into a new folder in Downloads and returns that folder.
 #[tauri::command]
-pub async fn restore_archive(app: AppHandle, state: State<'_, AppState>, job_id: String, stamp: String, path: Option<String>) -> Result<String> {
+pub async fn restore_archive(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    job_id: String,
+    side: Option<crate::archive::Side>,
+    stamp: String,
+    path: Option<String>,
+) -> Result<String> {
     let (job, config) = job_and_config(&state, &job_id)?;
     let downloads = app.path().download_dir()?;
-    let folder = crate::archive::restore(&job, &config, &state.config_dir.join("rclone.conf"), &downloads, &stamp, path.as_deref()).await?;
+    let rclone = state.config_dir.join("rclone.conf");
+    let folder = crate::archive::restore(&job, &config, &rclone, side.unwrap_or_default(), &downloads, &stamp, path.as_deref()).await?;
     Ok(folder.to_string_lossy().into_owned())
 }
 

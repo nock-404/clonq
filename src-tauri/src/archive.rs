@@ -35,8 +35,22 @@ fn is_stamp(name: &str) -> bool {
 }
 
 /// Where the job's archive lives, resolved against the machine as it is now.
-fn archive_root(job: &Job, config: &Config) -> Result<Resolved> {
-    let target = locations::resolve(&job.target, config, &locations::mounted_volumes())?;
+/// Which end of a job the archive is read from. Only a two-way job archives on its source too.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Side {
+    Source,
+    #[default]
+    Target,
+}
+
+fn archive_root(job: &Job, config: &Config, side: Side) -> Result<Resolved> {
+    let place = match side {
+        Side::Target => &job.target,
+        Side::Source if job.mode == crate::config::Mode::Bidirectional => &job.source,
+        Side::Source => return Err(Error::Job("only two-way jobs keep an archive on the source".into())),
+    };
+    let target = locations::resolve(place, config, &locations::mounted_volumes())?;
     Ok(match target {
         Resolved::Local(path) => Resolved::Local(path.join(ARCHIVE_DIR)),
         Resolved::Remote { destination, ssh, display, sftp } => Resolved::Remote {
@@ -132,8 +146,8 @@ fn parse_list_only(text: &str) -> Vec<ArchivedFile> {
 }
 
 /// The archive's snapshots, newest first, with their file counts and sizes.
-pub async fn snapshots(job: &Job, config: &Config, rclone_config: &Path) -> Result<Vec<Snapshot>> {
-    let root = archive_root(job, config)?;
+pub async fn snapshots(job: &Job, config: &Config, rclone_config: &Path, side: Side) -> Result<Vec<Snapshot>> {
+    let root = archive_root(job, config, side)?;
     let files = list_files(&root, config, rclone_config).await?;
     let mut by_stamp: std::collections::BTreeMap<String, (usize, u64)> = std::collections::BTreeMap::new();
     for file in files {
@@ -148,11 +162,11 @@ pub async fn snapshots(job: &Job, config: &Config, rclone_config: &Path) -> Resu
 }
 
 /// Files of one snapshot, paths relative to the snapshot.
-pub async fn files(job: &Job, config: &Config, rclone_config: &Path, stamp: &str) -> Result<Vec<ArchivedFile>> {
+pub async fn files(job: &Job, config: &Config, rclone_config: &Path, side: Side, stamp: &str) -> Result<Vec<ArchivedFile>> {
     if !is_stamp(stamp) {
         return Err(Error::Job(format!("{stamp} is not an archive folder")));
     }
-    let root = archive_root(job, config)?;
+    let root = archive_root(job, config, side)?;
     let mut files: Vec<ArchivedFile> = list_files(&root, config, rclone_config)
         .await?
         .into_iter()
@@ -166,17 +180,19 @@ pub async fn files(job: &Job, config: &Config, rclone_config: &Path, stamp: &str
 }
 
 /// Copies a snapshot (or one path inside it) to a new folder; returns that folder.
-pub async fn restore(job: &Job, config: &Config, rclone_config: &Path, downloads: &Path, stamp: &str, only: Option<&str>) -> Result<PathBuf> {
+pub async fn restore(job: &Job, config: &Config, rclone_config: &Path, side: Side, downloads: &Path, stamp: &str, only: Option<&str>) -> Result<PathBuf> {
     if !is_stamp(stamp) {
         return Err(Error::Job(format!("{stamp} is not an archive folder")));
     }
     if only.is_some_and(|path| path.split('/').any(|part| part == "..")) {
         return Err(Error::Job("path must not climb out of the archive".into()));
     }
-    let destination = fresh_path(&downloads.join("clonq-wiederhergestellt").join(sanitize(&job.name)).join(stamp));
+    // Both ends of a two-way job share the time stamps; the source's restores are marked.
+    let folder = if side == Side::Source { format!("{stamp} source") } else { stamp.to_string() };
+    let destination = fresh_path(&downloads.join("clonq-wiederhergestellt").join(sanitize(&job.name)).join(folder));
     std::fs::create_dir_all(&destination)?;
     let inner = only.map(|path| path.trim_matches('/').to_string()).filter(|path| !path.is_empty());
-    let root = archive_root(job, config)?;
+    let root = archive_root(job, config, side)?;
     let status = match &root {
         Resolved::Local(path) => {
             let source = inner.as_ref().map_or(path.join(stamp), |inner| path.join(stamp).join(inner));
@@ -271,22 +287,22 @@ mod tests {
         .unwrap();
         let rclone_config = root.join("rclone.conf");
 
-        let list = snapshots(&job, &config, &rclone_config).await.unwrap();
+        let list = snapshots(&job, &config, &rclone_config, Side::Target).await.unwrap();
         assert_eq!(list, vec![Snapshot { stamp: stamp.into(), files: 2, bytes: 10 }]);
-        let inside = files(&job, &config, &rclone_config, stamp).await.unwrap();
+        let inside = files(&job, &config, &rclone_config, Side::Target, stamp).await.unwrap();
         assert_eq!(inside.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), vec!["a.txt", "sub/b.txt"]);
 
         let downloads = root.join("Downloads");
-        let whole = restore(&job, &config, &rclone_config, &downloads, stamp, None).await.unwrap();
+        let whole = restore(&job, &config, &rclone_config, Side::Target, &downloads, stamp, None).await.unwrap();
         assert_eq!(std::fs::read_to_string(whole.join("sub/b.txt")).unwrap(), "old b");
         assert!(whole.starts_with(downloads.join("clonq-wiederhergestellt")));
         std::fs::write(whole.join("a.txt"), "edited after restore").unwrap();
-        let second = restore(&job, &config, &rclone_config, &downloads, stamp, None).await.unwrap();
+        let second = restore(&job, &config, &rclone_config, Side::Target, &downloads, stamp, None).await.unwrap();
         assert_ne!(whole, second, "a second restore gets its own folder");
         assert_eq!(std::fs::read_to_string(whole.join("a.txt")).unwrap(), "edited after restore");
-        let single = restore(&job, &config, &rclone_config, &downloads, stamp, Some("sub/b.txt")).await.unwrap();
+        let single = restore(&job, &config, &rclone_config, Side::Target, &downloads, stamp, Some("sub/b.txt")).await.unwrap();
         assert_eq!(std::fs::read_to_string(single.join("b.txt")).unwrap(), "old b");
-        assert!(restore(&job, &config, &rclone_config, &downloads, stamp, Some("../x")).await.is_err());
+        assert!(restore(&job, &config, &rclone_config, Side::Target, &downloads, stamp, Some("../x")).await.is_err());
         std::fs::remove_dir_all(root).unwrap();
     }
 

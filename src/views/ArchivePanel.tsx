@@ -6,13 +6,12 @@ import { texts, useT } from "../i18n";
 import { api } from "../lib/api";
 import { formatBytes, formatCount } from "../lib/format";
 import { navigate } from "../lib/nav";
-import type { ArchivedFile, Job, Location, Reach, Snapshot } from "../lib/types";
+import type { ArchiveSide, ArchivedFile, Job, Location, Reach, Snapshot } from "../lib/types";
 import { UiButton, UiInput, UiNotice, UiText } from "../ui";
 import { UiItemList, type UiItemListItem } from "../ui/UiItemList";
 import { UiLinkButton } from "../ui/UiLinkButton";
 import { UiStatusLine } from "../ui/UiStatusLine";
 import { UiWell } from "../ui/UiWell";
-import { ARCHIVE_FOLDER } from "./jobs/draft";
 import { recordOwnCheck } from "./locations/checks";
 import { errorText } from "./locations/kinds";
 import { capitalize, failureOf, fileIcon, filesWord, momentWords, splitPath, stampDate, tidyHome, type Failure } from "./files";
@@ -25,7 +24,9 @@ interface ArchivePanelProps {
   job: Job;
   /** Changes whenever a run ends, so the list reloads. */
   revision: string;
-  /** The job's target, where the archive lives. */
+  /** The end whose archive is shown; a two-way job keeps one on each side. */
+  side: ArchiveSide;
+  /** The location of that end, where the archive lives. */
   target: Location | undefined;
   reach: Reach | undefined;
   now: number;
@@ -44,7 +45,7 @@ const connected: Reach = { state: "connected", path: null, freeBytes: null, tota
  * copies into a new folder in Downloads and never overwrites anything. Renders nothing while the
  * archive is off and holds nothing.
  */
-export function ArchivePanel({ job, revision, target, reach, now }: ArchivePanelProps) {
+export function ArchivePanel({ job, revision, side, target, reach, now }: ArchivePanelProps) {
   const [probe, setProbe] = useState<Probe>({ state: "idle" });
   const [list, setList] = useState<Load<Snapshot[]>>({ state: "loading" });
   const [attempt, setAttempt] = useState(0);
@@ -73,7 +74,7 @@ export function ArchivePanel({ job, revision, target, reach, now }: ArchivePanel
     // A reload after a run keeps the old list on screen until the new one is there.
     setList((before) => (before.state === "ready" ? before : { state: "loading" }));
     api
-      .archiveSnapshots(job.id)
+      .archiveSnapshots(job.id, side)
       .then((snapshots) => {
         if (!current) return;
         setList({ state: "ready", value: snapshots });
@@ -83,7 +84,7 @@ export function ArchivePanel({ job, revision, target, reach, now }: ArchivePanel
     return () => {
       current = false;
     };
-  }, [job.id, revision, readable, attempt]);
+  }, [job.id, side, revision, readable, attempt]);
 
   useEffect(() => {
     setPicked(null);
@@ -94,13 +95,13 @@ export function ArchivePanel({ job, revision, target, reach, now }: ArchivePanel
     let current = true;
     setFiles({ state: "loading" });
     api
-      .archiveFiles(job.id, open)
+      .archiveFiles(job.id, open, side)
       .then((value) => current && setFiles({ state: "ready", value }))
       .catch((reason) => current && setFiles({ state: "failed", failure: failureOf(texts().detail.archive.filesFailed, reason) }));
     return () => {
       current = false;
     };
-  }, [job.id, open]);
+  }, [job.id, side, open]);
 
   const runProbe = async () => {
     if (!target || probe.state === "busy") return;
@@ -130,7 +131,7 @@ export function ArchivePanel({ job, revision, target, reach, now }: ArchivePanel
     if (!open || restore.state === "busy") return;
     setRestore({ state: "busy", name: path ? splitPath(path)[1] : null });
     api
-      .restoreArchive(job.id, open, path ?? undefined)
+      .restoreArchive(job.id, open, path ?? undefined, side)
       .then((folder) => {
         setRestore({ state: "done", folder });
         void revealItemInDir(folder).catch(() => undefined);
@@ -187,18 +188,10 @@ export function ArchivePanel({ job, revision, target, reach, now }: ArchivePanel
     );
   }
 
-  const twoWayNote =
-    job.mode === "bidirectional" ? (
-      <UiText variant="caption" tone="neutral">
-        {a.twoWayNote(ARCHIVE_FOLDER)}
-      </UiText>
-    ) : null;
-
   if (snapshots.length === 0) {
     return (
       <div className="flex flex-col gap-1">
         <UiText tone="neutral">{a.empty}</UiText>
-        {twoWayNote}
       </div>
     );
   }
@@ -262,7 +255,6 @@ export function ArchivePanel({ job, revision, target, reach, now }: ArchivePanel
           {a.fromBefore}
         </UiText>
       ) : null}
-      {twoWayNote}
 
       <div className="grid grid-cols-[16rem_minmax(0,1fr)] gap-3">
         <UiWell size="md" label={a.byRun}>
