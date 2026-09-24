@@ -89,6 +89,20 @@ pub fn quit(app: AppHandle) {
     app.exit(0);
 }
 
+/// File in the app data folder that asks the next start to open the main window.
+pub const REOPEN_MARKER: &str = "reopen-main-window";
+
+/// Called right before an update restarts clonq: remembers whether the main window was open.
+#[tauri::command]
+pub fn prepare_restart(app: AppHandle) -> Result<()> {
+    let open = app.get_webview_window(MAIN).is_some_and(|main| main.is_visible().unwrap_or(false));
+    let marker = app.path().app_data_dir()?.join(REOPEN_MARKER);
+    if open {
+        std::fs::write(marker, b"")?;
+    }
+    Ok(())
+}
+
 /// One page of a run's file list, for the run sheet in the history.
 #[tauri::command]
 pub fn run_entries(

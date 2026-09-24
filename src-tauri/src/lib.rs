@@ -90,6 +90,12 @@ pub fn run() {
                 // waiting for a click on the menu bar icon.
                 #[cfg(debug_assertions)]
                 show_main(app.handle())?;
+                // After an update the window comes back if it was open when the update began.
+                let marker = app.path().app_data_dir()?.join(commands::REOPEN_MARKER);
+                if marker.exists() {
+                    let _ = std::fs::remove_file(&marker);
+                    show_main(app.handle())?;
+                }
             }
             tray::create(app.handle())?;
             Ok(())
@@ -121,6 +127,7 @@ pub fn run() {
             commands::cancel_job,
             commands::open_main_window,
             commands::quit,
+            commands::prepare_restart,
             commands::run_entries,
             commands::archive_snapshots,
             commands::archive_files,

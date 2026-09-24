@@ -1,6 +1,6 @@
 [package]
 name = "clonq"
-version = "0.3.3"
+version = "0.3.4"
 description = "Sync and backup for macOS"
 authors = ["nock-404"]
 edition = "2024"

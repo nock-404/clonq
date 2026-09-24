@@ -1,5 +1,6 @@
 // Updates from the GitHub releases: looked for on start and every few hours, installed only on request.
 
+import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { useSyncExternalStore } from "react";
@@ -66,6 +67,8 @@ export async function installUpdate() {
       set({ phase: "downloading", version: update.version, received, total });
     });
     set({ phase: "restarting", version: update.version });
+    // The new version starts quietly in the menu bar; this asks it to bring the window back.
+    await invoke("prepare_restart").catch(() => undefined);
     await relaunch();
   } catch (error) {
     set({ phase: "failed", message: messageOf(error) });
