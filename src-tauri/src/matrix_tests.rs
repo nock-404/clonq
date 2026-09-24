@@ -1219,3 +1219,61 @@ async fn a_repair_after_a_newer_sync_asks_for_a_new_check() {
     assert_eq!(repaired.status, RunStatus::Failed);
     assert!(repaired.message.unwrap_or_default().contains("run the check again"));
 }
+
+#[tokio::test]
+async fn protected_snapshots_like_documents_are_thinned_and_cleaned_up() {
+    let b = Bench::new();
+    let config = b.config(Mode::Versioned, true, newer_wins());
+    b.put("src", "Protected/a.txt", "a");
+    b.put("src", "ReadOnly/b.txt", "b");
+    // As macOS protects Documents and Desktop, and as read-only folders are.
+    let protect = std::process::Command::new("/bin/chmod").args(["+a", "group:everyone deny delete"]).arg(b.side("src").join("Protected")).status().unwrap();
+    assert!(protect.success());
+    fs::set_permissions(b.side("src").join("ReadOnly"), std::os::unix::fs::PermissionsExt::from_mode(0o555)).unwrap();
+    // An old snapshot of the same week, protected the same way, must be removable by thinning.
+    let old = "2026-01-05_10-00-00-000";
+    let copy = std::process::Command::new(tool("rsync")).args(["-a", "--acls"]).arg(format!("{}/", b.side("src").display())).arg(b.side("dst").join(old)).status().unwrap();
+    assert!(copy.success());
+    fs::write(b.side("dst").join(old).join(crate::versions::MARKER), old).unwrap();
+    let newer = "2026-01-07_10-00-00-000";
+    let copy = std::process::Command::new(tool("rsync")).args(["-a", "--acls"]).arg(format!("{}/", b.side("src").display())).arg(b.side("dst").join(newer)).status().unwrap();
+    assert!(copy.success());
+    fs::write(b.side("dst").join(newer).join(crate::versions::MARKER), newer).unwrap();
+    // And an unfinished one, protected too, must not block the next snapshot.
+    let unfinished = "2026-09-01_10-00-00-000";
+    let copy = std::process::Command::new(tool("rsync")).args(["-a", "--acls"]).arg(format!("{}/", b.side("src").display())).arg(b.side("dst").join(unfinished)).status().unwrap();
+    assert!(copy.success());
+    ok(&b.run(&config).await);
+    let list = snapshots_in(&b);
+    assert!(!list.contains(&old.to_string()), "the protected old snapshot was thinned out: {list:?}");
+    assert!(!b.side("dst").join(old).exists() && !b.side("dst").join(unfinished).exists(), "protected folders were removed");
+    assert_eq!(list.len(), 2, "{list:?}");
+    // Clean up what the test protected, so the bench can be removed.
+    let _ = std::process::Command::new("/bin/chmod").args(["-R", "-N"]).arg(&b.root).status();
+    let _ = std::process::Command::new("/bin/chmod").args(["-R", "u+w"]).arg(&b.root).status();
+}
+
+#[test]
+fn a_partial_snapshot_never_takes_the_place_of_a_complete_one() {
+    let now = chrono::NaiveDateTime::parse_from_str("2026-09-20_12-00-00", "%Y-%m-%d_%H-%M-%S").unwrap();
+    let stamps: Vec<String> = ["2026-09-10_08-00-00-000", "2026-09-10_20-00-00-000", "2026-09-20_11-00-00-000"].iter().map(|s| s.to_string()).collect();
+    // The evening one of the 10th missed files; the morning one is the complete one of that day.
+    let partial: std::collections::BTreeSet<String> = ["2026-09-10_20-00-00-000".to_string()].into();
+    let kept = crate::versions::keep_with_partial(&stamps, &partial, now);
+    assert!(kept.contains("2026-09-10_08-00-00-000"), "{kept:?}");
+    assert!(kept.contains("2026-09-10_20-00-00-000"));
+    // Without the partial marker, the evening one alone would have stood for the day.
+    assert!(!crate::versions::keep(&stamps, now).contains("2026-09-10_08-00-00-000"));
+}
+
+#[tokio::test]
+async fn a_marker_in_the_source_does_not_mark_a_snapshot_complete() {
+    let b = Bench::new();
+    let config = b.config(Mode::Versioned, true, newer_wins());
+    b.put("src", "a.txt", "a");
+    b.put("src", crate::versions::MARKER, "copied from a snapshot");
+    ok(&b.run(&config).await);
+    let newest = snapshots_in(&b).last().unwrap().clone();
+    let marker = fs::read_to_string(b.side("dst").join(&newest).join(crate::versions::MARKER)).unwrap();
+    assert_eq!(marker, newest, "the marker is clonq's own, written at the end");
+}

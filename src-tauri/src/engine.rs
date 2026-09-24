@@ -505,7 +505,7 @@ impl Engine {
             && !options.dry_run
             && run.status.completed()
         {
-            self.finish_snapshot(base_plan, snapshot, log).await?;
+            self.finish_snapshot(base_plan, snapshot, run.status == RunStatus::Partial, log).await?;
         }
         if !options.dry_run && run.status.completed() && job.archive.enabled && snapshot.is_none() {
             self.prune_archive(plan, job.archive.keep_days, log).await;
@@ -1099,10 +1099,15 @@ impl Engine {
         };
         if !options.dry_run && !incomplete.is_empty() {
             log.write_all(format!("# versions: removing {} unfinished snapshot(s)\n", incomplete.len()).as_bytes()).await?;
-            delete_snapshots(plan, &incomplete).await?;
+            // A leftover that cannot be removed must never stop new snapshots; it is tried again next time.
+            if let Err(error) = delete_snapshots(plan, &incomplete).await {
+                log.write_all(format!("! versions: could not remove an unfinished snapshot: {error}\n").as_bytes()).await?;
+            }
         }
         let previous = complete.last().cloned();
         let mut snapshot = plan.clone();
+        // A marker in the source (a copied snapshot, say) must never mark this one complete.
+        snapshot.base_args.push(format!("--exclude=/{}*", versions::MARKER));
         snapshot.target = format!("{base}{stamp}");
         snapshot.target_path = plan.target_path.as_ref().map(|path| path.join(&stamp));
         if let Some(previous) = &previous {
@@ -1113,34 +1118,53 @@ impl Engine {
         Ok(Snapshot { plan: snapshot, stamp, complete })
     }
 
-    /// Marks the new snapshot complete, then thins out older ones.
-    async fn finish_snapshot(&self, base: &Plan, snapshot: &Snapshot, log: &mut BufWriter<tokio::fs::File>) -> Result<()> {
-        match &snapshot.plan.target_path {
-            Some(path) => std::fs::write(path.join(versions::MARKER), &snapshot.stamp)?,
-            None => {
-                let marker = std::env::temp_dir().join(format!("clonq-marker-{}", uuid::Uuid::new_v4()));
-                std::fs::write(&marker, &snapshot.stamp)?;
-                let output = Command::new(&base.program)
-                    .env("LC_ALL", "C")
-                    .args(base.rsh())
-                    .arg(&marker)
-                    .arg(format!("{}/{}", snapshot.plan.target, versions::MARKER))
-                    .output()
-                    .await;
-                let _ = std::fs::remove_file(&marker);
-                let output = output?;
-                if !output.status.success() {
-                    return Err(Error::Job(crate::ssh::explain(&String::from_utf8_lossy(&output.stderr))));
+    /// Marks the new snapshot complete (and partial when some files were missed), then thins
+    /// out older ones. Thinning trouble never turns a good snapshot into a failed run.
+    async fn finish_snapshot(&self, base: &Plan, snapshot: &Snapshot, partial: bool, log: &mut BufWriter<tokio::fs::File>) -> Result<()> {
+        // The partial marker goes first: a snapshot is never complete-looking without it.
+        let markers: &[&str] = if partial { &[versions::PARTIAL, versions::MARKER] } else { &[versions::MARKER] };
+        for name in markers {
+            match &snapshot.plan.target_path {
+                Some(path) => std::fs::write(path.join(name), &snapshot.stamp)?,
+                None => {
+                    let marker = std::env::temp_dir().join(format!("clonq-marker-{}", uuid::Uuid::new_v4()));
+                    std::fs::write(&marker, &snapshot.stamp)?;
+                    let output = Command::new(&base.program)
+                        .env("LC_ALL", "C")
+                        .args(base.rsh())
+                        .arg("--secluded-args")
+                        .arg(&marker)
+                        .arg(format!("{}/{name}", snapshot.plan.target))
+                        .output()
+                        .await;
+                    let _ = std::fs::remove_file(&marker);
+                    let output = output?;
+                    if !output.status.success() {
+                        return Err(Error::Job(crate::ssh::explain(&String::from_utf8_lossy(&output.stderr))));
+                    }
                 }
             }
         }
+        let partials = match &base.target_path {
+            Some(path) => versions::partial_local(path),
+            None => match versions::partial_remote(&base.program, &base.rsh(), &format!("{}/", base.target.trim_end_matches('/'))).await {
+                Ok(partials) => partials,
+                Err(error) => {
+                    // Without knowing which snapshots are partial, thinning could pick the wrong ones.
+                    log.write_all(format!("! versions: thinning skipped, the snapshots could not be listed: {error}\n").as_bytes()).await?;
+                    return Ok(());
+                }
+            },
+        };
         let mut all = snapshot.complete.clone();
         all.push(snapshot.stamp.clone());
-        let kept = versions::keep(&all, versions::now());
+        let kept = versions::keep_with_partial(&all, &partials, versions::now());
         let old: Vec<String> = all.into_iter().filter(|stamp| !kept.contains(stamp)).collect();
         if !old.is_empty() {
-            log.write_all(format!("# versions: thinned out {} older snapshot(s)\n", old.len()).as_bytes()).await?;
-            delete_snapshots(base, &old).await?;
+            log.write_all(format!("# versions: thinning out {} older snapshot(s)\n", old.len()).as_bytes()).await?;
+            if let Err(error) = delete_snapshots(base, &old).await {
+                log.write_all(format!("! versions: could not remove an old snapshot, trying again next time: {error}\n").as_bytes()).await?;
+            }
         }
         Ok(())
     }
@@ -1313,14 +1337,18 @@ impl Plan {
             return Self::rclone(job, &config.rclone_path, rclone_config, source, target);
         }
         let mut args: Vec<String> = match target {
-            Resolved::Local(_) => ["--archive", "--hard-links", "--acls", "--xattrs", "--crtimes", "--mkpath"]
+            // com.apple.provenance is macOS's own bookkeeping, not the user's data, and it
+            // cannot be set on a read-only folder: copying it made such runs end "partial".
+            Resolved::Local(_) => ["--archive", "--hard-links", "--acls", "--xattrs", "--filter=-x com.apple.provenance", "--crtimes", "--mkpath"]
                 .map(String::from)
                 .to_vec(),
             // A server keeps its own owners and cannot take macOS metadata.
             Resolved::Remote { ssh, .. } => {
                 // --timeout ends a transfer that has stalled for five minutes.
+                // Du+w: a read-only folder copied as it is could never be deleted on the server
+                // (thinning, archive, mirror deletions); the owner keeps write access to folders.
                 let mut remote: Vec<String> =
-                    ["--archive", "--hard-links", "--no-owner", "--no-group", "--mkpath", "--secluded-args", "--timeout=300"]
+                    ["--archive", "--hard-links", "--no-owner", "--no-group", "--chmod=Du+w", "--mkpath", "--secluded-args", "--timeout=300"]
                         .map(String::from)
                         .to_vec();
                 remote.push(format!("--rsh={}", shell_join(ssh)));
@@ -1530,7 +1558,7 @@ async fn delete_snapshots(plan: &Plan, names: &[String]) -> Result<()> {
     }
     if let Some(target) = &plan.target_path {
         for name in names {
-            std::fs::remove_dir_all(target.join(name))?;
+            remove_tree(&target.join(name))?;
         }
         return Ok(());
     }
@@ -1553,13 +1581,28 @@ async fn delete_snapshots(plan: &Plan, names: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// Removes a folder clonq made (a snapshot, an archive folder) with everything in it. rsync
+/// copies what protects the originals: the "everyone deny delete" ACL macOS puts on
+/// Documents and Desktop, read-only folders, locked files. Those are lifted inside this
+/// folder only, then it is removed.
+fn remove_tree(path: &Path) -> Result<()> {
+    if std::fs::remove_dir_all(path).is_ok() || !path.exists() {
+        return Ok(());
+    }
+    let _ = std::process::Command::new("/bin/chmod").arg("-R").arg("-N").arg(path).output();
+    let _ = std::process::Command::new("/usr/bin/chflags").arg("-R").arg("nouchg,noschg").arg(path).output();
+    let _ = std::process::Command::new("/bin/chmod").arg("-R").arg("u+w").arg(path).output();
+    std::fs::remove_dir_all(path)?;
+    Ok(())
+}
+
 fn prune_local(archive: &Path, cutoff: &str) -> Result<usize> {
     let Ok(entries) = std::fs::read_dir(archive) else { return Ok(0) };
     let mut removed = 0;
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         if entry.path().is_dir() && is_stamp(&name) && name.as_str() < cutoff {
-            std::fs::remove_dir_all(entry.path())?;
+            remove_tree(&entry.path())?;
             removed += 1;
         }
     }

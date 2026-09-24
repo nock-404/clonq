@@ -16,6 +16,8 @@ use crate::error::Result;
 
 /// Written into a snapshot when its run has finished.
 pub const MARKER: &str = ".clonq-snapshot";
+/// Written next to the marker when some files could not be copied (rsync exit 23/24).
+pub const PARTIAL: &str = ".clonq-snapshot-partial";
 
 fn parse(stamp: &str) -> Option<NaiveDateTime> {
     NaiveDateTime::parse_from_str(stamp, "%Y-%m-%d_%H-%M-%S-%3f")
@@ -48,6 +50,15 @@ pub fn keep(stamps: &[String], now: NaiveDateTime) -> BTreeSet<String> {
     kept
 }
 
+/// Thinning with snapshots that missed some files: they are thinned among themselves, so a
+/// partial snapshot never takes the place of a complete one of the same day or week.
+pub fn keep_with_partial(stamps: &[String], partial: &BTreeSet<String>, now: NaiveDateTime) -> BTreeSet<String> {
+    let (partials, full): (Vec<String>, Vec<String>) = stamps.iter().cloned().partition(|stamp| partial.contains(stamp));
+    let mut kept = keep(&full, now);
+    kept.extend(keep(&partials, now));
+    kept
+}
+
 /// The local time `now` as the snapshots name it.
 pub fn now() -> NaiveDateTime {
     Local::now().naive_local()
@@ -63,12 +74,44 @@ pub fn list_local(target: &Path) -> (Vec<String>, Vec<String>) {
             if !entry.path().is_dir() || !crate::archive::is_stamp(&name) {
                 continue;
             }
-            if entry.path().join(MARKER).is_file() { complete.push(name) } else { incomplete.push(name) }
+            // Only a marker that is certainly missing makes a snapshot unfinished (and removable);
+            // a snapshot whose marker cannot be read right now is left alone.
+            match std::fs::symlink_metadata(entry.path().join(MARKER)) {
+                Ok(meta) if meta.is_file() => complete.push(name),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => incomplete.push(name),
+                _ => {}
+            }
         }
     }
     complete.sort();
     incomplete.sort();
     (complete, incomplete)
+}
+
+/// Snapshots in a local target that carry the partial marker.
+pub fn partial_local(target: &Path) -> BTreeSet<String> {
+    let (complete, _) = list_local(target);
+    complete.into_iter().filter(|name| target.join(name).join(PARTIAL).is_file()).collect()
+}
+
+/// The same for a server.
+pub async fn partial_remote(rsync: &str, rsh: &[String], base: &str) -> Result<BTreeSet<String>> {
+    let output = Command::new(rsync)
+        .env("LC_ALL", "C")
+        .args(rsh)
+        .args(["--list-only", "-r", "--include=/*/", &format!("--include=/*/{PARTIAL}"), "--exclude=*"])
+        .arg(base)
+        .output()
+        .await?;
+    if !output.status.success() {
+        return Err(crate::error::Error::Job(crate::ssh::explain(&String::from_utf8_lossy(&output.stderr))));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.split_whitespace().last())
+        .filter_map(|path| path.strip_suffix(&format!("/{PARTIAL}")))
+        .map(str::to_string)
+        .collect())
 }
 
 /// The same for a server, listed with rsync itself: no shell is needed there.
