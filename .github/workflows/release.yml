@@ -58,3 +58,13 @@ jobs:
           prerelease: false
           uploadUpdaterJson: true
           args: --target aarch64-apple-darwin
+
+      # A copy under a fixed name, so the website can always link
+      # https://github.com/nock-404/clonq/releases/latest/download/clonq-mac.dmg
+      - name: fixed-name download
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          dmg=$(ls src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/clonq_*_aarch64.dmg | head -1)
+          cp "$dmg" clonq-mac.dmg
+          gh release upload "${{ github.ref_name }}" clonq-mac.dmg --clobber
