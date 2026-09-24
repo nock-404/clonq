@@ -32,8 +32,11 @@ mockIPC(
         return scene.recent;
       case "job_stats":
         return scene.stats[String((args as { jobId?: string } | undefined)?.jobId)];
-      case "overview":
-        return scene.overview;
+      case "overview": {
+        // ?files=123456789 tries the counter with a large number.
+        const files = params.get("files");
+        return files ? { ...scene.overview, totals: { ...scene.overview.totals, files: Number(files) } } : scene.overview;
+      }
       case "weekly_report": {
         // ?week=empty shows a first week without space measurements.
         const day = 86_400_000;
@@ -212,6 +215,9 @@ const root = document.getElementById("root");
 if (root) {
   root.classList.add("preview-frame");
   root.dataset.frame = windowLabel;
+  // ?frameWidth=760 draws the main window at another width, e.g. its minimum.
+  const frameWidth = params.get("frameWidth");
+  if (frameWidth) root.style.width = `${Number(frameWidth) / 16}rem`;
 }
 
 await import("../src/main");
