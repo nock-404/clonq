@@ -1140,8 +1140,9 @@ async fn prune_ssh(plan: &Plan, cutoff: &str) -> Result<usize> {
 }
 
 /// `2026-09-23_14-05-09`
+/// An archive folder name, with milliseconds since 0.3.2 or without them before.
 fn is_stamp(name: &str) -> bool {
-    name.len() == 19 && chrono::NaiveDateTime::parse_from_str(name, "%Y-%m-%d_%H-%M-%S").is_ok()
+    crate::archive::is_stamp(name)
 }
 
 /// rsync patterns name a folder with a trailing slash; rclone wants `/**` for its contents.

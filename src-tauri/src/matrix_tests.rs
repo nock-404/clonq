@@ -560,3 +560,21 @@ async fn two_way_archive_is_readable_and_restorable_on_both_ends() {
     let mirror = b.config(Mode::Mirror, true, newer_wins());
     assert!(snapshots(&mirror.jobs[0], &mirror, &rclone, Side::Source).await.is_err());
 }
+
+#[tokio::test]
+async fn old_archive_folders_are_pruned_in_both_name_formats() {
+    let b = Bench::new();
+    let mut config = b.config(Mode::Mirror, true, newer_wins());
+    config.jobs[0].archive.keep_days = 1;
+    b.put("src", "doc.txt", "v1");
+    let archive = b.side("dst").join(ARCHIVE_DIR);
+    // One folder from before 0.3.2 without milliseconds, one after with them, both long expired.
+    for old in ["2020-01-01_10-00-00", "2020-01-02_10-00-00-123"] {
+        fs::create_dir_all(archive.join(old)).unwrap();
+        fs::write(archive.join(old).join("x.txt"), "old").unwrap();
+    }
+    ok(&b.run(&config).await);
+    for old in ["2020-01-01_10-00-00", "2020-01-02_10-00-00-123"] {
+        assert!(!archive.join(old).exists(), "{old} was not pruned");
+    }
+}
