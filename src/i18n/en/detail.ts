@@ -140,6 +140,36 @@ export const detail = {
     },
   },
 
+  /** The dated snapshots of a versioned job. */
+  snapshots: {
+    title: "Snapshots",
+    count: (count: number, shown: string) => (count === 1 ? "1 snapshot" : `${shown} snapshots`),
+    rule: "Every snapshot of the last 24 hours is kept, the newest of each day for 30 days, after that the newest of each week.",
+    readFailed: "The snapshots couldn't be read",
+    restoreFailed: "Restoring failed",
+    targetGone: "This job's target is no longer set up, so the snapshots can't be read.",
+    unknown: (name: string) => `It isn't clear yet whether ${name} is reachable. The snapshots appear here once the connection has been checked.`,
+    loading: "Reading the snapshots…",
+    empty: "No snapshot yet. Every run adds one, starting with the next.",
+    list: "Snapshots, newest first",
+    newest: "Newest",
+    whole: "Unchanged files share the space of the snapshot before.",
+    restore: "Restore snapshot",
+    restoreItem: "Restore item",
+    contents: "Contents of the snapshot",
+    contentsFailed: "The contents of this snapshot couldn't be read",
+    noContents: "This snapshot is empty.",
+    restoring: "Restoring the snapshot…",
+    whereTo: "A restored snapshot goes into a new folder in Downloads/clonq-wiederhergestellt; the target stays untouched.",
+    unreachable: {
+      missing: (name: string) => `The snapshots are in the target folder on ${name}, but that folder is missing right now.`,
+      failed: (name: string) => `The snapshots are on ${name}, and there is no connection to it right now.`,
+      volume: (name: string) => `The snapshots are on ${name}. You can see them here once the drive is connected.`,
+      smb: (name: string) => `The snapshots are on ${name}. You can see them here once the share is connected.`,
+      other: (name: string) => `The snapshots are on ${name}. You can see them here once the location is reachable.`,
+    },
+  },
+
   browser: {
     readFailed: "This folder couldn't be read",
     previewFailed: "The preview couldn't be loaded",

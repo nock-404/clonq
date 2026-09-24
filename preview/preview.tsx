@@ -807,6 +807,10 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
       { stamp: stamp(3 * 60 + 12), files: [["2026/2026-09-14 Karwendel/IMG_4820.HEIC", 2_990_114], ["2026/2026-09-14 Karwendel/IMG_4823.HEIC", 3_120_877]] },
     ],
   };
+  // Snapshot names of a versioned job end in milliseconds, newest first.
+  const versionStamps = [12, 75, 9 * 60, 26 * 60, 2 * 1440 + 40, 4 * 1440 + 300, 8 * 1440 + 90, 15 * 1440 + 600, 27 * 1440 + 200, 41 * 1440, 55 * 1440 + 480].map(
+    (minutes) => `${stamp(minutes)}-${String(minutes % 1000).padStart(3, "0")}`,
+  );
   const emptied = params.get("panelsEmpty");
   if (emptied) archives[emptied] = [];
   const archiveOff = params.get("panelsArchiveOff");
@@ -901,6 +905,12 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
   });
 
   const listing = (location: string, path: string): Entry[] | null => {
+    // Inside a snapshot of the versioned job: its top level, the same in every snapshot.
+    if (/^(Document Versions|Projekte-Versionen)\/\d{4}-/.test(path)) {
+      return englishData
+        ? [["Taxes", -1, 52], ["Projects", -1, 52], ["Home", -1, 3 * 1440], ["Recipes", -1, 190], ["Budget 2026.numbers", 412_880, 75], ["Lease.pdf", 1_204_331, 40 * 1440]]
+        : [["clonq", -1, 12], ["plxr", -1, 75], ["wetterstation", -1, 3 * 1440], ["Notizen.md", 8_412, 75], [".DS_Store", 10_244, 1440]];
+    }
     const tree = trees[location];
     if (!tree) return null;
     if (location === "box" && !params.get("panelsNoZfs")) {
@@ -948,6 +958,7 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
     archive_snapshots: "volume /Volumes/M2mini is not connected",
     archive_files: "2026-09-23_14-05-09 is not an archive folder",
     restore_archive: "restoring from the archive failed",
+    version_snapshots: "volume /Volumes/M2mini is not connected",
     browse_list: "/Volumes/M2mini/WORK/Gesperrt cannot be read",
     browse_preview: "the file is too large for a preview",
     browse_download: "the copy failed",
@@ -961,6 +972,9 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
     const path = String(args.path ?? "").replace(/^\/+|\/+$/g, "");
     const name = path.split("/").at(-1) ?? path;
     switch (command) {
+      // The versioned job: every snapshot of the last day, one per day for a month, one per week before.
+      case "version_snapshots":
+        return later(job === "documents-versions" && emptied !== job ? versionStamps : [], 250);
       case "archive_snapshots":
         return later(
           (archives[job] ?? []).map((item) => ({ stamp: item.stamp, files: item.files.length, bytes: item.files.reduce((sum, [, size]) => sum + size, 0) })),
@@ -1070,6 +1084,10 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
     "dateien-enter-ohne-fokus": [...files, ["key", "Enter"], ["wait", 400]],
     "archiv-fehler-enter": [...archive, ["wait", 600], ["focus", "Erneut versuchen"], ["key", "Enter"], ["wait", 400]],
     "archiv-ziel-pruefen": [...archive, ["click", "Verbindung prüfen"], ["wait", 1800]],
+    // The versioned job (?job=documents-versions).
+    versionen: [["wait", 700], ["scroll", "Snapshots"]],
+    "versionen-eintrag": [["wait", 700], ["scroll", "Snapshots"], ["pick", say("gestern", "yesterday")], ["wait", 400], ["pick", say("clonq", "Projects")], ["click", say("Eintrag wiederherstellen", "Restore item")], ["wait", 1200]],
+    "versionen-wiederhergestellt": [["wait", 700], ["scroll", "Snapshots"], ["click", say("Snapshot wiederherstellen", "Restore snapshot")], ["wait", 1200]],
   };
 
   const visibleText = (element: Element) => (element.textContent ?? "").replace(/\s+/g, " ").trim();
@@ -1189,6 +1207,8 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
       spiegel: [...toArt, ["radio", mirror]],
       backup: [...toArt, ["radio", backup]],
       beidseitig: twoWay,
+      versionen: [...toArt, ["radio", t.common.mode.versioned]],
+      "versionen-name": [...toArt, ["radio", t.common.mode.versioned], ...toName],
       // Conflict rules and archive are folded rows; the first click on their title opens them.
       "beidseitig-offen": [...twoWay, ["button", CONFLICT_ROW], ["button", ARCHIVE_ROW]],
       "beide-behalten": [...twoWay, ["button", CONFLICT_ROW], ["select", w.mode.preferLabel, "none"]],

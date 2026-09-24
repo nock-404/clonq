@@ -143,12 +143,20 @@ export const wizard: Shape<typeof source> = {
 
   mode: {
     groupLabel: "Art der Kopie",
+    hint: "Jedes Bild zeigt, was ein Lauf mit dem Ziel macht.",
     mirror: "Das Ziel wird zur genauen Kopie; Überzähliges wird gelöscht.",
     backup: "Neues und Geändertes kommt ins Ziel; gelöscht wird nie.",
     bidirectional: "Jede Seite übernimmt Neues, Geändertes und Gelöschtes.",
     mirrorCaption: "gelöscht",
     backupCaption: "bleibt",
     bidirectionalCaption: "Konflikt",
+    versioned: "Jeder Lauf bleibt als datierter Snapshot erhalten; Unverändertes belegt keinen Platz.",
+    versionedCaption: "je Lauf",
+    versionedNoCloud: "Versionen brauchen einen Ordner, ein Laufwerk oder einen Server als Ziel, keine Cloud.",
+    versionedLocalSource: "Versionen brauchen eine Quelle auf diesem Mac.",
+    versionedUnavailable: "hier nicht",
+    keepTitle: "Wie lange Snapshots bleiben",
+    keepRule: "Jeder Snapshot der letzten 24 Stunden, der neueste jedes Tages für 30 Tage, danach der neueste jeder Woche. Der neueste Snapshot wird nie entfernt.",
 
     conflictTitle: "Wenn eine Datei auf beiden Seiten geändert wurde",
     preferLabel: "Welche Fassung bei einem Konflikt gewinnt",
@@ -280,6 +288,7 @@ export const wizard: Shape<typeof source> = {
     excluding: (patterns) => `ohne ${patterns}`,
     noExcludes: "Keine Ausschlüsse",
     withLimit: (percent) => `, Schutzschwelle ${percent}`,
+    versionedSummary: "Versionen, werden selbsttätig ausgedünnt",
     conflicts: "Konflikte",
     changeConflicts: "Konfliktregel ändern",
     archive: "Archiv",

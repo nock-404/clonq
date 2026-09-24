@@ -45,6 +45,8 @@ export const api = {
   /** Copies into a new folder in Downloads; returns that folder. */
   restoreArchive: (jobId: string, stamp: string, path?: string, side: ArchiveSide = "target") =>
     invoke<string>("restore_archive", { jobId, side, stamp, path: path ?? null }),
+  /** The finished snapshots of a versioned job, newest first; restore one with restoreArchive(…, "snapshots"). */
+  versionSnapshots: (jobId: string) => invoke<string[]>("version_snapshots", { jobId }),
   browseList: (location: string, path: string) => invoke<BrowseEntry[]>("browse_list", { location, path }),
   browsePreview: (location: string, path: string) => invoke<FilePreview>("browse_preview", { location, path }),
   /** Copies into Downloads/clonq-dateien; returns the copy. */

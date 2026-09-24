@@ -38,6 +38,7 @@ export const common: Shape<typeof source> = {
     backup: "Backup",
     blind: "Blind Backup",
     bidirectional: "Beidseitig",
+    versioned: "Versionen",
   },
   locationKind: {
     folder: "Ordner auf dem Mac",

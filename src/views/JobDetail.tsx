@@ -37,6 +37,7 @@ import {
 import { UiLinkButton } from "../ui/UiLinkButton";
 import { ringOf } from "../ui/rings";
 import { ArchivePanel } from "./ArchivePanel";
+import { SnapshotsPanel } from "./SnapshotsPanel";
 import { DryRunResult } from "./DryRunResult";
 import { JobHeader } from "./jobs/JobHeader";
 
@@ -258,38 +259,53 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
       ) : null}
 
       {/* ↵ on a link, list, field or button in the archive belongs to it; it never starts the job. */}
-      <div onKeyDown={keepEnter}>
-        <UiPanel title={j.archive}>
-          <div className="flex min-w-0 items-center gap-2">
-            <UiBadge>{job.archive.enabled ? j.on : j.off}</UiBadge>
-            <UiText tone="neutral" truncate>
-              {archiveSentence(job)}
-            </UiText>
-            <UiLinkButton onPress={() => openSheet({ kind: "jobWizard", jobId: job.id })}>{j.change}</UiLinkButton>
-          </div>
-          {/* A two-way job keeps an archive on each end; one switch picks which is shown. */}
-          {job.mode === "bidirectional" ? (
-            <UiSegmented
-              label={j.archiveSide}
-              value={archiveSide}
-              onChange={setArchiveSide}
-              segments={(["target", "source"] as const).map((side) => ({
-                value: side,
-                label: locationOf(side === "target" ? job.target : job.source, state.config)?.name ?? (side === "target" ? j.sideTarget : j.sideSource),
-              }))}
+      {job.mode === "versioned" ? (
+        // A versioned job keeps dated snapshots instead of an archive.
+        <div onKeyDown={keepEnter}>
+          <UiPanel title={d.snapshots.title}>
+            <SnapshotsPanel
+              job={job}
+              revision={`${latest?.id ?? ""}:${latest?.finishedAt ?? ""}`}
+              target={locationOf(job.target, state.config)}
+              status={state.locations[job.target.location]}
+              now={now}
             />
-          ) : null}
-          <ArchivePanel
-            key={shownSide}
-            job={job}
-            revision={`${latest?.id ?? ""}:${latest?.finishedAt ?? ""}`}
-            side={shownSide}
-            target={locationOf(shownSide === "target" ? job.target : job.source, state.config)}
-            reach={state.locations[(shownSide === "target" ? job.target : job.source).location]?.reach}
-            now={now}
-          />
-        </UiPanel>
-      </div>
+          </UiPanel>
+        </div>
+      ) : (
+        <div onKeyDown={keepEnter}>
+          <UiPanel title={j.archive}>
+            <div className="flex min-w-0 items-center gap-2">
+              <UiBadge>{job.archive.enabled ? j.on : j.off}</UiBadge>
+              <UiText tone="neutral" truncate>
+                {archiveSentence(job)}
+              </UiText>
+              <UiLinkButton onPress={() => openSheet({ kind: "jobWizard", jobId: job.id })}>{j.change}</UiLinkButton>
+            </div>
+            {/* A two-way job keeps an archive on each end; one switch picks which is shown. */}
+            {job.mode === "bidirectional" ? (
+              <UiSegmented
+                label={j.archiveSide}
+                value={archiveSide}
+                onChange={setArchiveSide}
+                segments={(["target", "source"] as const).map((side) => ({
+                  value: side,
+                  label: locationOf(side === "target" ? job.target : job.source, state.config)?.name ?? (side === "target" ? j.sideTarget : j.sideSource),
+                }))}
+              />
+            ) : null}
+            <ArchivePanel
+              key={shownSide}
+              job={job}
+              revision={`${latest?.id ?? ""}:${latest?.finishedAt ?? ""}`}
+              side={shownSide}
+              target={locationOf(shownSide === "target" ? job.target : job.source, state.config)}
+              reach={state.locations[(shownSide === "target" ? job.target : job.source).location]?.reach}
+              now={now}
+            />
+          </UiPanel>
+        </div>
+      )}
     </div>
   );
 }

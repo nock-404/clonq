@@ -303,7 +303,8 @@ export interface RunEntryPage {
 }
 
 /** Which end of a job an archive belongs to. */
-export type ArchiveSide = "source" | "target";
+/** "snapshots": the dated snapshot folders of a versioned job, which live in its target. */
+export type ArchiveSide = "source" | "target" | "snapshots";
 
 export interface Snapshot {
   /** Folder name, e.g. "2026-09-23_14-05-09". */

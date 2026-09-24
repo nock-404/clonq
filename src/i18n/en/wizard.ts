@@ -141,13 +141,22 @@ export const wizard = {
 
   mode: {
     groupLabel: "Copy mode",
-    // Each description fits two lines of a card, so the three cards keep the height of two.
+    // The four cards stand side by side; the chosen one's description runs under them.
+    hint: "Each picture shows what a run does with the target.",
     mirror: "The target becomes an exact copy; anything extra is deleted.",
     backup: "New and changed files go to the target; nothing is deleted.",
     bidirectional: "Each side takes over new, changed and deleted files.",
     mirrorCaption: "deleted",
     backupCaption: "kept",
     bidirectionalCaption: "conflict",
+    versioned: "Every run is kept as a dated snapshot; unchanged files take no space.",
+    versionedCaption: "per run",
+    /** Why the Versions card can't be picked for these places. */
+    versionedNoCloud: "Versions need a folder, drive or server as the target, not a cloud.",
+    versionedLocalSource: "Versions need a source on this Mac.",
+    versionedUnavailable: "not here",
+    keepTitle: "How long snapshots are kept",
+    keepRule: "Every snapshot of the last 24 hours, the newest of each day for 30 days, after that the newest of each week. The newest snapshot is never removed.",
 
     conflictTitle: "When a file was changed on both sides",
     preferLabel: "Which version wins a conflict",
@@ -285,6 +294,7 @@ export const wizard = {
     excluding: (patterns: string) => `excluding ${patterns}`,
     noExcludes: "No exclusions",
     withLimit: (percent: string) => `, deletion limit ${percent}`,
+    versionedSummary: "Versions, thinned out automatically",
     conflicts: "Conflicts",
     changeConflicts: "Change conflict rule",
     archive: "Archive",

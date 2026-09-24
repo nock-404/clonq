@@ -27,6 +27,7 @@ import {
   jumpLabel,
   loserSentence,
   modeProblem,
+  versionedProblem,
   nameTaken,
   overlapText,
   preferLabel,
@@ -227,7 +228,7 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
       : ((targetLocation ? reachProblem(targetLocation, state) : null) ??
         readProblem(draft.target) ??
         (overlap && draft.source ? overlapText(overlap, "target", placeLabel(draft.source, config)) : null)),
-    2: modeProblem(draft),
+    2: modeProblem(draft, config),
     3: triggerProblem({ ...draft.triggers, onMount: draft.triggers.onMount && drives.length > 0 }),
     4: name.trim() ? null : w.problem.noName,
   };
@@ -517,6 +518,7 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
               <ModeStep
                 mode={draft.mode}
                 onMode={(mode) => change({ mode })}
+                versionedBlocked={versionedProblem(draft, config)}
                 excludes={draft.excludes}
                 onExcludes={(excludes) => change({ excludes })}
                 maxDeletePercent={draft.maxDeletePercent}

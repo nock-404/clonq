@@ -37,6 +37,7 @@ export const common = {
     backup: "Backup",
     blind: "Blind backup",
     bidirectional: "Two-way",
+    versioned: "Versions",
   },
   locationKind: {
     folder: "Folder on this Mac",

@@ -3,9 +3,10 @@ import { useT } from "../i18n";
 interface UiModeDiagramProps {
   /**
    * What a run does: the target becomes an exact copy (mirror), keeps everything it had plus what
-   * is new (backup), or both sides take over each other's changes (bidirectional).
+   * is new (backup), both sides take over each other's changes (bidirectional), or every run
+   * leaves a dated snapshot of its own (versioned).
    */
-  mode: "mirror" | "backup" | "bidirectional";
+  mode: "mirror" | "backup" | "bidirectional" | "versioned";
   /** Plays the run once, e.g. when the option is picked. */
   active: boolean;
   /** "Source" and "Target" by default. */
@@ -15,18 +16,24 @@ interface UiModeDiagramProps {
   extraLabel?: string;
 }
 
-// One strip of tape with records on it, in viewBox units; drawn 1rem high, so a unit is 1/14 rem.
+// One strip of tape with records on it, in viewBox units; drawn 0.875rem high, so a unit is 1/16 rem.
 // The strip is short enough for its caption to sit beside it in a third of the sheet.
 const W = 84;
 const H = 14;
 /** The gap between the two strips of a two-way diagram: 0.375rem, as between the other strips. */
-const GAP = 5.25;
+const GAP = 6;
 const SLOT = 19;
 const RECORD = { w: 16, h: 8, y: 3 };
 const x = (slot: number) => 4 + slot * SLOT;
 const mid = (slot: number) => x(slot) + RECORD.w / 2;
 
-type TapeRecord = { slot: number; fill: string; state?: "arrives" | "arrivesUp" | "erased" | "kept" | "conflict" };
+type TapeRecord = {
+  slot: number;
+  fill: string;
+  state?: "arrives" | "arrivesUp" | "erased" | "kept" | "conflict" | "linked";
+  /** The outline of a linked record, in the record's colour. */
+  stroke?: string;
+};
 
 const SOURCE: TapeRecord[] = [
   { slot: 0, fill: "fill-ring-blue" },
@@ -58,7 +65,18 @@ const TWO_WAY_TARGET: TapeRecord[] = [
   { slot: 3, fill: "fill-warn/25", state: "conflict" },
 ];
 
-const captionTone = { mirror: "text-danger", backup: "text-ink-soft", bidirectional: "text-warn" };
+// Versioned: the snapshot of this run in front, the two before it stacked behind. Blue and green
+// did not change, so the new snapshot only links them (drawn hollow: they take no space); yellow
+// is new and arrives.
+const SNAPSHOT: TapeRecord[] = [
+  { slot: 0, fill: "fill-ring-blue", state: "linked", stroke: "stroke-ring-blue" },
+  { slot: 1, fill: "fill-ring-green", state: "linked", stroke: "stroke-ring-green" },
+  { slot: 2, fill: "fill-ring-yellow", state: "arrives" },
+];
+/** How far each earlier snapshot sticks out above and to the right of the one in front of it. */
+const STACK = { dx: 3, dy: 2.6, behind: 2 };
+
+const captionTone = { mirror: "text-danger", backup: "text-ink-soft", bidirectional: "text-warn", versioned: "text-accent" };
 
 /**
  * What a copy mode does, drawn as records on two strips of tape: the source above, the target
@@ -70,36 +88,24 @@ export function UiModeDiagram({ mode, active, extraLabel, ...words }: UiModeDiag
   const t = useT().wizard.steps;
   const sourceLabel = words.sourceLabel ?? t.source;
   const targetLabel = words.targetLabel ?? t.target;
-  const twoWay = mode === "bidirectional";
-  const caption = extraLabel ? <span className={`min-w-0 truncate text-[0.6875rem] font-medium ${captionTone[mode]}`}>{extraLabel}</span> : null;
+  // Two-way and versioned draw both strips in one picture, because something reaches across them.
+  const joint = mode === "bidirectional" || mode === "versioned";
+  // The caption runs under the strips, so that four cards fit side by side.
+  const caption = extraLabel ? <span className={`col-start-2 -mt-0.5 min-w-0 truncate text-[0.6875rem] leading-none font-medium ${captionTone[mode]}`}>{extraLabel}</span> : null;
   return (
-    <span className="grid grid-cols-[auto_auto_auto] items-center justify-start gap-x-1.5 gap-y-1.5" aria-hidden>
+    <span className="grid grid-cols-[auto_auto] items-center justify-start gap-x-1.5 gap-y-1.5" aria-hidden>
       <span className="text-[0.6875rem] text-ink-faint">{sourceLabel}</span>
-      {twoWay ? (
-        <>
-          <TwoWay active={active} />
-          <span className="row-span-2 flex min-w-0">{caption}</span>
-        </>
-      ) : (
-        <>
-          <Strip records={SOURCE} active={false} />
-          <span />
-        </>
-      )}
+      {mode === "bidirectional" ? <TwoWay active={active} /> : mode === "versioned" ? <Versioned active={active} /> : <Strip records={SOURCE} active={false} />}
       <span className="text-[0.6875rem] text-ink-faint">{targetLabel}</span>
-      {twoWay ? null : (
-        <>
-          <Strip records={targetOf(mode)} active={active} />
-          {caption ?? <span />}
-        </>
-      )}
+      {joint ? null : <Strip records={targetOf(mode)} active={active} />}
+      {caption}
     </span>
   );
 }
 
 function Strip({ records, active }: { records: TapeRecord[]; active: boolean }) {
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="block h-4 w-auto">
+    <svg viewBox={`0 0 ${W} ${H}`} className="block h-3.5 w-auto">
       <Tape records={records} active={active} y={0} />
     </svg>
   );
@@ -124,7 +130,7 @@ function TwoWay({ active }: { active: boolean }) {
   const spark = mid(3);
   const middle = (from + to) / 2;
   return (
-    <svg viewBox={`0 0 ${W} ${2 * H + GAP}`} className="row-span-2 block h-[2.375rem] w-auto">
+    <svg viewBox={`0 0 ${W} ${2 * H + GAP}`} className="row-span-2 block h-[2.125rem] w-auto">
       <Tape records={TWO_WAY_SOURCE} active={active} y={0} />
       <Tape records={TWO_WAY_TARGET} active={active} y={bottom} />
       <path d={arrow(1, true)} fill="none" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" className="stroke-ink/70" />
@@ -141,6 +147,36 @@ function TwoWay({ active }: { active: boolean }) {
   );
 }
 
+/**
+ * Both strips in one drawing: the source above, the target below as a stack of snapshots, one per
+ * run. The earlier ones peek out behind the newest, each a little higher and further right.
+ */
+function Versioned({ active }: { active: boolean }) {
+  const bottom = H + GAP;
+  const width = W + STACK.dx * STACK.behind;
+  return (
+    <svg viewBox={`0 0 ${width} ${2 * H + GAP}`} className="row-span-2 block h-[2.125rem] w-auto">
+      <Tape records={SOURCE} active={false} y={0} />
+      {Array.from({ length: STACK.behind }, (_, index) => {
+        const depth = STACK.behind - index;
+        return (
+          <rect
+            key={depth}
+            x={STACK.dx * depth}
+            y={bottom + 1 - STACK.dy * depth}
+            width={W}
+            height={H - 2}
+            rx="2"
+            strokeWidth="0.6"
+            className={`fill-oxide-deep ${depth === 1 ? "stroke-ink/45" : "stroke-ink/25"}`}
+          />
+        );
+      })}
+      <Tape records={SNAPSHOT} active={active} y={bottom} />
+    </svg>
+  );
+}
+
 function Tape({ records, active, y }: { records: TapeRecord[]; active: boolean; y: number }) {
   return (
     <g transform={`translate(0 ${y})`}>
@@ -149,6 +185,7 @@ function Tape({ records, active, y }: { records: TapeRecord[]; active: boolean; 
       {records.map((record) => {
         if (record.state === "erased") return <Erased key={record.slot} slot={record.slot} active={active} />;
         if (record.state === "conflict") return <Conflicting key={record.slot} record={record} active={active} upper={y === 0} />;
+        if (record.state === "linked") return <Linked key={record.slot} record={record} />;
         const motion =
           active && record.state === "arrives"
             ? "animate-record-arrive spin-origin"
@@ -179,6 +216,22 @@ function Erased({ slot, active }: { slot: number; active: boolean }) {
       />
       <path d={`M ${cx - 3} ${RECORD.y + 2} l 6 4 M ${cx + 3} ${RECORD.y + 2} l -6 4`} strokeWidth="0.9" strokeLinecap="round" className="stroke-danger" />
     </g>
+  );
+}
+
+/** A file the snapshot before already holds: outlined in its colour, since it takes no new space. */
+function Linked({ record }: { record: TapeRecord }) {
+  return (
+    <rect
+      x={x(record.slot) + 0.4}
+      y={RECORD.y + 0.4}
+      width={RECORD.w - 0.8}
+      height={RECORD.h - 0.8}
+      rx="1.2"
+      fill="none"
+      strokeWidth="0.9"
+      className={record.stroke}
+    />
   );
 }
 

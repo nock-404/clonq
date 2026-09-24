@@ -195,7 +195,7 @@ export function reachProblem(location: Location, state: ClonqState): string | nu
 }
 
 /** Where a place is on this Mac, when that can be known without asking the Rust side. */
-function localPath(place: Place, location: Location | undefined, status: LocationStatus | undefined): string | null {
+export function localPath(place: Place, location: Location | undefined, status: LocationStatus | undefined): string | null {
   if (!location) return null;
   let base: string | null = null;
   if (location.kind.type === "folder") base = location.kind.path;
@@ -367,9 +367,24 @@ export function archiveProblem(archive: ArchiveDraft): string | null {
   return archive.enabled && keepDaysOf(archive.keepDays) === null ? texts().wizard.problem.keepDays : null;
 }
 
+/**
+ * Why these two places can't hold a versioned job, as a sentence, or null. Snapshots need hard
+ * links, which rsync only makes from this Mac into a folder, a drive or a server.
+ */
+export function versionedProblem(draft: Draft, config: Config | null): string | null {
+  const t = texts().wizard.mode;
+  const source = draft.source ? locationOf(draft.source, config)?.kind.type : undefined;
+  const target = draft.target ? locationOf(draft.target, config)?.kind.type : undefined;
+  if (source === "ssh" || source === "cloud") return t.versionedLocalSource;
+  if (target === "cloud") return t.versionedNoCloud;
+  return null;
+}
+
 /** The problem with the mode step, as a sentence, or null. */
-export function modeProblem(draft: Draft): string | null {
+export function modeProblem(draft: Draft, config: Config | null): string | null {
   if (!draft.mode) return texts().wizard.problem.noMode;
+  // The places may have changed after the mode was picked.
+  if (draft.mode === "versioned") return versionedProblem(draft, config);
   if (deletesIn(draft.mode) && percentOf(draft.maxDeletePercent) === null) return texts().wizard.problem.percent;
   return archiveProblem(draft.archive);
 }
