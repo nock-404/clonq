@@ -8,6 +8,8 @@ mod error;
 mod glass;
 mod history;
 mod locations;
+#[cfg(test)]
+mod matrix_tests;
 mod rclone_output;
 mod rsync_output;
 mod runlog;

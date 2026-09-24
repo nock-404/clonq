@@ -25,8 +25,13 @@ pub struct ArchivedFile {
     pub size: u64,
 }
 
+/// `2026-09-23_14-05-09-123`, or without milliseconds as written before 0.3.2.
 fn is_stamp(name: &str) -> bool {
-    name.len() == 19 && chrono::NaiveDateTime::parse_from_str(name, "%Y-%m-%d_%H-%M-%S").is_ok()
+    match name.len() {
+        19 => chrono::NaiveDateTime::parse_from_str(name, "%Y-%m-%d_%H-%M-%S").is_ok(),
+        23 => chrono::NaiveDateTime::parse_from_str(name, "%Y-%m-%d_%H-%M-%S-%3f").is_ok(),
+        _ => false,
+    }
 }
 
 /// Where the job's archive lives, resolved against the machine as it is now.

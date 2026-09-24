@@ -100,7 +100,8 @@ export function formatDay(iso: string): string {
 
 /** "2026-09-23_14-05-09" as a readable local date and time. */
 export function formatStamp(stamp: string): string {
-  const match = stamp.match(/^(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})$/);
+  // Since 0.3.2 the name ends in milliseconds ("…_14-05-09-123"); older names have none.
+  const match = stamp.match(/^(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})(?:-\d{3})?$/);
   if (!match) return stamp;
   const [, y, mo, d, h, mi, se] = match;
   return formatters().dateTime.format(new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(se)));

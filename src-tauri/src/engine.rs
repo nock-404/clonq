@@ -279,16 +279,13 @@ impl Engine {
 
         let mut max_delete = None;
         if job.mode == Mode::Mirror && !two_way && !options.dry_run && !options.force {
-            let baseline = self.history.last_target_entries(&job.id, &run.plan_key)?;
-            let after_stop = self.history.last_real_status(&job.id)? == Some(RunStatus::Blocked);
-            // With an archive, rclone counts every overwrite against --max-delete,
-            // so for rclone the limit is enforced from a dry run instead.
+            // With an archive, rclone counts every overwrite against --max-delete.
             let rclone_archive = matches!(plan.tool, Tool::Rclone { .. }) && job.archive.enabled;
-            match baseline {
-                Some(entries) if !after_stop && !rclone_archive => max_delete = Some(job.safety.allowed_deletions(entries)),
-                _ => {
-                    // No baseline for this exact plan, or the last run was stopped:
-                    // a dry run that changes nothing decides.
+            // Every mirror run is checked by a dry run first. --max-delete alone is not enough:
+            // rsync and rclone delete up to the limit before they stop, and without an archive
+            // those files would be gone although the run counts as stopped.
+            {
+                {
                     self.update(&job.id, |live| live.phase = Phase::Checking);
                     self.emit(&job.id);
                     log.write_all(b"# safety check (dry run)\n").await?;
@@ -325,6 +322,10 @@ impl Engine {
                             job.safety.max_delete_percent
                         ));
                         return Ok(());
+                    }
+                    // A second guard for files that vanish between the check and the run.
+                    if !rclone_archive {
+                        max_delete = Some(allowed);
                     }
                     self.update(&job.id, |live| live.phase = Phase::Transferring);
                 }
@@ -1226,8 +1227,10 @@ fn signal_group(group: Option<i32>, signal: i32) {
 }
 
 /// Archive folder names sort by time: `2026-09-23_14-05-09`.
+/// Milliseconds are part of the name: two runs in the same second must never share a folder,
+/// or the second would overwrite what the first kept.
 pub fn archive_stamp(at: chrono::DateTime<Utc>) -> String {
-    at.with_timezone(&chrono::Local).format("%Y-%m-%d_%H-%M-%S").to_string()
+    at.with_timezone(&chrono::Local).format("%Y-%m-%d_%H-%M-%S-%3f").to_string()
 }
 
 /// One line of the run log: `+ size path` new, `~ size path` changed.
@@ -1831,8 +1834,9 @@ mod tests {
         }
         let second = f.run(&config, RunOptions::default()).await;
         assert_eq!(second.status, RunStatus::Blocked, "{:?}", second.message);
-        // 41 entries on the target, 10 % would be 4, the floor of 10 applies.
-        assert_eq!(Fixture::count_files(&f.dst()), 40 - 10);
+        // 30 deletions, far over the limit (10 % of 40, at least 10): the dry run stops the
+        // job before anything is deleted, not after the first ten are gone.
+        assert_eq!(Fixture::count_files(&f.dst()), 40);
     }
 
     #[tokio::test]
