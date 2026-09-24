@@ -345,7 +345,8 @@ pub async fn crypt_password(rclone: &str, config_file: &Path, job_id: &str) -> R
     if !output.status.success() {
         return Err(Error::Job(last_error(&String::from_utf8_lossy(&output.stderr))));
     }
-    let dump: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_default();
+    // An unreadable dump is an error, never "no password": that would lead to a new one.
+    let dump: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|_| Error::Job("the rclone configuration could not be read".into()))?;
     let Some(obscured) = dump.get(crypt_name(job_id)).and_then(|remote| remote.get("password")).and_then(|value| value.as_str()) else {
         return Ok(None);
     };

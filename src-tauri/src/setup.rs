@@ -488,6 +488,15 @@ pub struct JobInput {
     pub encrypted: bool,
 }
 
+/// Whether two places are the same folder or one lies inside the other.
+fn nested(a: &Place, b: &Place) -> bool {
+    if a.location != b.location {
+        return false;
+    }
+    let (a, b) = (a.path.trim_matches('/'), b.path.trim_matches('/'));
+    a.is_empty() || b.is_empty() || a == b || a.starts_with(&format!("{b}/")) || b.starts_with(&format!("{a}/"))
+}
+
 /// Why two places cannot be a job, or None when they can.
 pub fn conflict(source: &Resolved, target: &Resolved) -> Option<String> {
     let (Resolved::Local(a), Resolved::Local(b)) = (source, target) else {
@@ -561,7 +570,35 @@ pub async fn save_job(app: AppHandle, state: State<'_, AppState>, job: JobInput)
     }
     let id = job.id.clone().unwrap_or_else(|| new_id(&name));
     let rclone_config = state.config_dir.join("rclone.conf");
-    let was_encrypted = config.job(&id).is_some_and(|existing| existing.encrypted);
+    let before = config.job(&id).cloned();
+    let was_encrypted = before.as_ref().is_some_and(|existing| existing.encrypted);
+    let target_place = Place { location: job.target.location.clone(), path: job.target.path.trim_matches('/').to_string() };
+    let same_target = before.as_ref().is_some_and(|existing| existing.target == target_place);
+    let versioned = job.mode == crate::config::Mode::Versioned;
+    let was_versioned = before.as_ref().is_some_and(|existing| existing.mode == crate::config::Mode::Versioned);
+    // Snapshots are thinned and unfinished ones removed: their folder belongs to one job alone.
+    for other in config.jobs.iter().filter(|other| other.id != id) {
+        if (versioned || other.mode == crate::config::Mode::Versioned) && nested(&other.target, &target_place) {
+            return Err(Error::Job(format!("the target folder overlaps with the job {}; a versioned job needs a folder of its own", other.name)));
+        }
+    }
+    if versioned && !(was_versioned && same_target) {
+        let fit = match &target {
+            Resolved::Local(path) => crate::versions::only_snapshots_local(path),
+            Resolved::Remote { destination, ssh, .. } => {
+                let rsh = vec![format!("--rsh={}", crate::engine::shell_join(ssh))];
+                crate::versions::only_snapshots_remote(&config.rsync_path, &rsh, &format!("{}/", destination.trim_end_matches('/'))).await?
+            }
+            Resolved::Cloud { .. } => true,
+        };
+        if !fit {
+            return Err(Error::Job("versioned backups need an empty target folder; choose a new one".into()));
+        }
+    }
+    // The snapshots stay where they are; another mode would mirror them away or merge them in.
+    if was_versioned && !versioned && same_target {
+        return Err(Error::Job("this folder holds the snapshots; choose another folder for the new mode".into()));
+    }
     if job.encrypted {
         if !crate::licence::Store::new(&state.config_dir).pro() {
             return Err(Error::Job("encrypted cloud copies are part of clonq Pro: enter a licence in Settings".into()));
@@ -582,6 +619,9 @@ pub async fn save_job(app: AppHandle, state: State<'_, AppState>, job: JobInput)
             Some(password) => cloud::decrypts(&config.rclone_path, &rclone_config, spec, &password).await?,
             None => false,
         };
+        if job.encrypted && was_encrypted && cloud::crypt_password(&config.rclone_path, &rclone_config, &id).await?.is_none() {
+            return Err(Error::Job("the encryption password of this job is missing on this Mac; without it the copy cannot be read, so clonq does not make a new one".into()));
+        }
         if job.encrypted && !own {
             return Err(Error::Job("encryption needs an empty target folder; choose a new one".into()));
         }
@@ -678,5 +718,16 @@ mod tests {
         let id = new_id("WORK → M2mini");
         assert!(id.starts_with("work-m2mini-"), "{id}");
         assert_eq!(new_id("→").len(), 6);
+    }
+
+    #[test]
+    fn places_overlap_when_one_holds_the_other() {
+        let place = |location: &str, path: &str| Place { location: location.into(), path: path.into() };
+        assert!(nested(&place("box", "Backups"), &place("box", "Backups")));
+        assert!(nested(&place("box", "Backups"), &place("box", "Backups/Photos")));
+        assert!(nested(&place("box", "Backups/Photos"), &place("box", "Backups")));
+        assert!(nested(&place("box", ""), &place("box", "Backups")), "the location's root holds everything");
+        assert!(!nested(&place("box", "Backups"), &place("box", "Backups2")), "a common prefix is not a folder");
+        assert!(!nested(&place("box", "Backups"), &place("nas", "Backups")));
     }
 }

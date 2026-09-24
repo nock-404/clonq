@@ -168,6 +168,11 @@ pub async fn snapshots(job: &Job, config: &Config, rclone_config: &Path, side: S
             entry.1 += file.size;
         }
     }
+    // Unfinished snapshots are not offered: they may miss files and are removed on the next run.
+    if side == Side::Snapshots {
+        let complete: std::collections::BTreeSet<String> = version_list(job, config).await?.into_iter().collect();
+        by_stamp.retain(|stamp, _| complete.contains(stamp));
+    }
     Ok(by_stamp.into_iter().rev().map(|(stamp, (files, bytes))| Snapshot { stamp, files, bytes }).collect())
 }
 

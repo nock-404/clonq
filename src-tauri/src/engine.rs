@@ -420,7 +420,10 @@ impl Engine {
         if let Some(limit) = max_delete {
             extra.push(format!("--max-delete={limit}"));
         }
+        // Only before the first run: later, a missing target folder means it was deleted or
+        // renamed, and an empty new one would look to bisync like everything was deleted there.
         if two_way && !options.dry_run
+            && !self.history.has_completed(&job.id)?
             && let Tool::Bisync { config } = &plan.tool
         {
             // bisync needs both roots to exist; a new job's target folder may not yet
@@ -890,8 +893,16 @@ impl Engine {
                 run.files_changed = quick.paths.iter().filter(|(change, _)| *change == Change::ChangedFile).count() as i64;
                 run.source_bytes = deep.stats.total_size;
                 run.exit_code = deep.exit_code;
-                run.status = if silent.is_empty() { RunStatus::Succeeded } else { RunStatus::Partial };
-                run.message = (!silent.is_empty()).then(|| format!("{} file(s) differ in content although size and date match", silent.len()));
+                // 23/24: some files could not be read, so they were not checked either.
+                let unread = matches!(quick.exit_code, Some(23 | 24)) || matches!(deep.exit_code, Some(23 | 24));
+                run.status = if silent.is_empty() && !unread { RunStatus::Succeeded } else { RunStatus::Partial };
+                run.message = if !silent.is_empty() {
+                    Some(format!("{} file(s) differ in content although size and date match", silent.len()))
+                } else if unread {
+                    Some("some files could not be read and were not checked; the log names them".into())
+                } else {
+                    None
+                };
             }
             Tool::Rclone { config } | Tool::Bisync { config } => {
                 let mut command = Command::new(&plan.program);
@@ -1567,7 +1578,7 @@ async fn delete_snapshots(plan: &Plan, names: &[String]) -> Result<()> {
     let empty = std::env::temp_dir().join(format!("clonq-empty-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&empty)?;
     let mut command = Command::new(&plan.program);
-    command.env("LC_ALL", "C").args(plan.rsh()).args(["-r", "--delete"]);
+    command.env("LC_ALL", "C").args(plan.rsh()).args(["-r", "--delete", "--secluded-args"]);
     for name in &names {
         command.arg(format!("--include=/{name}/***"));
     }

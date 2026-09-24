@@ -1277,3 +1277,24 @@ async fn a_marker_in_the_source_does_not_mark_a_snapshot_complete() {
     let marker = fs::read_to_string(b.side("dst").join(&newest).join(crate::versions::MARKER)).unwrap();
     assert_eq!(marker, newest, "the marker is clonq's own, written at the end");
 }
+
+#[tokio::test]
+async fn a_versioned_target_must_be_empty_or_hold_only_snapshots() {
+    let b = Bench::new();
+    assert!(crate::versions::only_snapshots_local(&b.side("dst")), "an empty folder");
+    assert!(crate::versions::only_snapshots_local(&b.side("missing")), "a folder not made yet");
+    let config = b.config(Mode::Versioned, true, newer_wins());
+    b.put("src", "a.txt", "a");
+    ok(&b.run(&config).await);
+    assert!(crate::versions::only_snapshots_local(&b.side("dst")), "this job's own snapshots, e.g. after an undo");
+    fs::create_dir_all(b.side("dst").join("2026-05-01_12-30-00")).unwrap();
+    assert!(!crate::versions::only_snapshots_local(&b.side("dst")), "a stamp-named folder of the user would be removed as unfinished");
+    fs::remove_dir(b.side("dst").join("2026-05-01_12-30-00")).unwrap();
+    b.put("dst", "Photos/keep.jpg", "user file");
+    assert!(!crate::versions::only_snapshots_local(&b.side("dst")));
+    let (complete, _) = crate::versions::list_local(&b.side("dst"));
+    let base = format!("{}/", b.side("dst").display());
+    assert!(!crate::versions::only_snapshots_remote(&tool("rsync"), &[], &base).await.unwrap(), "the same through rsync, as on a server");
+    fs::remove_dir_all(b.side("dst").join("Photos")).unwrap();
+    assert!(crate::versions::only_snapshots_remote(&tool("rsync"), &[], &base).await.unwrap(), "{complete:?}");
+}

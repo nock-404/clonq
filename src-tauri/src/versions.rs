@@ -88,6 +88,35 @@ pub fn list_local(target: &Path) -> (Vec<String>, Vec<String>) {
     (complete, incomplete)
 }
 
+/// Whether a local folder is fit to hold a versioned job's snapshots: missing, empty, or
+/// holding nothing but complete snapshots (of this job, restored or moved here).
+pub fn only_snapshots_local(target: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(target) else { return !target.exists() };
+    let (complete, _) = list_local(target);
+    entries.flatten().all(|entry| {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        complete.contains(&name) || name == ".DS_Store"
+    })
+}
+
+/// The same for a server.
+pub async fn only_snapshots_remote(rsync: &str, rsh: &[String], base: &str) -> Result<bool> {
+    let output = Command::new(rsync).env("LC_ALL", "C").args(rsh).args(["--list-only", "--secluded-args"]).arg(base).output().await?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("No such file or directory") {
+            return Ok(true);
+        }
+        return Err(crate::error::Error::Job(crate::ssh::explain(&stderr)));
+    }
+    let (complete, _) = list_remote(rsync, rsh, base).await?;
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.split_whitespace().last())
+        .filter(|name| *name != "." && *name != ".DS_Store")
+        .all(|name| complete.iter().any(|stamp| stamp == name)))
+}
+
 /// Snapshots in a local target that carry the partial marker.
 pub fn partial_local(target: &Path) -> BTreeSet<String> {
     let (complete, _) = list_local(target);
@@ -99,7 +128,7 @@ pub async fn partial_remote(rsync: &str, rsh: &[String], base: &str) -> Result<B
     let output = Command::new(rsync)
         .env("LC_ALL", "C")
         .args(rsh)
-        .args(["--list-only", "-r", "--include=/*/", &format!("--include=/*/{PARTIAL}"), "--exclude=*"])
+        .args(["--list-only", "--secluded-args", "-r", "--include=/*/", &format!("--include=/*/{PARTIAL}"), "--exclude=*"])
         .arg(base)
         .output()
         .await?;
@@ -120,7 +149,7 @@ pub async fn list_remote(rsync: &str, rsh: &[String], base: &str) -> Result<(Vec
     let output = Command::new(rsync)
         .env("LC_ALL", "C")
         .args(rsh)
-        .args(["--list-only", "-r", "--include=/*/", &format!("--include=/*/{MARKER}"), "--exclude=*"])
+        .args(["--list-only", "--secluded-args", "-r", "--include=/*/", &format!("--include=/*/{MARKER}"), "--exclude=*"])
         .arg(base)
         .output()
         .await?;
