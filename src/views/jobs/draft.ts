@@ -65,7 +65,7 @@ function triggerDraft(triggers: Triggers | null): TriggerDraft {
   return {
     onMount: triggers?.onMount ?? false,
     onChange: triggers?.onChangeAfterSeconds != null,
-    changeSeconds: String(triggers?.onChangeAfterSeconds ?? 60),
+    changeSeconds: String(triggers?.onChangeAfterSeconds ?? 10),
     every: triggers?.everyMinutes != null,
     everyMinutes: String(triggers?.everyMinutes ?? 60),
     daily: triggers?.dailyAt != null,
