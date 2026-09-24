@@ -24,3 +24,21 @@
   width: 65rem;
   height: 42.5rem;
 }
+
+/* ?bare=1: the window alone on a transparent page, with room for its shadow. */
+html.preview-bare,
+html.preview-bare body {
+  margin: 0;
+  background: transparent !important;
+}
+
+html.preview-bare #root.preview-frame {
+  margin: 4rem;
+}
+
+/* Stills: headless Chrome can photograph a colour transition halfway, so bare shots skip them. */
+html.preview-bare *,
+html.preview-bare *::before,
+html.preview-bare *::after {
+  transition: none !important;
+}

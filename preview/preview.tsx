@@ -5,13 +5,15 @@ import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
 import { MotionGlobalConfig } from "motion/react";
 import "./preview.css";
-import { cloudProviders, orteCloudProviders, orteExtraLocations, orteExtraStatuses, orteNewDrives, scenes, type SceneName } from "./scenes";
+import { cloudProviders, englishData, orteCloudProviders, orteExtraLocations, orteExtraStatuses, orteNewDrives, scenes, type SceneName } from "./scenes";
 import type { Job, JobInput, LocationStatus } from "../src/lib/types";
 
 const params = new URLSearchParams(location.search);
 const windowLabel = params.get("window") === "main" ? "main" : "popover";
 const sceneName = (params.get("scene") ?? "idle") as SceneName;
 const scene = scenes[sceneName] ?? scenes.idle;
+/** The German word for the German data, the English one for ?lang=en. */
+const say = (de: string, en: string) => (englishData ? en : de);
 
 // Headless Chrome has no display link, so animation frames never come: ?instant=1 skips them.
 if (params.get("instant")) MotionGlobalConfig.instantAnimations = true;
@@ -44,7 +46,7 @@ mockIPC(
           { name: ".Trash", hidden: true },
         ];
       case "job_defaults":
-        return ["node_modules/"];
+        return englishData ? [".DS_Store"] : ["node_modules/"];
       case "test_server":
         return "/home";
       case "cloud_providers":
@@ -96,8 +98,9 @@ mockIPC(
 // disconnected, missing, untested, failed). ?orteHold=1 keeps the sheet on its "added" moment.
 {
   if (params.get("orteExtra")) {
-    scene.config = { ...scene.config, locations: [...scene.config.locations, ...orteExtraLocations] };
-    scene.locations.push(...orteExtraStatuses.map((status) => ({ ...status })));
+    const known = new Set(scene.config.locations.map((item) => item.id));
+    scene.config = { ...scene.config, locations: [...scene.config.locations, ...orteExtraLocations.filter((item) => !known.has(item.id))] };
+    scene.locations.push(...orteExtraStatuses.filter((status) => !known.has(status.id)).map((status) => ({ ...status })));
   }
   const drives = Number(params.get("orteDrives") ?? 0);
   if (drives > 0) scene.volumes = [...scene.volumes, ...orteNewDrives.slice(0, drives)];
@@ -173,7 +176,11 @@ if (scene.live.length > 0) {
   }, 400);
 }
 
-document.documentElement.classList.add("preview-desktop");
+// ?bare=1 shows the window alone on a transparent page (for product shots): no desktop behind
+// it, and a margin wide enough that its shadow is not cut off.
+const bare = Boolean(params.get("bare"));
+if (!bare) document.documentElement.classList.add("preview-desktop");
+else document.documentElement.classList.add("preview-bare");
 const root = document.getElementById("root");
 if (root) {
   root.classList.add("preview-frame");
@@ -310,10 +317,10 @@ type OrteStep = ["click", string] | ["fill", string, string] | ["key", string, b
 
 const orteServer: OrteStep[] = [
   ["click", "Server (SSH)"],
-  ["fill", "Adresse", "u654321.your-storagebox.de"],
-  ["fill", "Ordner auf dem Server", "backups"],
+  ["fill", say("Adresse", "Address"), "u654321.your-storagebox.de"],
+  ["fill", say("Ordner auf dem Server", "Folder on the server"), "backups"],
 ];
-const orteServerKey: OrteStep[] = [...orteServer, ["click", "Weiter"], ["wait", 400]];
+const orteServerKey: OrteStep[] = [...orteServer, ["click", say("Weiter", "Continue")], ["wait", 400]];
 const orteServerTested: OrteStep[] = [...orteServerKey, ["fill", "Passwort für", "passwort-demo"], ["click", "Schlüssel hinterlegen"], ["wait", 1800]];
 const orteSmb: OrteStep[] = [
   ["click", "Netzlaufwerk"],
@@ -325,6 +332,7 @@ const orteCloud: OrteStep[] = [["click", "Cloud"], ["wait", 300]];
 
 const orteScenarios: Record<string, OrteStep[]> = {
   "art-tastatur": [["key", "ArrowDown"], ["key", "ArrowDown"]],
+  "art-laufwerk": [["key", "ArrowDown"]],
   "ordner-leer": [["click", "Ordner auf dem Mac"]],
   ordner: [["click", "Ordner auf dem Mac"], ["click", "Ordner wählen"], ["wait", 300]],
   "ordner-fertig": [["click", "Ordner auf dem Mac"], ["click", "Ordner wählen"], ["wait", 300], ["click", "Hinzufügen"], ["wait", 1200]],
@@ -493,7 +501,7 @@ async function orteRun(name: string) {
     return inner(command, args, options);
   };
 
-  const confirm: OrteStep = ["click", "Fingerabdrücke stimmen"];
+  const confirm: OrteStep = ["click", say("Fingerabdrücke stimmen", "Fingerprints match")];
   const confirmed: OrteStep[] = [...orteServerKey, confirm, ["wait", 500]];
   const tested: OrteStep[] = [...confirmed, ["fill", "Passwort für", "passwort-demo"], ["click", "Schlüssel hinterlegen"], ["wait", 1800]];
   const reopened: OrteStep[] = [...confirmed, ["click", "Adresse ändern"], ["wait", 200]];
@@ -591,7 +599,13 @@ function jobWizardChange(command: string, args: { id?: string; enabled?: boolean
 // list_folders mock above answers every path alike; this one knows a small tree, with an empty
 // folder, one with only hidden folders and one that cannot be read. Only the wizard lists folders.
 // ?folderDelay=<ms> slows every listing down, to see the loading state.
-const jobWizardTree: Record<string, Record<string, string[] | "unreadable">> = {
+const jobWizardTree: Record<string, Record<string, string[] | "unreadable">> = englishData ? {
+  desktop: { "": ["Projects", "Screenshots", "Notes", ".Trash"], Projects: ["website", "garden-planner"] },
+  documents: { "": ["Taxes", "Projects", "Home", "Recipes"], Taxes: ["2024", "2025"] },
+  m2mini: { "": ["Photos", "Videos", "Desktop Backup", ".Spotlight-V100"], Photos: ["2025", "2026", "Scans"] },
+  nas: { "": ["Documents", "Projects", "Media"], Media: ["Music", "Films"] },
+  box: { "": ["Photos"], Photos: ["2025", "2026", "Scans"] },
+} : {
   desktop: {
     "": ["WORK", "Fotos", "Projekte", "Nur versteckt", "Gesperrt", ".Trash"],
     WORK: ["GM8", "Projekte", "Musik", "Archiv", ".git"],
@@ -704,7 +718,36 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
     return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}_${pad(at.getHours())}-${pad(at.getMinutes())}-${pad(at.getSeconds())}`;
   };
   type Files = [path: string, size: number][];
-  const archives: Record<string, { stamp: string; files: Files }[]> = {
+  const archivesEn: Record<string, { stamp: string; files: Files }[]> = {
+    "work-to-m2mini": [
+      { stamp: stamp(33), files: [["2026/Iceland/IMG_4790.heic", 3_204_551], ["2026/Iceland/IMG_4791.heic", 2_987_004], ["2026/Garden/IMG_4702.heic", 2_874_210]] },
+      { stamp: stamp(26 * 60 + 7), files: [["2026/Lisbon/IMG_4611.heic", 3_012_448], ["Scans/Letters/scan-0042.pdf", 812_330]] },
+    ],
+    "work-to-storagebox": [
+      {
+        stamp: stamp(52),
+        files: [
+          ["Taxes/2025/receipts.pdf", 1_842_331],
+          ["Taxes/2025/donations.pdf", 212_804],
+          ["Taxes/2025/tax-return-draft.xlsx", 48_112],
+          ["Projects/website/index.html", 6_402],
+          ["Projects/website/about.html", 4_118],
+          ["Projects/website/styles.css", 8_310],
+          ["Projects/website/images/header.jpg", 412_330],
+          ["Home/Insurance/home-contents-2026.pdf", 388_902],
+          ["Home/Utilities/electricity-2026-08.pdf", 102_441],
+          ["Recipes/sourdough.md", 3_120],
+          ["Recipes/lentil-soup.md", 1_904],
+        ],
+      },
+      { stamp: stamp(3 * 60 + 12), files: [["Projects/website/index.html", 6_388], ["Recipes/sourdough.md", 3_044]] },
+      { stamp: stamp(26 * 60 + 40), files: [["Taxes/2025/receipts.pdf", 1_790_220], ["Home/Car/service-2026-09.pdf", 244_118], ["Projects/garden-planner/beds.svg", 18_402]] },
+      { stamp: stamp(4 * 1440 + 95), files: [["Home/Insurance/home-contents-2025.pdf", 380_114]] },
+      { stamp: stamp(12 * 1440 + 300), files: [["Taxes/2024/receipts.pdf", 1_612_004], ["Taxes/2024/tax-return.pdf", 902_331]] },
+    ],
+    "m2mini-to-storagebox": [{ stamp: stamp(15 * 60), files: [["Notes/shopping.md", 1_204], ["Screenshots/Screenshot 2026-09-22 at 10.14.03.png", 1_204_880]] }],
+  };
+  const archives: Record<string, { stamp: string; files: Files }[]> = englishData ? archivesEn : {
     "work-to-m2mini": [
       {
         stamp: stamp(33),
@@ -775,7 +818,31 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
 
   // [name, size or -1 for a folder, minutes since the last change]
   type Entry = [name: string, size: number, minutesAgo: number];
-  const trees: Record<string, Record<string, Entry[]>> = {
+  const treesEn: Record<string, Record<string, Entry[]>> = {
+    m2mini: {
+      "": [["Photos", -1, 33], ["Videos", -1, 9 * 1440], ["Desktop Backup", -1, 15 * 60], [".Spotlight-V100", -1, 3 * 1440], [".DS_Store", 10_244, 2 * 1440]],
+      Photos: [["2025", -1, 200 * 1440], ["2026", -1, 33], ["Scans", -1, 26 * 60]],
+      "Photos/2026": [["Garden", -1, 190], ["Iceland", -1, 33], ["Lisbon", -1, 26 * 60]],
+    },
+    desktop: { "": [["Projects", -1, 60], ["Screenshots", -1, 15 * 60], ["Notes", -1, 300], ["Screenshot 2026-09-22 at 10.14.03.png", 1_204_880, 1440]] },
+    documents: { "": [["Taxes", -1, 52], ["Projects", -1, 52], ["Home", -1, 3 * 1440], ["Recipes", -1, 190]] },
+    box: {
+      "": [["Photos", -1, 31]],
+      Photos: [["2025", -1, 200 * 1440], ["2026", -1, 31], ["Scans", -1, 26 * 60]],
+      "Photos/2026": [["Garden", -1, 190], ["Iceland", -1, 31], ["Lisbon", -1, 26 * 60]],
+      "Photos/2026/Iceland": [
+        ["IMG_4788.heic", 3_012_448, 31],
+        ["IMG_4789.heic", 2_874_210, 31],
+        ["IMG_4790.heic", 3_204_551, 31],
+        ["IMG_4791.heic", 2_987_004, 31],
+        ["IMG_4817.mov", 88_402_117, 31],
+        ["IMG_4821.heic", 3_118_902, 31],
+      ],
+    },
+    nas: { "": [["Documents", -1, 52], ["Projects", -1, 5 * 1440], ["Media", -1, 30 * 1440]], Documents: [["Taxes", -1, 52], ["Projects", -1, 52], ["Home", -1, 3 * 1440], ["Recipes", -1, 190]] },
+    gdrive: { "": [["Backups", -1, 3 * 1440], ["Trip planning.md", 4_120, 2 * 1440], ["Household budget.xlsx", 38_912, 1440]] },
+  };
+  const trees: Record<string, Record<string, Entry[]>> = englishData ? treesEn : {
     m2mini: {
       "": [["WORK", -1, 33], ["Archiv", -1, 90 * 1440], ["Fotos", -1, 9 * 1440], [".Spotlight-V100", -1, 3 * 1440], [".fseventsd", -1, 40], [".DS_Store", 10_244, 2 * 1440]],
       WORK: [["GM8", -1, 33], ["Projekte", -1, 60], ["Musik", -1, 20 * 1440], [".clonq-archiv", -1, 33], [".DS_Store", 8_196, 5 * 1440]],
@@ -968,8 +1035,8 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
   // ?panels=<scenario>: steps name headings, rows, buttons and fields by their visible text.
   // "focus" puts the keyboard on a button or a list (by its label), so "key" can press ↵ or ← there.
   type Step = ["scroll", string] | ["pick", string] | ["open", string] | ["click", string] | ["focus", string] | ["fill", string, string] | ["key", string, boolean?] | ["wait", number];
-  const archive: Step[] = [["wait", 700], ["scroll", "Archiv"]];
-  const files: Step[] = [["wait", 500], ["scroll", "Dateien"]];
+  const archive: Step[] = [["wait", 700], ["scroll", say("Archiv", "Archive")]];
+  const files: Step[] = [["wait", 500], ["scroll", say("Dateien", "Files")]];
   const intoClonq: Step[] = [...files, ["open", "WORK"], ["wait", 250], ["open", "GM8"], ["wait", 250], ["open", "clonq"], ["wait", 250]];
   const photos: Step[] = [...files, ["open", "Fotos"], ["wait", 250], ["open", "2026"], ["wait", 250], ["open", "2026-09-14 Karwendel"], ["wait", 250]];
   const scenarios: Record<string, Step[]> = {
@@ -1099,13 +1166,14 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
   const CREATED = "created";
   const scenariosFor = (t: ReturnType<typeof texts>): Record<string, ModusStep[]> => {
     const w = t.wizard;
+    // English: Desktop/Projects ⇄ Home NAS/Projects, which no job of the English data uses yet.
     const toArt: ModusStep[] = [
-      ["radio", "Schreibtisch"],
-      ["option", "Fotos"],
+      ["radio", say("Schreibtisch", "Desktop")],
+      ["option", say("Fotos", "Projects")],
       ["button", w.footer.next],
       ["step", w.steps.target],
-      ["radio", "M2mini"],
-      ["option", "Fotos"],
+      ["radio", say("M2mini", "Home NAS")],
+      ["option", say("Fotos", "Projects")],
       ["button", w.footer.next],
       ["step", w.steps.mode],
     ];

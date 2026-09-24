@@ -53,8 +53,9 @@ export function UiItemList({ items, label, selected, onSelect, onOpen, onBack, d
   }, [autoFocus, focusable]);
 
   useEffect(() => {
-    if (selected === null) return;
-    root.current?.querySelector(`#${CSS.escape(rowId(selected))}`)?.scrollIntoView({ block: "nearest" });
+    // Only while the list has the keyboard: a row chosen in advance must not scroll the page to it.
+    if (selected === null || !root.current?.contains(document.activeElement)) return;
+    root.current.querySelector(`#${CSS.escape(rowId(selected))}`)?.scrollIntoView({ block: "nearest" });
   }, [selected]);
 
   const setRoot = (element: HTMLDivElement | null) => {

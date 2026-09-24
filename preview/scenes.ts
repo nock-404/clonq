@@ -28,8 +28,76 @@ const reels: Reels = reelParam === "vakuum" || reelParam === "praezision" ? reel
 // ?lang=en|de shows the interface in that language; without it the browser language decides.
 const langParam = new URLSearchParams(location.search).get("lang");
 const language: Language = langParam === "en" || langParam === "de" ? langParam : "system";
+// With ?lang=en the preview shows English sample data for a private person (website shots);
+// every other language keeps the German data below. The ids stay the same, so every scenario works.
+export const englishData = langParam === "en";
 
-const config: Config = {
+const ui = { accent: "amber" as const, lamps: true, notifySuccess: false, reels, language };
+const photosDriveUuid = "53955C00-5DD6-4953-8E31-335F53043B30";
+const configEn: Config = {
+  version: 2,
+  rsyncPath: "/opt/homebrew/bin/rsync",
+  rclonePath: "/opt/homebrew/bin/rclone",
+  ui,
+  locations: [
+    { id: "desktop", name: "Desktop", kind: { type: "folder", path: "/Users/sam/Desktop" } },
+    { id: "documents", name: "Documents", kind: { type: "folder", path: "/Users/sam/Documents" } },
+    { id: "m2mini", name: "Photos Drive", kind: { type: "volume", volumeUuid: photosDriveUuid, volumeName: "Photos Drive" } },
+    { id: "nas", name: "Home NAS", kind: { type: "smb", url: "smb://home-nas.local/Backup", user: "sam" } },
+    {
+      id: "box",
+      name: "Storage Box",
+      kind: { type: "ssh", host: "u123456.your-storagebox.de", port: 23, user: "u123456", identityFile: "/k", basePath: "" },
+    },
+    { id: "gdrive", name: "Google Drive", kind: { type: "cloud", provider: "drive", remote: "clonq-google-drive-7a1e", root: "Backups" } },
+  ],
+  jobs: [
+    {
+      id: "work-to-m2mini",
+      name: "Photos → Storage Box",
+      enabled: true,
+      source: { location: "m2mini", path: "Photos" },
+      target: { location: "box", path: "Photos" },
+      mode: "mirror",
+      excludes: [".DS_Store"],
+      safety,
+      archive,
+      conflicts,
+      ring: "blue",
+      triggers: { ...triggers, onMount: true, onChangeAfterSeconds: 60 },
+    },
+    {
+      id: "work-to-storagebox",
+      name: "Documents ⇄ Home NAS",
+      enabled: true,
+      source: { location: "documents", path: "" },
+      target: { location: "nas", path: "Documents" },
+      mode: "bidirectional",
+      excludes: [".DS_Store"],
+      safety,
+      archive,
+      conflicts,
+      ring: "green",
+      triggers: { ...triggers, everyMinutes: 30 },
+    },
+    {
+      id: "m2mini-to-storagebox",
+      name: "Desktop → Photos Drive",
+      enabled: true,
+      source: { location: "desktop", path: "" },
+      target: { location: "m2mini", path: "Desktop Backup" },
+      mode: "backup",
+      excludes: [".DS_Store"],
+      safety,
+      archive,
+      conflicts,
+      ring: "red",
+      triggers: { ...triggers, dailyAt: "20:00" },
+    },
+  ],
+};
+
+const config: Config = englishData ? configEn : {
   version: 2,
   rsyncPath: "/opt/homebrew/bin/rsync",
   rclonePath: "/opt/homebrew/bin/rclone",
@@ -95,13 +163,30 @@ const connected = (id: string, path: string | null, free: number | null, total: 
   usedBy,
 });
 
-const locationStatuses: LocationStatus[] = [
+const locationStatuses: LocationStatus[] = englishData ? [
+  connected("desktop", "/Users/sam/Desktop", 412_000_000_000, 994_000_000_000, ["Desktop → Photos Drive"]),
+  connected("documents", "/Users/sam/Documents", 412_000_000_000, 994_000_000_000, ["Documents ⇄ Home NAS"]),
+  connected("m2mini", "/Volumes/Photos Drive", 1_184_000_000_000, 2_000_000_000_000, ["Photos → Storage Box", "Desktop → Photos Drive"]),
+  connected("nas", "/Volumes/Backup", 2_100_000_000_000, 7_800_000_000_000, ["Documents ⇄ Home NAS"]),
+  connected("box", null, null, null, ["Photos → Storage Box"]),
+  connected("gdrive", null, null, null, []),
+] : [
   connected("desktop", "/Users/matthias/Desktop", 812_000_000_000, 994_000_000_000, ["WORK → M2mini", "WORK → Storage Box"]),
   connected("m2mini", "/Volumes/M2mini", 228_900_000_000, 1_000_200_000_000, ["WORK → M2mini", "M2mini → Storage Box"]),
   { id: "box", reach: { state: "untested" }, usedBy: ["WORK → Storage Box", "M2mini → Storage Box"] },
 ];
 
-const volumes: MountedVolume[] = [
+const volumes: MountedVolume[] = englishData ? [
+  {
+    uuid: photosDriveUuid,
+    name: "Photos Drive",
+    mountPoint: "/Volumes/Photos Drive",
+    totalBytes: 2_000_000_000_000,
+    freeBytes: 1_184_000_000_000,
+    fileSystem: "apfs",
+    internal: false,
+  },
+] : [
   {
     uuid: "53955C00-5DD6-4953-8E31-335F53043B30",
     name: "M2mini",
@@ -165,13 +250,18 @@ const failed = run({
   filesDeleted: 0,
   bytesNew: 0,
   bytesChanged: 0,
-  message: "source /Users/matthias/Desktop/WORK does not exist",
+  message: englishData ? "source /Volumes/Photos Drive/Photos does not exist" : "source /Users/matthias/Desktop/WORK does not exist",
 });
 
 const detail: RunDetail = {
   ...succeeded,
   samples,
-  folders: [
+  folders: englishData ? [
+    { folder: "2026/Iceland", files: 684, bytes: 2_310_000_000 },
+    { folder: "2026/Lisbon", files: 241, bytes: 812_000_000 },
+    { folder: "2026/Garden", files: 118, bytes: 402_000_000 },
+    { folder: "Scans/Letters", files: 36, bytes: 48_000_000 },
+  ] : [
     { folder: "GM8/clonq", files: 412, bytes: 612_000_000 },
     { folder: "Projekte/wetterstation", files: 380, bytes: 402_000_000 },
     { folder: "GM8/matthiasg.rocks", files: 96, bytes: 210_000_000 },
@@ -185,7 +275,51 @@ const daily: DayChange[] = Array.from({ length: 30 }, (_, i) => {
   return { day: date.toISOString().slice(0, 10), bytes, files: Math.round(bytes / 900_000), runs: bytes > 0 ? 2 : 0 };
 });
 
+// The folders that changed most, per job, for the English data.
+const foldersEn: Record<string, RunDetail["folders"]> = {
+  "work-to-storagebox": [
+    { folder: "Taxes/2025", files: 42, bytes: 38_000_000 },
+    { folder: "Projects/website", files: 118, bytes: 21_000_000 },
+    { folder: "Home/Insurance", files: 12, bytes: 9_000_000 },
+    { folder: "Recipes", files: 7, bytes: 2_000_000 },
+  ],
+  "m2mini-to-storagebox": [
+    { folder: "Screenshots", files: 64, bytes: 118_000_000 },
+    { folder: "Notes", files: 21, bytes: 1_000_000 },
+    { folder: "Downloads to sort", files: 9, bytes: 410_000_000 },
+  ],
+};
+
+// Each English job has its own record, so the overview does not repeat one line three times.
+const recordEn: Record<string, Partial<JobStats>> = {
+  "work-to-storagebox": {
+    lastSuccessAt: minutesAgo(51.55),
+    streak: 212,
+    runsTotal: 214,
+    runsCompleted: 214,
+    averageSeconds: 31,
+    totals: { runs: 214, files: 18_204, bytes: 9_800_000_000, wireBytes: 9_700_000_000, deleted: 412 },
+  },
+  "m2mini-to-storagebox": {
+    lastSuccessAt: minutesAgo(15 * 60 - 2.1),
+    streak: 58,
+    runsTotal: 58,
+    runsCompleted: 58,
+    averageSeconds: 118,
+    totals: { runs: 58, files: 6_020, bytes: 41_000_000_000, wireBytes: 40_200_000_000, deleted: 0 },
+  },
+};
+
 function statsFor(jobId: string, withRuns: boolean): JobStats {
+  const detailOf = englishData && foldersEn[jobId] ? { ...detail, folders: foldersEn[jobId] } : detail;
+  const record = englishData && withRuns ? (recordEn[jobId] ?? {}) : {};
+  return {
+    ...statsBase(jobId, withRuns, detailOf),
+    ...record,
+  };
+}
+
+function statsBase(jobId: string, withRuns: boolean, detailOf: RunDetail): JobStats {
   return {
     jobId,
     lastSuccessAt: withRuns ? minutesAgo(31) : null,
@@ -193,9 +327,9 @@ function statsFor(jobId: string, withRuns: boolean): JobStats {
     runsTotal: withRuns ? 44 : 0,
     runsCompleted: withRuns ? 43 : 0,
     averageSeconds: withRuns ? 142 : null,
-    last: withRuns ? { ...detail, jobId } : null,
+    last: withRuns ? { ...detailOf, jobId } : null,
     daily: withRuns ? daily : daily.map((day) => ({ ...day, bytes: 0, files: 0, runs: 0 })),
-    topFolders: withRuns ? detail.folders : [],
+    topFolders: withRuns ? detailOf.folders : [],
     totals: withRuns
       ? { runs: 43, files: 2_104_380, bytes: 1_412_000_000_000, wireBytes: 1_398_000_000_000, deleted: 12_031 }
       : { runs: 0, files: 0, bytes: 0, wireBytes: 0, deleted: 0 },
@@ -219,23 +353,38 @@ const running: LiveRun = {
   filesConflicted: 0,
   filesPerSecond: 2_340,
   throughput: Array.from({ length: 42 }, (_, i) => 120_000_000 + Math.sin(i / 3) * 60_000_000 + i * 900_000),
-  recentPaths: [
-    "GM8/matthiasg.rocks/public/images/halftone-portrait@2x.png",
-    "GM8/clonq/src/ui/ReelShape.tsx",
-    "Projekte/wetterstation/docs/migration-status.md",
-  ],
-  currentPath: "GM8/matthiasg.rocks/public/images/halftone-portrait@2x.png",
+  recentPaths: englishData
+    ? ["2026/Iceland/IMG_4821.heic", "2026/Iceland/IMG_4820.heic", "2026/Iceland/IMG_4817.mov"]
+    : [
+        "GM8/matthiasg.rocks/public/images/halftone-portrait@2x.png",
+        "GM8/clonq/src/ui/ReelShape.tsx",
+        "Projekte/wetterstation/docs/migration-status.md",
+      ],
+  currentPath: englishData ? "2026/Iceland/IMG_4821.heic" : "GM8/matthiasg.rocks/public/images/halftone-portrait@2x.png",
   status: "running",
   message: null,
 };
 
 const allStats = (withRuns: boolean) =>
-  Object.fromEntries(config.jobs.map((job) => [job.id, statsFor(job.id, withRuns && job.id === "work-to-m2mini")]));
+  Object.fromEntries(config.jobs.map((job) => [job.id, statsFor(job.id, withRuns && (englishData || job.id === "work-to-m2mini"))]));
 
 const overview = (withRuns: boolean): Overview =>
   withRuns
     ? { totals: statsFor("x", true).totals, todayBytes: 3_420_000_000, todayFiles: 4_210, todayRuns: 3 }
     : { totals: { runs: 0, files: 0, bytes: 0, wireBytes: 0, deleted: 0 }, todayBytes: 0, todayFiles: 0, todayRuns: 0 };
+
+// The English history: a few days of runs of all three jobs, newest first.
+const historyEn: Run[] = [
+  run({ id: "e1", jobId: "work-to-m2mini", status: "succeeded", trigger: "change", startedAt: minutesAgo(33), finishedAt: minutesAgo(31.3) }),
+  run({ id: "e2", jobId: "work-to-storagebox", status: "succeeded", trigger: "schedule", startedAt: minutesAgo(52), finishedAt: minutesAgo(51.55), filesTransferred: 14, filesNew: 3, filesChanged: 11, filesDeleted: 0, bytesTransferred: 4_200_000, bytesNew: 1_100_000, bytesChanged: 3_100_000 }),
+  run({ id: "e3", jobId: "work-to-storagebox", status: "succeeded", trigger: "schedule", startedAt: minutesAgo(82), finishedAt: minutesAgo(81.8), filesTransferred: 2, filesNew: 0, filesChanged: 2, filesDeleted: 0, bytesTransferred: 310_000, bytesNew: 0, bytesChanged: 310_000 }),
+  run({ id: "e4", jobId: "work-to-m2mini", status: "succeeded", trigger: "mount", startedAt: minutesAgo(190), finishedAt: minutesAgo(184.2), filesTransferred: 684, filesNew: 684, filesChanged: 0, filesDeleted: 0, bytesTransferred: 2_310_000_000, bytesNew: 2_310_000_000, bytesChanged: 0 }),
+  run({ id: "e5", jobId: "m2mini-to-storagebox", status: "succeeded", trigger: "daily", startedAt: minutesAgo(15 * 60), finishedAt: minutesAgo(15 * 60 - 2.1), filesTransferred: 73, filesNew: 64, filesChanged: 9, filesDeleted: 0, bytesTransferred: 528_000_000, bytesNew: 512_000_000, bytesChanged: 16_000_000 }),
+  run({ id: "e6", jobId: "work-to-storagebox", status: "succeeded", trigger: "schedule", startedAt: minutesAgo(18 * 60), finishedAt: minutesAgo(18 * 60 - 0.7), filesTransferred: 5, filesNew: 1, filesChanged: 3, filesDeleted: 1, filesConflicted: 1, bytesTransferred: 1_800_000, bytesNew: 400_000, bytesChanged: 1_400_000 }),
+  run({ id: "e7", jobId: "work-to-m2mini", status: "succeeded", trigger: "manual", startedAt: minutesAgo(26 * 60), finishedAt: minutesAgo(26 * 60 - 2.6), filesTransferred: 241, filesNew: 241, filesChanged: 0, filesDeleted: 0, bytesTransferred: 812_000_000, bytesNew: 812_000_000, bytesChanged: 0 }),
+  run({ id: "e8", jobId: "m2mini-to-storagebox", status: "succeeded", trigger: "daily", startedAt: minutesAgo(39 * 60), finishedAt: minutesAgo(39 * 60 - 0.8), filesTransferred: 12, filesNew: 8, filesChanged: 4, filesDeleted: 0, bytesTransferred: 36_000_000, bytesNew: 30_000_000, bytesChanged: 6_000_000 }),
+];
+const latestEn: Run[] = [historyEn[0]!, historyEn[1]!, historyEn[4]!];
 
 const base = { locations: locationStatuses, volumes };
 const emptyConfig: Config = { ...config, locations: [], jobs: [] };
@@ -243,8 +392,12 @@ const emptyConfig: Config = { ...config, locations: [], jobs: [] };
 export const scenes: Record<SceneName, Scene> = {
   empty: { config: emptyConfig, live: [], latest: [], recent: [], stats: {}, overview: overview(false), locations: [], volumes },
   fresh: { ...base, config, live: [], latest: [], recent: [], stats: allStats(false), overview: overview(false) },
-  idle: { ...base, config, live: [], latest: [succeeded], recent: [succeeded, failed], stats: allStats(true), overview: overview(true) },
-  running: { ...base, config, live: [running], latest: [succeeded], recent: [succeeded], stats: allStats(true), overview: overview(true) },
+  idle: englishData
+    ? { ...base, config, live: [], latest: latestEn, recent: historyEn, stats: allStats(true), overview: overview(true) }
+    : { ...base, config, live: [], latest: [succeeded], recent: [succeeded, failed], stats: allStats(true), overview: overview(true) },
+  running: englishData
+    ? { ...base, config, live: [running], latest: latestEn, recent: historyEn, stats: allStats(true), overview: overview(true) }
+    : { ...base, config, live: [running], latest: [succeeded], recent: [succeeded], stats: allStats(true), overview: overview(true) },
   blocked: { ...base, config, live: [], latest: [blocked], recent: [blocked, succeeded], stats: allStats(true), overview: overview(true) },
   failed: { ...base, config, live: [], latest: [failed], recent: [failed, blocked, succeeded], stats: allStats(true), overview: overview(true) },
 };
