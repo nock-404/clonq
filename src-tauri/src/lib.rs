@@ -7,6 +7,7 @@ mod engine;
 mod error;
 mod glass;
 mod history;
+mod licence;
 mod locations;
 #[cfg(test)]
 mod matrix_tests;
@@ -81,6 +82,7 @@ pub fn run() {
             scheduler::start(app.handle().clone());
             watch::volumes(app.handle().clone());
             watch::servers(app.handle().clone());
+            watch::licence(app.handle().clone());
 
             if let Some(popover) = app.get_webview_window(POPOVER) {
                 glass::apply(&popover, POPOVER_RADIUS)?;
@@ -129,6 +131,9 @@ pub fn run() {
             commands::open_main_window,
             commands::quit,
             commands::prepare_restart,
+            commands::licence_status,
+            commands::enter_licence,
+            commands::remove_licence,
             commands::run_entries,
             commands::archive_snapshots,
             commands::archive_files,

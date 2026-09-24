@@ -330,3 +330,12 @@ export interface FilePreview {
   text: string | null;
   base64: string | null;
 }
+
+/** clonq Pro, as the licence check sees it (src-tauri/src/licence.rs). */
+export type LicenceStatus =
+  | { state: "none" }
+  | { state: "active"; email: string; updatesUntil: string | null }
+  | { state: "notCovered"; email: string; updatesUntil: string | null; released: string }
+  | { state: "revoked"; email: string }
+  /** A development build without the public key: keys cannot be checked, Pro is open. */
+  | { state: "unchecked" };

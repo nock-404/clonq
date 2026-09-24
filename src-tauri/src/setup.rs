@@ -519,6 +519,10 @@ fn reachable(place: &Place, config: &Config, volumes: &[MountedVolume], state: &
 #[tauri::command]
 pub fn save_job(app: AppHandle, state: State<'_, AppState>, job: JobInput) -> Result<Job> {
     let name = require_name(&job.name)?;
+    // A versioned job is a Pro feature: it can only be created with a licence that covers this version.
+    if job.mode == crate::config::Mode::Versioned && !crate::licence::Store::new(&state.config_dir).pro() {
+        return Err(Error::Job("versioned backups are part of clonq Pro: enter a licence in Settings".into()));
+    }
     let config = state.config.read().expect("config lock").clone();
     let volumes = locations::mounted_volumes();
     let source = reachable(&job.source, &config, &volumes, &state)?;

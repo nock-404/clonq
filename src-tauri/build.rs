@@ -9,7 +9,16 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=AppKit");
         link_clang_runtime();
     }
+    release_date();
     tauri_build::build()
+}
+
+/// The build day, which licences are compared against (updates covered until a date).
+fn release_date() {
+    let output = std::process::Command::new("date").args(["-u", "+%Y-%m-%d"]).output().expect("date");
+    println!("cargo:rustc-env=CLONQ_RELEASED={}", String::from_utf8_lossy(&output.stdout).trim());
+    println!("cargo:rerun-if-env-changed=CLONQ_LICENCE_PUBLIC_KEY");
+    println!("cargo:rerun-if-env-changed=CLONQ_LICENCE_SERVICE");
 }
 
 /// `@available(macOS 26.0, *)` in glass.m becomes a call to `__isPlatformVersionAtLeast`

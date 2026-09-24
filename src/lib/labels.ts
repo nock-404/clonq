@@ -2,6 +2,7 @@
 // catalog at call time, because the language can change while the app runs.
 
 import { locale, texts } from "../i18n";
+import { formatDay } from "./format";
 import type { Config, Location, Mode, Place, Reach, RunStatus } from "./types";
 
 export function statusLabel(status: RunStatus): string {
@@ -107,6 +108,15 @@ export function messageLabel(message: string): string {
     [/^a name is required$/, () => t.nameRequired],
     [/^login refused: wrong user, password or key$/, () => t.loginRefused],
     [/^host name not found$/, () => t.hostNotFound],
+    [/^this is not a clonq licence key$/, () => t.notLicenceKey],
+    [/^this licence key is not genuine$/, () => t.licenceNotGenuine],
+    [/^this licence key is for another product or version$/, () => t.licenceOtherProduct],
+    [/^versioned backups are part of clonq Pro: enter a licence in Settings$/, () => t.proNeeded],
+    [/^your clonq Pro licence covers versions released until (\S+); this version is newer$/, (m) => t.licenceNotCovering(formatDay(m[1] ?? ""))],
+    [/^this clonq Pro licence has been withdrawn$/, () => t.licenceWithdrawn],
+    [/^versioned backups need a source on this Mac and a folder, drive or server as the target$/, () => t.versionedNeedsLocalAndFolder],
+    [/^only versioned jobs keep snapshots$/, () => t.onlyVersionedSnapshots],
+    [/^only two-way jobs keep an archive on the source$/, () => t.onlyTwoWaySourceArchive],
     [/^the server refused the connection on this port$/, () => t.portRefused],
     [/^no answer from the server \(timeout\)$/, () => t.serverTimeout],
     [/^still used by (.+)$/, (m) => t.stillUsedBy(m[1] ?? "")],

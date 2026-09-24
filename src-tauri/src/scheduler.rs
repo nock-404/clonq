@@ -85,6 +85,16 @@ fn fire(app: &AppHandle, job_id: &str, why: &str) -> bool {
     if state.history.last_real_status(job_id).ok().flatten() == Some(RunStatus::Blocked) {
         return false;
     }
+    // A Pro job without a licence that covers this version says so once, instead of failing quietly.
+    if let Err(refused) = crate::licence::allows(&state.config_dir, &config, job_id) {
+        scheduler.backoff.lock().expect("backoff").insert(job_id.to_string(), Instant::now() + BACKOFF);
+        static TOLD: std::sync::Mutex<Option<HashSet<String>>> = std::sync::Mutex::new(None);
+        if TOLD.lock().expect("told").get_or_insert_with(HashSet::new).insert(job_id.to_string()) {
+            let name = config.job(job_id).map_or(job_id.to_string(), |job| job.name.clone());
+            let _ = app.notification().builder().title(name).body(refused.to_string()).show();
+        }
+        return false;
+    }
     match state.engine.start(&config, job_id, why, RunOptions::default()) {
         Ok(_) => {
             scheduler.backoff.lock().expect("backoff").remove(job_id);

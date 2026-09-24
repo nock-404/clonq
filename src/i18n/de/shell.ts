@@ -4,6 +4,22 @@ import type { Shape } from "..";
 import type { shell as source } from "../en/shell";
 
 export const shell: Shape<typeof source> = {
+  licence: {
+    title: "clonq Pro",
+    reading: "Lizenz wird gelesen …",
+    none: "Keine Lizenz eingetragen. Versionen gehören zu clonq Pro.",
+    active: (email) => `Pro ist aktiv für ${email}.`,
+    updatesUntil: (date) => `Updates bis ${date} inklusive.`,
+    updatesForGood: "Updates dauerhaft inklusive.",
+    notCovered: (until, released) => `Die Lizenz gilt für Versionen bis zum ${until}; diese Version ist vom ${released}. Vorhandene Snapshots bleiben lesbar und lassen sich wiederherstellen.`,
+    revoked: "Diese Lizenz wurde zurückgezogen. Vorhandene Snapshots bleiben lesbar und lassen sich wiederherstellen.",
+    unchecked: "Entwicklungsversion: Lizenzen lassen sich hier nicht prüfen, Pro ist offen.",
+    enter: "Lizenz eingeben",
+    activate: "Aktivieren",
+    checking: "Wird geprüft …",
+    cancel: "Abbrechen",
+    remove: "Lizenz entfernen",
+  },
   nav: {
     overview: "Übersicht",
     jobs: "Jobs",

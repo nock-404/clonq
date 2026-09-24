@@ -47,6 +47,9 @@ mockIPC(
         ];
       case "job_defaults":
         return englishData ? [".DS_Store"] : ["node_modules/"];
+      case "licence_status":
+        // Preview only: ?licence=none shows clonq without Pro.
+        return params.get("licence") === "none" ? { state: "none" } : { state: "active", email: "sam@example.com", updatesUntil: "2027-09-24" };
       case "test_server":
         return "/home";
       case "cloud_providers":

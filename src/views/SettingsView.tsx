@@ -8,6 +8,7 @@ import { LANGUAGES, useT } from "../i18n";
 import type { Accent, Language, Reels, UiSettings } from "../lib/types";
 import { UiPanel, UiSegmented, UiSwitch, type UiSegment } from "../ui";
 import { UiLogo } from "../ui/UiLogo";
+import { LicencePanel } from "./LicencePanel";
 import { UpdateCheck } from "./UpdateBand";
 import { UiReel as LichtReel } from "../ui/reels/licht/UiReel";
 import { UiReel as PraezisionReel } from "../ui/reels/praezision/UiReel";
@@ -79,6 +80,7 @@ export function SettingsView({ state }: SettingsViewProps) {
           <UiSwitch label={s.notifySuccess} checked={ui.notifySuccess} onChange={(notifySuccess) => save({ notifySuccess })} />
         </div>
       </UiPanel>
+      <LicencePanel />
       <UiPanel title={s.about}>
         <div className="flex items-center gap-4">
           <UiLogo variant="icon" size="md" />

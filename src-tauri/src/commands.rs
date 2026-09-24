@@ -57,6 +57,7 @@ pub fn set_ui_settings(app: AppHandle, state: State<'_, AppState>, settings: UiS
 #[tauri::command]
 pub fn run_job(state: State<'_, AppState>, job_id: String, dry_run: bool, force: bool) -> Result<String> {
     let config = state.config.read().expect("config lock").clone();
+    crate::licence::allows(&state.config_dir, &config, &job_id)?;
     state.engine.start(&config, &job_id, "manual", RunOptions { dry_run, force })
 }
 
@@ -87,6 +88,25 @@ pub fn open_main_window(app: AppHandle, job_id: Option<String>) -> Result<()> {
 #[tauri::command]
 pub fn quit(app: AppHandle) {
     app.exit(0);
+}
+
+/// What the settings show about clonq Pro.
+#[tauri::command]
+pub fn licence_status(state: State<'_, AppState>) -> crate::licence::Status {
+    crate::licence::Store::new(&state.config_dir).status()
+}
+
+/// Checks and saves a pasted licence key.
+#[tauri::command]
+pub fn enter_licence(state: State<'_, AppState>, key: String) -> Result<crate::licence::Status> {
+    crate::licence::Store::new(&state.config_dir).enter(&key).map_err(|error| Error::Job(error.message().into()))
+}
+
+#[tauri::command]
+pub fn remove_licence(state: State<'_, AppState>) -> crate::licence::Status {
+    let store = crate::licence::Store::new(&state.config_dir);
+    store.remove();
+    store.status()
 }
 
 /// File in the app data folder that asks the next start to open the main window.

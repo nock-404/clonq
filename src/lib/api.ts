@@ -2,7 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { ArchiveSide,
+import type { LicenceStatus, ArchiveSide,
   ArchivedFile,
   BrowseEntry,
   FilePreview,
@@ -61,6 +61,10 @@ export const api = {
   cancelJob: (jobId: string) => invoke<void>("cancel_job", { jobId }),
   openMainWindow: (jobId?: string) => invoke<void>("open_main_window", { jobId: jobId ?? null }),
   quit: () => invoke<void>("quit"),
+  licenceStatus: () => invoke<LicenceStatus>("licence_status"),
+  /** Checks and saves a pasted key; rejects with the reason when it is not valid. */
+  enterLicence: (key: string) => invoke<LicenceStatus>("enter_licence", { key }),
+  removeLicence: () => invoke<LicenceStatus>("remove_licence"),
 
   mountedVolumes: () => invoke<MountedVolume[]>("mounted_volumes"),
   locationStatuses: () => invoke<LocationStatus[]>("location_statuses"),

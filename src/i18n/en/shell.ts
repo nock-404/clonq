@@ -1,6 +1,22 @@
 // English texts for the app shell: main window, popover, onboarding, overview, settings, updates.
 
 export const shell = {
+  licence: {
+    title: "clonq Pro",
+    reading: "Reading the licence…",
+    none: "No licence entered. Versioned backups are part of clonq Pro.",
+    active: (email: string) => `Pro is active for ${email}.`,
+    updatesUntil: (date: string) => `Updates included until ${date}.`,
+    updatesForGood: "Updates included for good.",
+    notCovered: (until: string, released: string) => `The licence covers versions released until ${until}; this version is from ${released}. Existing snapshots stay readable and restorable.`,
+    revoked: "This licence has been withdrawn. Existing snapshots stay readable and restorable.",
+    unchecked: "Development build: licences cannot be checked here, Pro is open.",
+    enter: "Enter licence",
+    activate: "Activate",
+    checking: "Checking…",
+    cancel: "Cancel",
+    remove: "Remove licence",
+  },
   nav: {
     overview: "Overview",
     jobs: "Jobs",

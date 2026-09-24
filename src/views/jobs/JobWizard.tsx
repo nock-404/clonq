@@ -79,6 +79,15 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
   const config = state.config;
   const t = useT();
   const w = t.wizard;
+  // Versions are clonq Pro; without a licence the card says so instead of failing on save.
+  const [pro, setPro] = useState(true);
+  useEffect(() => {
+    if (!open) return;
+    api
+      .licenceStatus()
+      .then((status) => setPro(status.state === "active" || status.state === "unchecked"))
+      .catch(() => setPro(false));
+  }, [open]);
   const nav = useNav();
   const toast = useJobToast();
   const [session, setSession] = useState("closed");
@@ -518,7 +527,7 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
               <ModeStep
                 mode={draft.mode}
                 onMode={(mode) => change({ mode })}
-                versionedBlocked={versionedProblem(draft, config)}
+                versionedBlocked={versionedProblem(draft, config) ?? (pro ? null : t.messages.proNeeded)}
                 excludes={draft.excludes}
                 onExcludes={(excludes) => change({ excludes })}
                 maxDeletePercent={draft.maxDeletePercent}
