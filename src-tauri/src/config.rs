@@ -264,6 +264,9 @@ pub enum Mode {
     Blind,
     /// Changes flow both ways, conflicts are resolved by rules.
     Bidirectional,
+    /// Every run is a dated snapshot in the target; unchanged files are hard links to the
+    /// previous one. Needs a folder, drive or server as the target.
+    Versioned,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

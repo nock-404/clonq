@@ -17,6 +17,7 @@ use crate::locations::{self, Resolved};
 use crate::error::{Error, Result};
 use crate::history::{FolderChange, History, Run, RunStatus, Sample};
 use crate::cloud;
+use crate::versions;
 use crate::rclone_output::{self, Event};
 use crate::rsync_output::{self, Change, Line, Stats};
 
@@ -332,10 +333,16 @@ impl Engine {
             }
         }
 
+        // A versioned run writes into a new dated folder, linked against the newest complete one.
+        let base_plan = plan;
+        let snapshot = if job.mode == Mode::Versioned { Some(self.prepare_snapshot(plan, run, options, log).await?) } else { None };
+        let plan = snapshot.as_ref().map_or(plan, |snapshot| &snapshot.plan);
+
         let mut extra = Vec::new();
         if options.dry_run {
             extra.push("--dry-run".to_string());
-        } else if job.archive.enabled {
+        } else if job.archive.enabled && snapshot.is_none() {
+            // Snapshots are their own history; an archive next to them would only double it.
             extra.extend(plan.archive_args(&archive_stamp(run.started_at)));
         }
         if let Some(limit) = max_delete {
@@ -410,7 +417,13 @@ impl Engine {
             (Tool::Bisync { .. }, false, Some(_)) if result.delete_limit_hit => RunStatus::Blocked,
             _ => RunStatus::Failed,
         };
-        if !options.dry_run && run.status.completed() && job.archive.enabled {
+        if let Some(snapshot) = &snapshot
+            && !options.dry_run
+            && run.status.completed()
+        {
+            self.finish_snapshot(base_plan, snapshot, log).await?;
+        }
+        if !options.dry_run && run.status.completed() && job.archive.enabled && snapshot.is_none() {
             self.prune_archive(plan, job.archive.keep_days, log).await;
         }
         run.message = match run.status {
@@ -724,6 +737,63 @@ impl Engine {
         Ok(result)
     }
 
+    /// Lists the snapshots, removes unfinished ones (not in a dry run), and plans this run into a
+    /// new folder named after its start, hard-linked against the newest complete snapshot.
+    async fn prepare_snapshot(&self, plan: &Plan, run: &Run, options: RunOptions, log: &mut BufWriter<tokio::fs::File>) -> Result<Snapshot> {
+        let stamp = archive_stamp(run.started_at);
+        let base = format!("{}/", plan.target.trim_end_matches('/'));
+        let (complete, incomplete) = match &plan.target_path {
+            Some(path) => versions::list_local(path),
+            None => versions::list_remote(&plan.program, &plan.rsh(), &base).await?,
+        };
+        if !options.dry_run && !incomplete.is_empty() {
+            log.write_all(format!("# versions: removing {} unfinished snapshot(s)\n", incomplete.len()).as_bytes()).await?;
+            delete_snapshots(plan, &incomplete).await?;
+        }
+        let previous = complete.last().cloned();
+        let mut snapshot = plan.clone();
+        snapshot.target = format!("{base}{stamp}");
+        snapshot.target_path = plan.target_path.as_ref().map(|path| path.join(&stamp));
+        if let Some(previous) = &previous {
+            // Relative to the new folder, which is how rsync reads a relative --link-dest.
+            snapshot.base_args.push(format!("--link-dest=../{previous}"));
+        }
+        log.write_all(format!("# versions: snapshot {stamp}, linked to {}\n", previous.as_deref().unwrap_or("nothing (first snapshot)")).as_bytes()).await?;
+        Ok(Snapshot { plan: snapshot, stamp, complete })
+    }
+
+    /// Marks the new snapshot complete, then thins out older ones.
+    async fn finish_snapshot(&self, base: &Plan, snapshot: &Snapshot, log: &mut BufWriter<tokio::fs::File>) -> Result<()> {
+        match &snapshot.plan.target_path {
+            Some(path) => std::fs::write(path.join(versions::MARKER), &snapshot.stamp)?,
+            None => {
+                let marker = std::env::temp_dir().join(format!("clonq-marker-{}", uuid::Uuid::new_v4()));
+                std::fs::write(&marker, &snapshot.stamp)?;
+                let output = Command::new(&base.program)
+                    .env("LC_ALL", "C")
+                    .args(base.rsh())
+                    .arg(&marker)
+                    .arg(format!("{}/{}", snapshot.plan.target, versions::MARKER))
+                    .output()
+                    .await;
+                let _ = std::fs::remove_file(&marker);
+                let output = output?;
+                if !output.status.success() {
+                    return Err(Error::Job(crate::ssh::explain(&String::from_utf8_lossy(&output.stderr))));
+                }
+            }
+        }
+        let mut all = snapshot.complete.clone();
+        all.push(snapshot.stamp.clone());
+        let kept = versions::keep(&all, versions::now());
+        let old: Vec<String> = all.into_iter().filter(|stamp| !kept.contains(stamp)).collect();
+        if !old.is_empty() {
+            log.write_all(format!("# versions: thinned out {} older snapshot(s)\n", old.len()).as_bytes()).await?;
+            delete_snapshots(base, &old).await?;
+        }
+        Ok(())
+    }
+
     /// Removes archive folders older than `keep_days`; failures only end up in the log.
     async fn prune_archive(&self, plan: &Plan, keep_days: u32, log: &mut BufWriter<tokio::fs::File>) {
         let cutoff = archive_stamp(Utc::now() - chrono::Duration::days(i64::from(keep_days)));
@@ -831,6 +901,7 @@ impl Engine {
 
 /// Everything rsync needs for one job, resolved from the config.
 /// Which program moves the data.
+#[derive(Clone)]
 enum Tool {
     Rsync,
     Rclone { config: PathBuf },
@@ -846,6 +917,7 @@ impl Tool {
 
 }
 
+#[derive(Clone)]
 struct Plan {
     tool: Tool,
     program: String,
@@ -875,6 +947,10 @@ impl Plan {
         }
         if job.mode == Mode::Bidirectional {
             return Self::bisync(job, &config.rclone_path, rclone_config, source, target);
+        }
+        // Snapshots need hard links, which only rsync into a folder, a drive or a server makes.
+        if job.mode == Mode::Versioned && (!matches!(source, Resolved::Local(_)) || matches!(target, Resolved::Cloud { .. })) {
+            return Err(Error::Job("versioned backups need a source on this Mac and a folder, drive or server as the target".into()));
         }
         // rsync pushes from this Mac to a disk or a server; everything else goes through rclone:
         // clouds on either side, and a server as the source (rclone reads it over SFTP).
@@ -1071,6 +1147,11 @@ impl Plan {
 
     /// A local target folder may be missing, but its parent and its volume must
     /// exist, or rsync would create the path on the system disk.
+    /// The `--rsh=` argument for a server target, empty for everything else.
+    fn rsh(&self) -> Vec<String> {
+        self.base_args.iter().filter(|arg| arg.starts_with("--rsh=")).cloned().collect()
+    }
+
     fn check_target(&self) -> Result<()> {
         let Some(path) = &self.target_path else { return Ok(()) };
         let parent = path
@@ -1081,6 +1162,44 @@ impl Plan {
         }
         check_volume_mounted(path)
     }
+}
+
+/// A snapshot being written: the plan into its folder, its name, the complete ones before it.
+struct Snapshot {
+    plan: Plan,
+    stamp: String,
+    complete: Vec<String>,
+}
+
+/// Deletes snapshot folders from the target. Only names that are snapshot stamps are touched.
+async fn delete_snapshots(plan: &Plan, names: &[String]) -> Result<()> {
+    let names: Vec<&String> = names.iter().filter(|name| crate::archive::is_stamp(name)).collect();
+    if names.is_empty() {
+        return Ok(());
+    }
+    if let Some(target) = &plan.target_path {
+        for name in names {
+            std::fs::remove_dir_all(target.join(name))?;
+        }
+        return Ok(());
+    }
+    // A server: an empty folder synced over the target with a filter that matches only these
+    // folders deletes exactly them, without a shell on the server.
+    let empty = std::env::temp_dir().join(format!("clonq-empty-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&empty)?;
+    let mut command = Command::new(&plan.program);
+    command.env("LC_ALL", "C").args(plan.rsh()).args(["-r", "--delete"]);
+    for name in &names {
+        command.arg(format!("--include=/{name}/***"));
+    }
+    command.arg("--exclude=*").arg(format!("{}/", empty.display())).arg(format!("{}/", plan.target.trim_end_matches('/')));
+    let output = command.output().await;
+    let _ = std::fs::remove_dir_all(&empty);
+    let output = output?;
+    if !output.status.success() {
+        return Err(Error::Job(crate::ssh::explain(&String::from_utf8_lossy(&output.stderr))));
+    }
+    Ok(())
 }
 
 fn prune_local(archive: &Path, cutoff: &str) -> Result<usize> {

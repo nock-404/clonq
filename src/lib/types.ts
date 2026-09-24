@@ -1,6 +1,6 @@
 // Mirrors the Rust types that cross the bridge (serde, camelCase).
 
-export type Mode = "mirror" | "backup" | "blind" | "bidirectional";
+export type Mode = "mirror" | "backup" | "blind" | "bidirectional" | "versioned";
 
 export type Accent = "ring" | "amber" | "blue";
 

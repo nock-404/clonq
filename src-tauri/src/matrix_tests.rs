@@ -578,3 +578,137 @@ async fn old_archive_folders_are_pruned_in_both_name_formats() {
         assert!(!archive.join(old).exists(), "{old} was not pruned");
     }
 }
+
+// ---------------------------------------------------------------- versioned backups
+
+/// Complete snapshot folders in the target, oldest first.
+fn snapshots_in(b: &Bench) -> Vec<String> {
+    crate::versions::list_local(&b.side("dst")).0
+}
+
+fn snapshot_tree(b: &Bench, stamp: &str) -> Tree {
+    let mut tree = Tree::new();
+    let root = b.side("dst").join(stamp);
+    collect(&root, &root, &mut tree, false);
+    tree.remove(crate::versions::MARKER);
+    tree
+}
+
+fn inode(path: &Path) -> u64 {
+    use std::os::unix::fs::MetadataExt;
+    fs::metadata(path).unwrap().ino()
+}
+
+#[tokio::test]
+async fn versioned_first_run_is_a_full_snapshot() {
+    let b = Bench::new();
+    let config = b.config(Mode::Versioned, true, newer_wins());
+    b.put("src", "a.txt", "a v1");
+    b.put("src", ODD, "odd v1");
+    b.put("src", "deep/x/y.txt", "deep v1");
+    b.put("src", "node_modules/lib.js", "excluded");
+    let source_before = b.tree("src");
+    ok(&b.run(&config).await);
+    let list = snapshots_in(&b);
+    assert_eq!(list.len(), 1, "{list:?}");
+    let mut expected = source_before.clone();
+    expected.remove("node_modules/lib.js");
+    assert_eq!(snapshot_tree(&b, &list[0]), expected);
+    assert_eq!(b.tree("src"), source_before, "the source is never changed");
+    assert!(!b.side("dst").join(ARCHIVE_DIR).exists(), "snapshots need no archive");
+}
+
+#[tokio::test]
+async fn versioned_later_run_links_unchanged_files_and_keeps_every_old_version() {
+    let b = Bench::new();
+    let config = b.config(Mode::Versioned, true, newer_wins());
+    b.put("src", "same.txt", "same");
+    b.put("src", "change.txt", "change v1");
+    b.put("src", "gone.txt", "gone v1");
+    ok(&b.run(&config).await);
+    let first = snapshots_in(&b)[0].clone();
+    b.put("src", "change.txt", "change v2");
+    b.remove("src", "gone.txt");
+    b.put("src", "new.txt", "new");
+    ok(&b.run(&config).await);
+    let list = snapshots_in(&b);
+    assert_eq!(list.len(), 2, "{list:?}");
+    let second = &list[1];
+    assert_eq!(snapshot_tree(&b, &first), tree_of(&[("same.txt", "same"), ("change.txt", "change v1"), ("gone.txt", "gone v1")]), "the old snapshot stays exactly as it was");
+    assert_eq!(snapshot_tree(&b, second), tree_of(&[("same.txt", "same"), ("change.txt", "change v2"), ("new.txt", "new")]), "the new snapshot equals the source");
+    let dst = b.side("dst");
+    assert_eq!(inode(&dst.join(&first).join("same.txt")), inode(&dst.join(second).join("same.txt")), "an unchanged file must be a hard link, not a copy");
+    assert_ne!(inode(&dst.join(&first).join("change.txt")), inode(&dst.join(second).join("change.txt")));
+}
+
+fn tree_of(entries: &[(&str, &str)]) -> Tree {
+    entries.iter().map(|(path, content)| (path.to_string(), content.to_string())).collect()
+}
+
+#[tokio::test]
+async fn versioned_unfinished_snapshots_are_removed_and_never_linked() {
+    let b = Bench::new();
+    let config = b.config(Mode::Versioned, true, newer_wins());
+    b.put("src", "a.txt", "a v1");
+    ok(&b.run(&config).await);
+    // A run that died halfway: a newer folder without the marker, holding a wrong file.
+    let broken = b.side("dst").join("2099-01-01_00-00-00-000");
+    fs::create_dir_all(&broken).unwrap();
+    fs::write(broken.join("a.txt"), "half written").unwrap();
+    b.put("src", "a.txt", "a v2");
+    ok(&b.run(&config).await);
+    assert!(!broken.exists(), "the unfinished snapshot must be removed");
+    let list = snapshots_in(&b);
+    assert_eq!(list.len(), 2);
+    assert_eq!(snapshot_tree(&b, &list[1])["a.txt"], "a v2");
+}
+
+#[tokio::test]
+async fn versioned_thinning_removes_only_old_snapshots_and_nothing_else() {
+    let b = Bench::new();
+    let config = b.config(Mode::Versioned, true, newer_wins());
+    b.put("src", "a.txt", "a");
+    // Files of the user that happen to lie in the target must never be touched.
+    b.put("dst", "Photos/keep.jpg", "user file");
+    // Old complete snapshots: two in the same week long ago, and one a week later.
+    for old in ["2026-01-05_10-00-00-000", "2026-01-07_10-00-00-000", "2026-01-13_10-00-00-000"] {
+        let folder = b.side("dst").join(old);
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(folder.join("a.txt"), "a").unwrap();
+        fs::write(folder.join(crate::versions::MARKER), old).unwrap();
+    }
+    ok(&b.run(&config).await);
+    let list = snapshots_in(&b);
+    assert!(!list.contains(&"2026-01-05_10-00-00-000".to_string()), "older one of the same week must go: {list:?}");
+    assert!(list.contains(&"2026-01-07_10-00-00-000".to_string()), "newest of its week stays: {list:?}");
+    assert!(list.contains(&"2026-01-13_10-00-00-000".to_string()), "the next week stays: {list:?}");
+    assert_eq!(list.len(), 3, "{list:?}");
+    assert_eq!(fs::read_to_string(b.side("dst").join("Photos/keep.jpg")).unwrap(), "user file");
+}
+
+#[tokio::test]
+async fn versioned_dry_run_creates_nothing() {
+    let b = Bench::new();
+    let config = b.config(Mode::Versioned, true, newer_wins());
+    b.put("src", "a.txt", "a");
+    let run_id = b.engine.start(&config, "job", "manual", RunOptions { dry_run: true, force: false }).unwrap();
+    for _ in 0..500 {
+        if b.engine.live_runs().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let run = b.history.recent(10).unwrap().into_iter().find(|run| run.id == run_id).unwrap();
+    ok(&run);
+    assert!(snapshots_in(&b).is_empty());
+    assert!(fs::read_dir(b.side("dst")).unwrap().next().is_none(), "a dry run must leave the target empty");
+}
+
+#[tokio::test]
+async fn versioned_refuses_an_empty_source() {
+    let b = Bench::new();
+    let config = b.config(Mode::Versioned, true, newer_wins());
+    let run = b.run(&config).await;
+    assert_ne!(run.status, RunStatus::Succeeded);
+    assert!(snapshots_in(&b).is_empty());
+}

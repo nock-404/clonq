@@ -19,6 +19,7 @@ mod smb;
 mod ssh;
 mod stats;
 mod tray;
+mod versions;
 mod watch;
 
 use std::path::PathBuf;
