@@ -169,7 +169,8 @@ export function LocationDetail({ state, location, now }: LocationDetailProps) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-[15rem_minmax(0,1fr)] items-start gap-5">
+      {/* The drive front fills the height of the column beside it; its lamps sit at the bottom. */}
+      <div className="grid grid-cols-[15rem_minmax(0,1fr)] gap-5">
         <UiDriveFront
           kind={glyphOf(location)}
           label={location.name}
@@ -179,6 +180,7 @@ export function LocationDetail({ state, location, now }: LocationDetailProps) {
           spinning={running}
           pulse={unloading ? "unload" : pulse}
           lamps={lamps}
+          fill
         />
 
         <div className="flex min-w-0 flex-col gap-4">
