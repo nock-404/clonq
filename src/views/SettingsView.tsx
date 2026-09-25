@@ -1,3 +1,4 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { getVersion } from "@tauri-apps/api/app";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { useEffect, useState } from "react";
@@ -8,6 +9,7 @@ import { LANGUAGES, useT } from "../i18n";
 import type { Accent, Language, Reels, UiSettings } from "../lib/types";
 import { UiPanel, UiSegmented, UiSwitch, type UiSegment } from "../ui";
 import { UiLogo } from "../ui/UiLogo";
+import { LicencePanel } from "./LicencePanel";
 import { UpdateCheck } from "./UpdateBand";
 import { UiReel as LichtReel } from "../ui/reels/licht/UiReel";
 import { UiReel as PraezisionReel } from "../ui/reels/praezision/UiReel";
@@ -78,13 +80,24 @@ export function SettingsView({ state }: SettingsViewProps) {
           <span className="text-xs text-ink-soft">{s.notificationsDetail}</span>
           <UiSwitch label={s.notifySuccess} checked={ui.notifySuccess} onChange={(notifySuccess) => save({ notifySuccess })} />
         </div>
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-xs text-ink-soft">{s.weeklyReportDetail}</span>
+          <UiSwitch label={s.weeklyReport} checked={ui.weeklyReport} onChange={(weeklyReport) => save({ weeklyReport })} />
+        </div>
       </UiPanel>
+      <LicencePanel />
       <UiPanel title={s.about}>
         <div className="flex items-center gap-4">
           <UiLogo variant="icon" size="md" />
           <div className="flex flex-col gap-1">
             <UiLogo variant="wordmark" size="sm" label="clonq" />
             {version ? <span className="font-mono text-xs text-ink-faint">{s.version(version)}</span> : null}
+            <span className="text-xs text-ink-faint">
+              © {new Date().getFullYear()} clonq — made with <span className="text-danger">♥</span> by{" "}
+              <button type="button" className="font-medium text-ink-soft hover:text-ink" onClick={() => void openUrl("https://and5.de")}>
+                and5.de
+              </button>
+            </span>
           </div>
         </div>
         <div className="pt-4">

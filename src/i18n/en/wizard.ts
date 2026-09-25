@@ -52,6 +52,8 @@ export const wizard = {
     quietTime: "The quiet time must be a whole number of at least one second.",
     interval: "The interval must be a whole number of at least one minute.",
     time: "The time is not valid.",
+    verifyDays: "The check interval must be a whole number of at least one day.",
+    watchdogDays: "The warning time must be a whole number of at least one day.",
     noAfterJob: "No job chosen yet for this one to run after.",
     keepDays: "The retention period must be a whole number from 1 to 365 days.",
     percent: "The deletion limit must be a number between 0 and 100.",
@@ -141,13 +143,26 @@ export const wizard = {
 
   mode: {
     groupLabel: "Copy mode",
-    // Each description fits two lines of a card, so the three cards keep the height of two.
+    // The four cards stand in a 2 × 2 grid, each with its own description.
     mirror: "The target becomes an exact copy; anything extra is deleted.",
     backup: "New and changed files go to the target; nothing is deleted.",
     bidirectional: "Each side takes over new, changed and deleted files.",
     mirrorCaption: "deleted",
     backupCaption: "kept",
     bidirectionalCaption: "conflict",
+    versioned: "Every run is kept as a dated snapshot; unchanged files take no space.",
+    versionedCaption: "per run",
+    /** Why the Versions card can't be picked for these places. */
+    versionedNoCloud: "Versions need a folder, drive or server as the target, not a cloud.",
+    versionedLocalSource: "Versions need a source on this Mac.",
+    versionedUnavailable: "not here",
+    versionedProLabel: "Pro",
+    encryptTitle: "Encrypt",
+    encryptOn: "Files and their names are encrypted on this Mac before upload; the cloud only stores unreadable data. After saving, clonq shows the password.",
+    encryptOff: "The cloud stores the files as they are.",
+    encryptPro: "Part of clonq Pro.",
+    keepTitle: "How long snapshots are kept",
+    keepRule: "Every snapshot of the last 24 hours, the newest of each day for 30 days, after that the newest of each week. The newest snapshot is never removed.",
 
     conflictTitle: "When a file was changed on both sides",
     preferLabel: "Which version wins a conflict",
@@ -240,6 +255,15 @@ export const wizard = {
     afterExcluded: "Starts as soon as the chosen job has finished a run. Jobs that themselves run after this one are not listed.",
     afterLabel: "Previous job",
     afterPlaceholder: "Choose job",
+    verify: "Check the content regularly",
+    verifyDescription: "clonq compares source and target by content and reports silent damage. It changes nothing, but reads every file, so it takes a while.",
+    verifyPro: "Part of clonq Pro.",
+    verifyBefore: "every",
+    verifyAfter: "days",
+    watchdog: "Warn when backups stop",
+    watchdogDescription: "clonq tells you when the job has not finished a run successfully for this long, for example because the drive was not connected.",
+    watchdogBefore: "after",
+    watchdogAfter: "days",
     automation: "Automation",
     automationOn: "Triggers only work while clonq is running.",
     automationOff: "The triggers stay saved but only work once automation is turned on.",
@@ -256,6 +280,7 @@ export const wizard = {
       minutes === 1 ? "every minute" : minutes === 60 ? "hourly" : minutes % 60 === 0 ? `every ${minutes / 60} hours` : `every ${minutes} minutes`,
     daily: (time: string) => `daily at ${time}`,
     after: (name: string | null) => (name === null ? "after another job" : `after “${name}”`),
+    verify: (days: number) => (days === 1 ? "content checked daily" : `content checked every ${days} days`),
   },
   /** A few words for the triggers, for the label on the tape. */
   tag: {
@@ -285,6 +310,7 @@ export const wizard = {
     excluding: (patterns: string) => `excluding ${patterns}`,
     noExcludes: "No exclusions",
     withLimit: (percent: string) => `, deletion limit ${percent}`,
+    versionedSummary: "Versions, thinned out automatically",
     conflicts: "Conflicts",
     changeConflicts: "Change conflict rule",
     archive: "Archive",

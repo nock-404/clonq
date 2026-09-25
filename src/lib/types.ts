@@ -1,6 +1,6 @@
 // Mirrors the Rust types that cross the bridge (serde, camelCase).
 
-export type Mode = "mirror" | "backup" | "blind" | "bidirectional";
+export type Mode = "mirror" | "backup" | "blind" | "bidirectional" | "versioned";
 
 export type Accent = "ring" | "amber" | "blue";
 
@@ -19,6 +19,8 @@ export interface UiSettings {
   notifySuccess: boolean;
   reels: Reels;
   language: Language;
+  /** The weekly report as a notification on Monday morning (Pro). */
+  weeklyReport: boolean;
 }
 
 export interface Place {
@@ -69,6 +71,10 @@ export interface Triggers {
   /** Local time "HH:MM". */
   dailyAt: string | null;
   afterJob: string | null;
+  /** An integrity check every this many days (Pro). */
+  verifyEveryDays: number | null;
+  /** A notice when the job has not succeeded for this many days (Pro). */
+  watchdogDays: number | null;
 }
 
 /** Deleted and overwritten files are kept in `.clonq-archiv/<time>/` on the target. */
@@ -104,6 +110,8 @@ export interface Job {
   triggers: Triggers;
   archive: Archive;
   conflicts: Conflicts;
+  /** Files and names are encrypted before they reach the cloud target (Pro). */
+  encrypted: boolean;
 }
 
 export interface Config {
@@ -182,6 +190,7 @@ export interface JobInput {
   archive?: Archive;
   /** Defaults to newer wins, loser kept. */
   conflicts?: Conflicts;
+  encrypted?: boolean;
 }
 
 export type RunStatus = "running" | "succeeded" | "partial" | "blocked" | "failed" | "cancelled";
@@ -192,6 +201,8 @@ export interface LiveRun {
   runId: string;
   jobId: string;
   dryRun: boolean;
+  /** An integrity check: compares by content, changes nothing. */
+  verify: boolean;
   phase: Phase;
   percent: number;
   bytes: number;
@@ -282,6 +293,35 @@ export interface JobStats {
   totals: Totals;
 }
 
+export interface JobWeek {
+  jobId: string;
+  name: string;
+  runs: number;
+  succeeded: number;
+  failed: number;
+  bytes: number;
+  files: number;
+  lastSuccessAt: string | null;
+  overdueDays: number | null;
+}
+
+export interface TargetSpace {
+  locationId: string;
+  name: string;
+  total: number;
+  free: number;
+  measuredAt: string;
+  daysUntilFull: number | null;
+}
+
+/** The last seven days (clonq Pro's weekly report). */
+export interface WeeklyReport {
+  from: string;
+  to: string;
+  jobs: JobWeek[];
+  targets: TargetSpace[];
+}
+
 export interface Overview {
   totals: Totals;
   todayBytes: number;
@@ -302,14 +342,16 @@ export interface RunEntryPage {
   total: number;
 }
 
-/** Which end of a job an archive belongs to. */
-export type ArchiveSide = "source" | "target";
+/** Which end of a job an archive belongs to; "snapshots" are a versioned job's dated folders in its target. */
+export type ArchiveSide = "source" | "target" | "snapshots";
 
 export interface Snapshot {
   /** Folder name, e.g. "2026-09-23_14-05-09". */
   stamp: string;
   files: number;
   bytes: number;
+  /** What a repair replaced: never removed by the archive's cleanup. */
+  kept: boolean;
 }
 
 export interface ArchivedFile {
@@ -329,3 +371,12 @@ export interface FilePreview {
   text: string | null;
   base64: string | null;
 }
+
+/** clonq Pro, as the licence check sees it (src-tauri/src/licence.rs). */
+export type LicenceStatus =
+  | { state: "none" }
+  | { state: "active"; email: string; updatesUntil: string | null }
+  | { state: "notCovered"; email: string; updatesUntil: string | null; released: string }
+  | { state: "revoked"; email: string }
+  /** A development build without the public key: keys cannot be checked, Pro is open. */
+  | { state: "unchecked" };

@@ -4,6 +4,22 @@ import type { Shape } from "..";
 import type { shell as source } from "../en/shell";
 
 export const shell: Shape<typeof source> = {
+  licence: {
+    title: "clonq Pro",
+    reading: "Lizenz wird gelesen …",
+    none: "Keine Lizenz eingetragen. Versionen gehören zu clonq Pro.",
+    active: (email) => `Pro ist aktiv für ${email}.`,
+    updatesUntil: (date) => `Updates bis ${date} inklusive.`,
+    updatesForGood: "Updates sind dauerhaft enthalten.",
+    notCovered: (until, released) => `Die Lizenz gilt für Versionen bis zum ${until}; diese Version ist vom ${released}. Vorhandene Snapshots bleiben lesbar und lassen sich wiederherstellen.`,
+    revoked: "Diese Lizenz wurde zurückgezogen. Vorhandene Snapshots bleiben lesbar und lassen sich wiederherstellen.",
+    unchecked: "Diese Version kann Lizenzen nicht prüfen. In einer Entwicklungsversion ist Pro deshalb freigeschaltet, in einer veröffentlichten Version gesperrt.",
+    enter: "Lizenz eingeben",
+    activate: "Aktivieren",
+    checking: "Wird geprüft …",
+    cancel: "Abbrechen",
+    remove: "Lizenz entfernen",
+  },
   nav: {
     overview: "Übersicht",
     jobs: "Jobs",
@@ -66,6 +82,22 @@ export const shell: Shape<typeof source> = {
     tape: (reels) => `≈ ${reels} Magnetband`,
     perJob: "Stand pro Job",
     jobLine: (streak, moved) => `Serie ${streak} · ${moved} bewegt`,
+    week: {
+      title: "Die letzten 7 Tage",
+      pro: "Der Wochenbericht, die Meldung bei ausbleibenden Sicherungen und die Vorhersage, wann ein Ziel voll ist, gehören zu clonq Pro.",
+      summary: (bytes, runs, shown) => `${bytes} in ${shown} ${runs === 1 ? "Lauf" : "Läufen"} gesichert`,
+      jobLine: (runs, shown, bytes) => `${shown} ${runs === 1 ? "Lauf" : "Läufe"} · ${bytes}`,
+      fine: "In Ordnung",
+      noRuns: "Diese Woche kein Lauf",
+      someFailed: (count) => (count === 1 ? "Ein Lauf fehlgeschlagen" : `${count} Läufe fehlgeschlagen`),
+      failing: "Jeder Lauf fehlgeschlagen",
+      overdue: (days) => (days === 1 ? "Seit einem Tag keine Sicherung" : `Seit ${days} Tagen keine Sicherung`),
+      space: "Platz auf den Zielen",
+      free: (free, total) => `${free} von ${total} frei`,
+      fullIn: (days) => (days === 1 ? "In etwa einem Tag voll" : `In etwa ${days} Tagen voll`),
+      lasts: "Reicht über ein Jahr",
+      noSpace: "Der Platz wird nach jedem erfolgreichen Lauf gemessen; die Vorhersage folgt nach einigen Tagen.",
+    },
   },
 
   settings: {
@@ -88,6 +120,8 @@ export const shell: Shape<typeof source> = {
     notifications: "Mitteilungen",
     notificationsDetail: "Probleme bei automatischen Läufen meldet clonq immer. Auf Wunsch auch jeden erfolgreichen Lauf.",
     notifySuccess: "Erfolgreiche Läufe melden",
+    weeklyReport: "Wochenbericht",
+    weeklyReportDetail: "Mit clonq Pro erhältst du jeden Montagmorgen eine Zusammenfassung der Woche. Sie nennt, was gesichert wurde, was Aufmerksamkeit braucht und welches Ziel bald voll ist.",
     about: "Über clonq",
     version: (version) => `Version ${version}`,
     tools: "Werkzeuge",
@@ -96,6 +130,11 @@ export const shell: Shape<typeof source> = {
   update: {
     available: (version) => `clonq ${version} ist da`,
     install: "Installieren",
+    notCovered: (until) =>
+      `Deine Lizenz für clonq Pro gilt für Versionen bis zum ${until}; diese ist neuer. Nach der Installation stehen die Pro-Funktionen nicht mehr zur Verfügung, und Jobs, die sie brauchen, laufen nicht mehr. Alles andere funktioniert weiter, vorhandene Snapshots bleiben lesbar.`,
+    notCoveredShort: "Deine Lizenz für clonq Pro gilt nicht für diese Version. Die Einstellungen nennen die Einzelheiten.",
+    renew: "Lizenz verlängern",
+    installAnyway: "Trotzdem installieren",
     restartsAfter: "clonq startet danach neu.",
     restarting: "clonq startet neu …",
     loaded: (received, total) => `${received} von ${total} geladen`,

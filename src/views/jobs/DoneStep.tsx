@@ -3,6 +3,7 @@ import { locale, texts, useT } from "../../i18n";
 import type { Config, Job } from "../../lib/types";
 import { UiText } from "../../ui";
 import { ringBg, ringOf } from "../../ui/rings";
+import { EncryptionKey } from "../EncryptionKey";
 import { firstRunSentences, hasAutomatic, triggerWords } from "./draft";
 
 interface DoneStepProps {
@@ -32,6 +33,11 @@ export function DoneStep({ job, config }: DoneStepProps) {
         <UiText variant="title">{t.done.title(job.name)}</UiText>
         <UiText tone="neutral">{startSentence(job, config)}</UiText>
       </div>
+      {job.encrypted ? (
+        <div className="w-full max-w-[32rem] text-left">
+          <EncryptionKey jobId={job.id} shown />
+        </div>
+      ) : null}
       <p className="max-w-[26rem] text-xs leading-relaxed text-ink-faint">
         {job.mode === "bidirectional"
           ? [...firstRunSentences(job.conflicts, job.archive.enabled), t.done.dryRunTwoWay].join(" ")

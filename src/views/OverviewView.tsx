@@ -5,6 +5,7 @@ import { isRunning } from "../lib/jobs";
 import { UiCounter, UiListRow, UiPanel, UiReel, UiStat, freshnessTone } from "../ui";
 import { ringOf } from "../ui/rings";
 import { toneText } from "../ui/tone";
+import { WeekPanel } from "./WeekPanel";
 
 interface OverviewViewProps {
   state: ClonqState;
@@ -55,6 +56,7 @@ export function OverviewView({ state, now, onOpenJob }: OverviewViewProps) {
           })}
         </div>
       </UiPanel>
+      <WeekPanel week={state.week} onOpenJob={onOpenJob} />
     </div>
   );
 }

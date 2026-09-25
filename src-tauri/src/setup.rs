@@ -484,6 +484,17 @@ pub struct JobInput {
     pub archive: Archive,
     #[serde(default)]
     pub conflicts: Conflicts,
+    #[serde(default)]
+    pub encrypted: bool,
+}
+
+/// Whether two places are the same folder or one lies inside the other.
+fn nested(a: &Place, b: &Place) -> bool {
+    if a.location != b.location {
+        return false;
+    }
+    let (a, b) = (a.path.trim_matches('/'), b.path.trim_matches('/'));
+    a.is_empty() || b.is_empty() || a == b || a.starts_with(&format!("{b}/")) || b.starts_with(&format!("{a}/"))
 }
 
 /// Why two places cannot be a job, or None when they can.
@@ -517,9 +528,16 @@ fn reachable(place: &Place, config: &Config, volumes: &[MountedVolume], state: &
 
 /// Creates or updates a job. Both places must be reachable now, and they must not overlap.
 #[tauri::command]
-pub fn save_job(app: AppHandle, state: State<'_, AppState>, job: JobInput) -> Result<Job> {
+pub async fn save_job(app: AppHandle, state: State<'_, AppState>, job: JobInput) -> Result<Job> {
     let name = require_name(&job.name)?;
     let config = state.config.read().expect("config lock").clone();
+    // Pro features are needed to start using them; a job that already uses them stays editable
+    // when the licence ends (Pro never takes away what exists).
+    let existing = job.id.as_deref().and_then(|id| config.job(id));
+    let pro = crate::licence::Store::new(&state.config_dir).pro();
+    if job.mode == crate::config::Mode::Versioned && !pro && existing.is_none_or(|old| old.mode != crate::config::Mode::Versioned) {
+        return Err(Error::Job("versioned backups are part of clonq Pro: enter a licence in Settings".into()));
+    }
     let volumes = locations::mounted_volumes();
     let source = reachable(&job.source, &config, &volumes, &state)?;
     let target = reachable(&job.target, &config, &volumes, &state)?;
@@ -554,6 +572,71 @@ pub fn save_job(app: AppHandle, state: State<'_, AppState>, job: JobInput) -> Re
         }
     }
     let id = job.id.clone().unwrap_or_else(|| new_id(&name));
+    let rclone_config = state.config_dir.join("rclone.conf");
+    let before = config.job(&id).cloned();
+    let was_encrypted = before.as_ref().is_some_and(|existing| existing.encrypted);
+    let target_place = Place { location: job.target.location.clone(), path: job.target.path.trim_matches('/').to_string() };
+    let same_target = before.as_ref().is_some_and(|existing| existing.target == target_place);
+    let versioned = job.mode == crate::config::Mode::Versioned;
+    let was_versioned = before.as_ref().is_some_and(|existing| existing.mode == crate::config::Mode::Versioned);
+    // Snapshots are thinned and unfinished ones removed: their folder belongs to one job alone.
+    for other in config.jobs.iter().filter(|other| other.id != id) {
+        if (versioned || other.mode == crate::config::Mode::Versioned) && nested(&other.target, &target_place) {
+            return Err(Error::Job(format!("the target folder overlaps with the job {}; a versioned job needs a folder of its own", other.name)));
+        }
+    }
+    if versioned && !(was_versioned && same_target) {
+        let fit = match &target {
+            Resolved::Local(path) => crate::versions::only_snapshots_local(path),
+            Resolved::Remote { destination, ssh, .. } => {
+                let rsh = vec![format!("--rsh={}", crate::engine::shell_join(ssh))];
+                crate::versions::only_snapshots_remote(&config.rsync_path, &rsh, &format!("{}/", destination.trim_end_matches('/'))).await?
+            }
+            Resolved::Cloud { .. } => true,
+        };
+        if !fit {
+            return Err(Error::Job("versioned backups need an empty target folder; choose a new one".into()));
+        }
+    }
+    // The snapshots stay where they are; another mode would mirror them away or merge them in.
+    if was_versioned && !versioned && same_target {
+        return Err(Error::Job("this folder holds the snapshots; choose another folder for the new mode".into()));
+    }
+    if job.encrypted {
+        if !pro && !was_encrypted {
+            return Err(Error::Job("encrypted cloud copies are part of clonq Pro: enter a licence in Settings".into()));
+        }
+        if !matches!(target, Resolved::Cloud { .. }) {
+            return Err(Error::Job("encryption needs a cloud as the target".into()));
+        }
+    }
+    // Encrypted and plain files must never share a folder: a mirror would take the others for
+    // leftovers. An encrypted job goes into an empty folder or one that opens with its own
+    // password (edited, moved to a new sign-in, or restored after deleting); a job without
+    // encryption never goes into a folder that holds its encrypted copy.
+    if let Resolved::Cloud { spec } = &target
+        && (job.encrypted || was_encrypted)
+        && !cloud::is_empty(&config.rclone_path, &rclone_config, spec).await?
+    {
+        let own = match cloud::crypt_password(&config.rclone_path, &rclone_config, &id).await? {
+            Some(password) => cloud::decrypts(&config.rclone_path, &rclone_config, spec, &password).await?,
+            None => false,
+        };
+        if job.encrypted && was_encrypted && cloud::crypt_password(&config.rclone_path, &rclone_config, &id).await?.is_none() {
+            return Err(Error::Job("the encryption password of this job is missing on this Mac; without it the copy cannot be read, so clonq does not make a new one".into()));
+        }
+        if job.encrypted && !own {
+            return Err(Error::Job("encryption needs an empty target folder; choose a new one".into()));
+        }
+        if !job.encrypted && own {
+            return Err(Error::Job("this folder holds the encrypted copy; choose an empty folder for a copy without encryption".into()));
+        }
+    }
+    if job.encrypted
+        && let Resolved::Cloud { spec } = &target
+    {
+        cloud::ensure_crypt(&config.rclone_path, &rclone_config, &id, spec).await?;
+    }
     if let Some(first) = &job.triggers.after_job {
         // Following the "after job" links from here must never come back to this job.
         let mut current = Some(first.clone());
@@ -578,6 +661,7 @@ pub fn save_job(app: AppHandle, state: State<'_, AppState>, job: JobInput) -> Re
         triggers: job.triggers.clone(),
         archive: job.archive.clone(),
         conflicts: job.conflicts.clone(),
+        encrypted: job.encrypted,
     };
     let stored = saved.clone();
     commit(&app, &state, |config| {
@@ -637,5 +721,16 @@ mod tests {
         let id = new_id("WORK → M2mini");
         assert!(id.starts_with("work-m2mini-"), "{id}");
         assert_eq!(new_id("→").len(), 6);
+    }
+
+    #[test]
+    fn places_overlap_when_one_holds_the_other() {
+        let place = |location: &str, path: &str| Place { location: location.into(), path: path.into() };
+        assert!(nested(&place("box", "Backups"), &place("box", "Backups")));
+        assert!(nested(&place("box", "Backups"), &place("box", "Backups/Photos")));
+        assert!(nested(&place("box", "Backups/Photos"), &place("box", "Backups")));
+        assert!(nested(&place("box", ""), &place("box", "Backups")), "the location's root holds everything");
+        assert!(!nested(&place("box", "Backups"), &place("box", "Backups2")), "a common prefix is not a folder");
+        assert!(!nested(&place("box", "Backups"), &place("nas", "Backups")));
     }
 }

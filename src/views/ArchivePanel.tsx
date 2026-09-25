@@ -207,12 +207,14 @@ export function ArchivePanel({ job, revision, side, target, reach, now }: Archiv
       detail: (
         <>
           {capitalize(filesWord(snapshot.files, formatCount))}, {formatBytes(snapshot.bytes)}
-          {job.archive.enabled ? (
+          {snapshot.kept ? (
+            <span> · {a.keptByRepair}</span>
+          ) : job.archive.enabled ? (
             <span className={days <= 2 ? "text-warn" : undefined}> · {a.daysLeft(days, formatCount(days))}</span>
           ) : null}
         </>
       ),
-      hint: job.archive.enabled && days <= 0 ? a.expiredHint : undefined,
+      hint: snapshot.kept ? a.keptHint : job.archive.enabled && days <= 0 ? a.expiredHint : undefined,
     };
   });
 

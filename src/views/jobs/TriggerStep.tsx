@@ -1,4 +1,4 @@
-import { CalendarClock, FileClock, Link2, Timer, Usb } from "lucide-react";
+import { BellRing, CalendarClock, FileClock, Link2, ShieldCheck, Timer, Usb } from "lucide-react";
 import { locale, useT } from "../../i18n";
 import type { Config, Location } from "../../lib/types";
 import { UiInput, UiKbd } from "../../ui";
@@ -17,14 +17,16 @@ interface TriggerStepProps {
   config: Config | null;
   /** The job being edited, which cannot follow itself. */
   jobId: string | null;
+  /** Whether a licence unlocks the Pro options. */
+  pro: boolean;
 }
 
 function anyOn(triggers: TriggerDraft, withMount: boolean): boolean {
-  return (withMount && triggers.onMount) || triggers.onChange || triggers.every || triggers.daily || triggers.after;
+  return (withMount && triggers.onMount) || triggers.onChange || triggers.every || triggers.daily || triggers.after || triggers.verify;
 }
 
 /** Step 4: when the job starts by itself. Without any trigger it starts only by hand. */
-export function TriggerStep({ triggers, onTriggers, enabled, onEnabled, drives, config, jobId }: TriggerStepProps) {
+export function TriggerStep({ triggers, onTriggers, enabled, onEnabled, drives, config, jobId, pro }: TriggerStepProps) {
   const r = useT().wizard.trigger;
   const withMount = drives.length > 0;
   const set = (change: Partial<TriggerDraft>) => onTriggers({ ...triggers, ...change });
@@ -111,6 +113,43 @@ export function TriggerStep({ triggers, onTriggers, enabled, onEnabled, drives, 
             }
           />
         ) : null}
+      </div>
+
+      <div className="hairline flex flex-col rounded-[var(--radius-panel)] bg-well">
+        <UiSwitchRow
+          icon={ShieldCheck}
+          title={r.verify}
+          description={!pro && !triggers.verify ? r.verifyPro : triggers.verify ? r.verifyDescription : undefined}
+          checked={triggers.verify}
+          disabled={!pro && !triggers.verify}
+          onChange={(verify) => set({ verify })}
+          inline={
+            <>
+              {r.verifyBefore}
+              <span className="w-16">
+                <UiInput type="number" value={triggers.verifyDays} disabled={!triggers.verify} label={r.verify} onChange={(verifyDays) => set({ verifyDays })} />
+              </span>
+              {r.verifyAfter}
+            </>
+          }
+        />
+        <UiSwitchRow
+          icon={BellRing}
+          title={r.watchdog}
+          description={!pro && !triggers.watchdog ? r.verifyPro : triggers.watchdog ? r.watchdogDescription : undefined}
+          checked={triggers.watchdog}
+          disabled={!pro && !triggers.watchdog}
+          onChange={(watchdog) => set({ watchdog })}
+          inline={
+            <>
+              {r.watchdogBefore}
+              <span className="w-16">
+                <UiInput type="number" value={triggers.watchdogDays} disabled={!triggers.watchdog} label={r.watchdog} onChange={(watchdogDays) => set({ watchdogDays })} />
+              </span>
+              {r.watchdogAfter}
+            </>
+          }
+        />
       </div>
 
       <div className="hairline flex flex-col rounded-[var(--radius-panel)] bg-well">

@@ -1,4 +1,6 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { Download, RotateCw } from "lucide-react";
+import { formatDate } from "../lib/format";
 import { useT } from "../i18n";
 import { formatBytes } from "../lib/format";
 import { checkForUpdate, installUpdate, useUpdate } from "../lib/update";
@@ -6,7 +8,7 @@ import { UiButton, UiProgressBar } from "../ui";
 import { UiLogo } from "../ui/UiLogo";
 
 /** A newer clonq is out: a small band with one button. Invisible while there is nothing to install. */
-export function UpdateBand() {
+export function UpdateBand({ detailed = false }: { detailed?: boolean }) {
   const update = useUpdate();
   const t = useT().shell.update;
   if (update.phase !== "available" && update.phase !== "downloading" && update.phase !== "restarting") return null;
@@ -17,7 +19,21 @@ export function UpdateBand() {
         <UiLogo variant="mark" size="xs" />
         <span className="text-xs font-medium text-ink">{t.available(update.version)}</span>
       </div>
-      {update.phase === "available" ? (
+      {update.phase === "available" && !update.cover.covered ? (
+        <div className="flex flex-col items-start gap-1.5">
+          <span className="text-[0.6875rem] leading-snug text-warn">{detailed ? t.notCovered(update.cover.updatesUntil ? formatDate(update.cover.updatesUntil) : "") : t.notCoveredShort}</span>
+          <div className="flex flex-wrap gap-2">
+            {update.cover.renewUrl ? (
+              <UiButton variant="primary" onPress={() => void openUrl(update.cover.renewUrl ?? "")}>
+                {t.renew}
+              </UiButton>
+            ) : null}
+            <UiButton variant="secondary" icon={Download} onPress={() => void installUpdate()}>
+              {t.installAnyway}
+            </UiButton>
+          </div>
+        </div>
+      ) : update.phase === "available" ? (
         <div className="flex flex-col items-start gap-1">
           <UiButton variant="primary" icon={Download} onPress={() => void installUpdate()}>
             {t.install}
@@ -61,7 +77,7 @@ export function UpdateCheck() {
         {t.check}
       </UiButton>
       {line ? <span className={`text-xs ${update.phase === "failed" ? "text-danger" : "text-ink-soft"}`}>{line}</span> : null}
-      <UpdateBand />
+      <UpdateBand detailed />
     </div>
   );
 }

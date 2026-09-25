@@ -80,7 +80,7 @@ export function NameStep({ name, suggestion, suggested, taken, onName, ring, onR
                 pressLabel={n.changeMode}
                 detail={input.excludes.length > 0 ? <span className="font-mono">{n.excluding(input.excludes.join("  "))}</span> : n.noExcludes}
               >
-                {modeLabel(input.mode)}
+                {input.mode === "versioned" ? n.versionedSummary : modeLabel(input.mode)}
                 {deletesIn(input.mode) ? n.withLimit(t.common.percent(input.maxDeletePercent.toLocaleString(locale()))) : ""}
               </UiSummaryRow>
               {input.mode === "bidirectional" && input.conflicts ? (
@@ -88,7 +88,8 @@ export function NameStep({ name, suggestion, suggested, taken, onName, ring, onR
                   {conflictSummary(input.conflicts, input.archive?.enabled ?? true)}
                 </UiSummaryRow>
               ) : null}
-              {input.archive ? (
+              {/* A versioned job's snapshots are its history; the archive doesn't apply. */}
+              {input.archive && input.mode !== "versioned" ? (
                 <UiSummaryRow label={n.archive} onPress={() => onJump(2)} pressLabel={n.changeArchive}>
                   {input.archive.enabled
                     ? (input.mode === "bidirectional" ? n.archiveBothSides : n.archiveInTarget)(t.wizard.days(input.archive.keepDays))

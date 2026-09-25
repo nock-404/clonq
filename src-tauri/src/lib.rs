@@ -7,7 +7,11 @@ mod engine;
 mod error;
 mod glass;
 mod history;
+mod licence;
 mod locations;
+mod report;
+#[cfg(test)]
+mod box_tests;
 #[cfg(test)]
 mod matrix_tests;
 mod rclone_output;
@@ -19,6 +23,7 @@ mod smb;
 mod ssh;
 mod stats;
 mod tray;
+mod versions;
 mod watch;
 
 use std::path::PathBuf;
@@ -80,6 +85,7 @@ pub fn run() {
             scheduler::start(app.handle().clone());
             watch::volumes(app.handle().clone());
             watch::servers(app.handle().clone());
+            watch::licence(app.handle().clone());
 
             if let Some(popover) = app.get_webview_window(POPOVER) {
                 glass::apply(&popover, POPOVER_RADIUS)?;
@@ -124,14 +130,24 @@ pub fn run() {
             commands::overview,
             commands::set_ui_settings,
             commands::run_job,
+            commands::verify_job,
+            commands::repair_job,
+            commands::weekly_report,
+            commands::encryption_key,
+            commands::licence_covers_update,
+            commands::licence_pro,
             commands::cancel_job,
             commands::open_main_window,
             commands::quit,
             commands::prepare_restart,
+            commands::licence_status,
+            commands::enter_licence,
+            commands::remove_licence,
             commands::run_entries,
             commands::archive_snapshots,
             commands::archive_files,
             commands::restore_archive,
+            commands::version_snapshots,
             commands::browse_list,
             commands::browse_preview,
             commands::browse_download,

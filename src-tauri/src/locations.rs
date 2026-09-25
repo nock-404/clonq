@@ -112,7 +112,7 @@ fn describe_volume(mount_point: &Path) -> Option<MountedVolume> {
     })
 }
 
-fn free_space(path: &Path) -> (Option<u64>, Option<u64>) {
+pub(crate) fn free_space(path: &Path) -> (Option<u64>, Option<u64>) {
     // `df -k` works for any local path and needs no extra crate.
     let Ok(output) = Command::new("/bin/df").arg("-k").arg(path).output() else { return (None, None) };
     let text = String::from_utf8_lossy(&output.stdout);
@@ -224,12 +224,26 @@ pub fn resolve(place: &Place, config: &Config, volumes: &[MountedVolume]) -> Res
                 ssh: ssh_command(*port, identity_file),
                 display: format!("{}:{remote_path}", location.name),
                 sftp: format!(
+                    // In an rclone connection string a quote inside a quoted value is doubled.
                     ":sftp,host={host},user={user},port={port},key_file='{}',known_hosts_file='{}':{remote_path}",
-                    identity_file.replace('\'', ""),
-                    crate::ssh::known_hosts().display().to_string().replace('\'', "")
+                    identity_file.replace('\'', "''"),
+                    crate::ssh::known_hosts().display().to_string().replace('\'', "''")
                 ),
             })
         }
+    }
+}
+
+/// A job's target as the engine and the archive use it: an encrypted job's cloud folder is
+/// reached through its crypt remote, so everything written there is encrypted.
+pub fn resolve_target(job: &crate::config::Job, config: &Config, volumes: &[MountedVolume]) -> Result<Resolved> {
+    let target = resolve(&job.target, config, volumes)?;
+    if !job.encrypted {
+        return Ok(target);
+    }
+    match target {
+        Resolved::Cloud { .. } => Ok(Resolved::Cloud { spec: format!("{}:", crate::cloud::crypt_name(&job.id)) }),
+        _ => Err(Error::Job("encryption needs a cloud as the target".into())),
     }
 }
 
@@ -369,6 +383,7 @@ mod tests {
             triggers: Triggers::default(),
             archive: crate::config::Archive::default(),
             conflicts: crate::config::Conflicts::default(),
+            encrypted: false,
         });
         let status = status_of(&config.locations[0], &config, &[], &ServerChecks::default());
         assert_eq!(status.used_by, vec!["Tmp → Tmp".to_string()]);

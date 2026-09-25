@@ -40,11 +40,18 @@ pub struct UiSettings {
     pub reels: Reels,
     #[serde(default)]
     pub language: Language,
+    /// The weekly report as a notification on Monday morning (Pro).
+    #[serde(default = "yes")]
+    pub weekly_report: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Default for UiSettings {
     fn default() -> Self {
-        Self { accent: Accent::Amber, lamps: true, notify_success: false, reels: Reels::default(), language: Language::default() }
+        Self { accent: Accent::Amber, lamps: true, notify_success: false, reels: Reels::default(), language: Language::default(), weekly_report: true }
     }
 }
 
@@ -178,6 +185,9 @@ pub struct Job {
     /// Only for bidirectional jobs: what happens when a file changed on both sides.
     #[serde(default)]
     pub conflicts: Conflicts,
+    /// Files and names are encrypted before they reach the cloud target (Pro, rclone crypt).
+    #[serde(default)]
+    pub encrypted: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -251,6 +261,12 @@ pub struct Triggers {
     /// After this job finished successfully.
     #[serde(default)]
     pub after_job: Option<String>,
+    /// An integrity check every this many days (Pro), counted from the last check.
+    #[serde(default)]
+    pub verify_every_days: Option<u64>,
+    /// A notice when the job has not succeeded for this many days (Pro).
+    #[serde(default)]
+    pub watchdog_days: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -264,6 +280,9 @@ pub enum Mode {
     Blind,
     /// Changes flow both ways, conflicts are resolved by rules.
     Bidirectional,
+    /// Every run is a dated snapshot in the target; unchanged files are hard links to the
+    /// previous one. Needs a folder, drive or server as the target.
+    Versioned,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

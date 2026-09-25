@@ -27,11 +27,13 @@ import {
   jumpLabel,
   loserSentence,
   modeProblem,
+  versionedProblem,
   nameTaken,
   overlapText,
   preferLabel,
   reachProblem,
   samePlace,
+  cloudTarget,
   saveFailure,
   sortExcludes,
   stepLabel,
@@ -50,6 +52,7 @@ import { ModeStep } from "./ModeStep";
 import { NameStep } from "./NameStep";
 import { PlaceStep } from "./PlaceStep";
 import { TriggerStep } from "./TriggerStep";
+import { usePro } from "../../hooks/usePro";
 
 interface JobWizardProps {
   open: boolean;
@@ -78,6 +81,8 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
   const config = state.config;
   const t = useT();
   const w = t.wizard;
+  // Pro options are locked until the backend confirms the licence, and stay locked without it.
+  const pro = usePro(open) === true;
   const nav = useNav();
   const toast = useJobToast();
   const [session, setSession] = useState("closed");
@@ -227,7 +232,7 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
       : ((targetLocation ? reachProblem(targetLocation, state) : null) ??
         readProblem(draft.target) ??
         (overlap && draft.source ? overlapText(overlap, "target", placeLabel(draft.source, config)) : null)),
-    2: modeProblem(draft),
+    2: modeProblem(draft, config),
     3: triggerProblem({ ...draft.triggers, onMount: draft.triggers.onMount && drives.length > 0 }),
     4: name.trim() ? null : w.problem.noName,
   };
@@ -495,7 +500,7 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
         footer={footer}
       >
         {/* One height for every step, so the sheet does not jump while moving through them. */}
-        <div className="relative -mx-5 -my-4 h-[20.125rem] bg-raised-solid px-5 py-3.5">
+        <div className="relative -mx-5 -my-4 h-[25rem] bg-raised-solid px-5 py-3.5">
           <div className="scroll-fade h-full overflow-y-auto">
             {done ? <DoneStep job={done} config={config} /> : null}
             {!done && (step === 0 || step === 1) ? (
@@ -517,6 +522,8 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
               <ModeStep
                 mode={draft.mode}
                 onMode={(mode) => change({ mode })}
+                versionedBlocked={versionedProblem(draft, config) ?? (pro ? null : t.messages.proNeeded)}
+                versionedNeedsPro={versionedProblem(draft, config) === null && !pro}
                 excludes={draft.excludes}
                 onExcludes={(excludes) => change({ excludes })}
                 maxDeletePercent={draft.maxDeletePercent}
@@ -525,6 +532,7 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
                 onArchive={(archive) => change({ archive })}
                 conflicts={draft.conflicts}
                 onConflicts={(conflicts) => change({ conflicts })}
+                encryption={{ cloud: cloudTarget(draft, config), pro, on: draft.encrypted, onChange: (encrypted) => change({ encrypted }) }}
                 onSubmit={advance}
                 shortcuts={!confirmDiscard}
               />
@@ -538,6 +546,7 @@ export function JobWizard({ open, state, job, onClose, onSaved }: JobWizardProps
                 drives={drives}
                 config={config}
                 jobId={jobId}
+                pro={pro}
               />
             ) : null}
             {!done && step === 4 ? (

@@ -17,6 +17,7 @@ use crate::locations::{self, Resolved};
 use crate::error::{Error, Result};
 use crate::history::{FolderChange, History, Run, RunStatus, Sample};
 use crate::cloud;
+use crate::versions;
 use crate::rclone_output::{self, Event};
 use crate::rsync_output::{self, Change, Line, Stats};
 
@@ -42,6 +43,8 @@ pub struct LiveRun {
     pub run_id: String,
     pub job_id: String,
     pub dry_run: bool,
+    /// An integrity check: compares by content, changes nothing.
+    pub verify: bool,
     pub phase: Phase,
     pub percent: f64,
     pub bytes: i64,
@@ -77,11 +80,19 @@ pub struct RunOptions {
     pub dry_run: bool,
     /// Skips the deletion threshold, after the user saw what would be deleted.
     pub force: bool,
+    /// Compares source and target by content instead of copying; changes nothing.
+    pub verify: bool,
+    /// Repairs what the last integrity check found. One-way: a run that compares by content
+    /// and always archives what it replaces. Versioned: a new snapshot compared by content.
+    /// Two-way: the source version is copied over, the target version kept beside it.
+    pub repair: bool,
 }
 
 struct Active {
     live: LiveRun,
     cancel: watch::Sender<bool>,
+    /// Why the run started; a scheduled integrity check gives way to a real run.
+    trigger: String,
 }
 
 /// Where the engine reports to: the app's event bus, or a collector in tests.
@@ -120,6 +131,52 @@ impl Engine {
         !self.active.lock().expect("active lock").is_empty()
     }
 
+    /// Records a run that could not start at all, with the reason, so the history, the job view
+    /// and the menu bar show the job as failed instead of silently old.
+    pub fn record_refusal(&self, job_id: &str, trigger: &str, message: &str) -> Result<()> {
+        let now = Utc::now();
+        let run = Run {
+            id: uuid::Uuid::new_v4().to_string(),
+            job_id: job_id.to_string(),
+            trigger: trigger.to_string(),
+            dry_run: false,
+            started_at: now,
+            finished_at: Some(now),
+            status: RunStatus::Failed,
+            files_total: 0,
+            files_transferred: 0,
+            files_new: 0,
+            files_changed: 0,
+            files_deleted: 0,
+            files_conflicted: 0,
+            bytes_transferred: 0,
+            bytes_new: 0,
+            bytes_changed: 0,
+            source_bytes: 0,
+            literal_bytes: 0,
+            matched_bytes: 0,
+            wire_bytes: 0,
+            target_entries: 0,
+            exit_code: None,
+            message: Some(message.to_string()),
+            log_path: String::new(),
+            plan_key: String::new(),
+        };
+        self.history.insert(&run)?;
+        self.history.finish(&run, &[], &[])?;
+        (self.emit)(EVENT_RUNS_CHANGED, serde_json::Value::Null);
+        Ok(())
+    }
+
+    pub fn is_running(&self, job_id: &str) -> bool {
+        self.active.lock().expect("active lock").contains_key(job_id)
+    }
+
+    /// Whether the job's current run is one started only by `trigger`.
+    pub fn running_with(&self, job_id: &str, trigger: &str) -> bool {
+        self.active.lock().expect("active lock").get(job_id).is_some_and(|entry| entry.trigger == trigger)
+    }
+
     pub fn cancel(&self, job_id: &str) -> bool {
         let active = self.active.lock().expect("active lock");
         match active.get(job_id) {
@@ -136,7 +193,7 @@ impl Engine {
             .clone();
         let volumes = locations::mounted_volumes();
         let source = locations::resolve(&job.source, config, &volumes)?;
-        let target = locations::resolve(&job.target, config, &volumes)?;
+        let target = locations::resolve_target(&job, config, &volumes)?;
         let plan = Plan::new(&job, config, &self.rclone_config, &source, &target)?;
 
         let run_id = uuid::Uuid::new_v4().to_string();
@@ -145,7 +202,7 @@ impl Engine {
             id: run_id,
             job_id: job.id.clone(),
             trigger: trigger.to_string(),
-            dry_run: options.dry_run,
+            dry_run: options.dry_run || options.verify,
             started_at: Utc::now(),
             finished_at: None,
             status: RunStatus::Running,
@@ -177,7 +234,8 @@ impl Engine {
             let live = LiveRun {
                 run_id: run.id.clone(),
                 job_id: job.id.clone(),
-                dry_run: options.dry_run,
+                dry_run: options.dry_run || options.verify,
+                verify: options.verify,
                 phase: Phase::Transferring,
                 percent: 0.0,
                 bytes: 0,
@@ -196,7 +254,7 @@ impl Engine {
                 status: Some(RunStatus::Running),
                 message: None,
             };
-            active.insert(job.id.clone(), Active { live, cancel: cancel_tx });
+            active.insert(job.id.clone(), Active { live, cancel: cancel_tx, trigger: trigger.to_string() });
         }
         if let Err(error) = self.history.insert(&run) {
             self.active.lock().expect("active lock").remove(&job.id);
@@ -272,7 +330,16 @@ impl Engine {
     ) -> Result<()> {
         plan.check_source()?;
         plan.check_target()?;
+        if options.verify {
+            return self.verify(job, plan, run, &mut cancel, log).await;
+        }
         let two_way = matches!(plan.tool, Tool::Bisync { .. });
+        if options.repair && two_way {
+            return self.repair_two_way(job, plan, run, log).await;
+        }
+        if options.repair && matches!(plan.tool, Tool::Rclone { .. }) {
+            return self.repair_rclone(job, plan, run, log).await;
+        }
         if job.mode == Mode::Mirror && !two_way {
             self.check_remote_source(plan).await?;
         }
@@ -280,7 +347,7 @@ impl Engine {
         let mut max_delete = None;
         if job.mode == Mode::Mirror && !two_way && !options.dry_run && !options.force {
             // With an archive, rclone counts every overwrite against --max-delete.
-            let rclone_archive = matches!(plan.tool, Tool::Rclone { .. }) && job.archive.enabled;
+            let rclone_archive = matches!(plan.tool, Tool::Rclone { .. }) && (job.archive.enabled || options.repair);
             // Every mirror run is checked by a dry run first. --max-delete alone is not enough:
             // rsync and rclone delete up to the limit before they stop, and without an archive
             // those files would be gone although the run counts as stopped.
@@ -289,7 +356,7 @@ impl Engine {
                     self.update(&job.id, |live| live.phase = Phase::Checking);
                     self.emit(&job.id);
                     log.write_all(b"# safety check (dry run)\n").await?;
-                    let check = self.rsync(&job.id, plan, &["--dry-run".into()], log, &mut cancel, false).await?;
+                    let check = self.rsync(&job.id, plan, &["--dry-run".into()], log, &mut cancel, false, false).await?;
                     if check.cancelled {
                         run.status = RunStatus::Cancelled;
                         return Ok(());
@@ -332,14 +399,41 @@ impl Engine {
             }
         }
 
+        // A versioned run writes into a new dated folder, linked against the newest complete one.
+        let base_plan = plan;
+        let snapshot = if job.mode == Mode::Versioned { Some(self.prepare_snapshot(plan, run, options, log).await?) } else { None };
+        let plan = snapshot.as_ref().map_or(plan, |snapshot| &snapshot.plan);
+
         let mut extra = Vec::new();
         if options.dry_run {
             extra.push("--dry-run".to_string());
-        } else if job.archive.enabled {
+        } else if (job.archive.enabled || options.repair) && snapshot.is_none() {
+            // Snapshots are their own history; an archive next to them would only double it.
+            // A repair always archives: the version it replaces may be the only intact one.
             extra.extend(plan.archive_args(&archive_stamp(run.started_at)));
+        }
+        if options.repair {
+            // Size and date match on damaged files; only the content tells them apart.
+            extra.push("--checksum".into());
+            log.write_all(b"# repair: comparing by content, replaced files go to the archive\n").await?;
         }
         if let Some(limit) = max_delete {
             extra.push(format!("--max-delete={limit}"));
+        }
+        // Only before the first run: later, a missing target folder means it was deleted or
+        // renamed, and an empty new one would look to bisync like everything was deleted there.
+        if two_way && !options.dry_run
+            && !self.history.has_completed(&job.id)?
+            && let Tool::Bisync { config } = &plan.tool
+        {
+            // bisync needs both roots to exist; a new job's target folder may not yet
+            // (rsync creates it with --mkpath, rclone copy by itself, bisync does not).
+            let made = Command::new(&plan.program).arg("mkdir").arg(&plan.target).arg("--config").arg(config).env("LC_ALL", "C").output().await?;
+            if !made.status.success() {
+                run.status = RunStatus::Failed;
+                run.message = Some(String::from_utf8_lossy(&made.stderr).lines().last().unwrap_or("could not create the target folder").trim().to_string());
+                return Ok(());
+            }
         }
         if two_way {
             // Only one run per job exists (the engine's active map), so a lock file
@@ -368,11 +462,11 @@ impl Engine {
                 extra.extend(plan.resync_args(job));
             }
         }
-        let mut result = self.rsync(&job.id, plan, &extra, log, &mut cancel, true).await?;
+        let mut result = self.rsync(&job.id, plan, &extra, log, &mut cancel, true, false).await?;
         if two_way && !result.cancelled && result.errors.iter().any(|error| rclone_output::needs_resync(error)) {
             log.write_all(b"# no earlier listings, merging both sides first\n").await?;
             extra.extend(plan.resync_args(job));
-            result = self.rsync(&job.id, plan, &extra, log, &mut cancel, true).await?;
+            result = self.rsync(&job.id, plan, &extra, log, &mut cancel, true, false).await?;
         }
 
         run.exit_code = result.exit_code;
@@ -410,7 +504,16 @@ impl Engine {
             (Tool::Bisync { .. }, false, Some(_)) if result.delete_limit_hit => RunStatus::Blocked,
             _ => RunStatus::Failed,
         };
-        if !options.dry_run && run.status.completed() && job.archive.enabled {
+        if let Some(snapshot) = &snapshot
+            && !options.dry_run
+            && run.status.completed()
+        {
+            self.finish_snapshot(base_plan, snapshot, run.status == RunStatus::Partial, log).await?;
+        }
+        if options.repair && run.status.completed() && snapshot.is_none() {
+            mark_kept(plan, &archive_stamp(run.started_at)).await;
+        }
+        if !options.dry_run && run.status.completed() && job.archive.enabled && snapshot.is_none() {
             self.prune_archive(plan, job.archive.keep_days, log).await;
         }
         run.message = match run.status {
@@ -429,6 +532,7 @@ impl Engine {
     }
 
     /// Runs rsync once with the plan's arguments plus `extra`, streaming its output.
+    #[allow(clippy::too_many_arguments)]
     async fn rsync(
         &self,
         job_id: &str,
@@ -437,6 +541,8 @@ impl Engine {
         log: &mut BufWriter<tokio::fs::File>,
         cancel: &mut watch::Receiver<bool>,
         report: bool,
+        // Keeps every changed path in the result; only the integrity check needs them.
+        collect: bool,
     ) -> Result<RsyncResult> {
         let mut command = Command::new(&plan.program);
         command
@@ -635,6 +741,9 @@ impl Engine {
                                     if report && let Some(line) = log_entry(Change::of(code), size, path) {
                                         log.write_all(line.as_bytes()).await?;
                                     }
+                                    if collect {
+                                        result.paths.push((Change::of(code), path.to_string()));
+                                    }
                                     self.count_file(job_id, &mut result, &mut recent, Change::of(code), size, path, report);
                                 }
                                 Line::Stat(stat) => {
@@ -722,6 +831,357 @@ impl Engine {
             self.emit(job_id);
         }
         Ok(result)
+    }
+
+    /// The integrity check: finds files whose content differs between source and target although
+    /// a normal run would leave them alone, the sign of silent damage (a flipped bit on a dying
+    /// disk, a file changed behind clonq's back). Changes nothing on either side.
+    ///
+    /// rsync: one dry run by size and date, one by checksum; what only the second one finds has
+    /// the same size and date but other content. On a server rsync computes the checksums
+    /// there, so no file data crosses the line. rclone (clouds, two-way): `rclone check`.
+    async fn verify(&self, job: &Job, plan: &Plan, run: &mut Run, cancel: &mut watch::Receiver<bool>, log: &mut BufWriter<tokio::fs::File>) -> Result<()> {
+        self.update(&job.id, |live| live.phase = Phase::Checking);
+        self.emit(&job.id);
+        match &plan.tool {
+            Tool::Rsync => {
+                // A versioned job is checked against its newest complete snapshot.
+                let mut checked = plan.clone();
+                if job.mode == Mode::Versioned {
+                    let base = format!("{}/", plan.target.trim_end_matches('/'));
+                    let (complete, _) = match &plan.target_path {
+                        Some(path) => versions::list_local(path),
+                        None => versions::list_remote(&plan.program, &plan.rsh(), &base).await?,
+                    };
+                    let Some(newest) = complete.last() else {
+                        run.status = RunStatus::Failed;
+                        run.message = Some("there is no snapshot to check yet".into());
+                        return Ok(());
+                    };
+                    checked.target = format!("{base}{newest}");
+                    checked.target_path = plan.target_path.as_ref().map(|path| path.join(newest));
+                    log.write_all(format!("# integrity check against snapshot {newest}\n").as_bytes()).await?;
+                }
+                // Deletions are no damage; the check only reads what both sides hold.
+                checked.base_args.retain(|arg| arg != "--delete");
+                log.write_all(b"# integrity check, pass 1: by size and date\n").await?;
+                let quick = self.rsync(&job.id, &checked, &["--dry-run".into()], log, cancel, false, true).await?;
+                if quick.cancelled {
+                    run.status = RunStatus::Cancelled;
+                    return Ok(());
+                }
+                log.write_all(b"# integrity check, pass 2: by content (checksums)\n").await?;
+                let deep = self.rsync(&job.id, &checked, &["--dry-run".into(), "--checksum".into()], log, cancel, false, true).await?;
+                if deep.cancelled {
+                    run.status = RunStatus::Cancelled;
+                    return Ok(());
+                }
+                let usable = |code: Option<i32>| matches!(code, Some(0 | 23 | 24));
+                if !usable(quick.exit_code) || !usable(deep.exit_code) {
+                    run.status = RunStatus::Failed;
+                    run.exit_code = if usable(quick.exit_code) { deep.exit_code } else { quick.exit_code };
+                    run.message = Some(if usable(quick.exit_code) { deep.error_summary() } else { quick.error_summary() });
+                    return Ok(());
+                }
+                let is_file = |change: &Change| matches!(change, Change::NewFile | Change::ChangedFile);
+                let known: std::collections::HashSet<&str> = quick.paths.iter().filter(|(change, _)| is_file(change)).map(|(_, path)| path.as_str()).collect();
+                let silent: Vec<&str> = deep.paths.iter().filter(|(change, path)| is_file(change) && !known.contains(path.as_str())).map(|(_, path)| path.as_str()).collect();
+                let missing = quick.paths.iter().filter(|(change, _)| *change == Change::NewFile).count();
+                for path in &silent {
+                    log.write_all(format!("{DIFFERS}{path}\n").as_bytes()).await?;
+                }
+                run.files_total = deep.stats.files;
+                run.files_conflicted = silent.len() as i64;
+                run.files_new = missing as i64;
+                run.files_changed = quick.paths.iter().filter(|(change, _)| *change == Change::ChangedFile).count() as i64;
+                run.source_bytes = deep.stats.total_size;
+                run.exit_code = deep.exit_code;
+                // 23/24: some files could not be read, so they were not checked either.
+                let unread = matches!(quick.exit_code, Some(23 | 24)) || matches!(deep.exit_code, Some(23 | 24));
+                run.status = if silent.is_empty() && !unread { RunStatus::Succeeded } else { RunStatus::Partial };
+                run.message = if !silent.is_empty() {
+                    Some(format!("{} file(s) differ in content although size and date match", silent.len()))
+                } else if unread {
+                    Some("some files could not be read and were not checked; the log names them".into())
+                } else {
+                    None
+                };
+            }
+            Tool::Rclone { config } | Tool::Bisync { config } => {
+                let mut command = Command::new(&plan.program);
+                // Encrypted files carry no hash of their content; cryptcheck encrypts the source's to compare.
+                command.arg(if cloud::is_crypt(&plan.target) { "cryptcheck" } else { "check" }).arg(&plan.source).arg(&plan.target).arg("--config").arg(config).args(["--combined", "-"]);
+                if !matches!(plan.tool, Tool::Bisync { .. }) {
+                    command.arg("--one-way");
+                }
+                command.args(job.excludes.iter().map(|pattern| format!("--exclude={}", rclone_pattern(pattern))));
+                command.arg(format!("--exclude=/{ARCHIVE_DIR}/**"));
+                command.env("LC_ALL", "C").stdin(Stdio::null()).kill_on_drop(true);
+                let output = tokio::select! {
+                    output = command.output() => output?,
+                    _ = cancel.changed() => {
+                        run.status = RunStatus::Cancelled;
+                        return Ok(());
+                    }
+                };
+                // One line per file (measured with rclone 1.75.1): "= same", "* differs",
+                // "+ only in the source" (not copied yet), "- only in the target", "! could not check".
+                let text = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let mut differing = Vec::new();
+                let (mut missing, mut errors, mut lines) = (0_i64, 0_i64, 0_i64);
+                for line in text.lines() {
+                    // "X path": the mark, a space, the path exactly as it is (spaces included).
+                    let Some((mark, path)) = line.split_once(' ') else { continue };
+                    lines += 1;
+                    match mark {
+                        "*" => differing.push(path.to_string()),
+                        "+" => missing += 1,
+                        "!" => {
+                            errors += 1;
+                            log.write_all(format!("! could not check: {path}\n").as_bytes()).await?;
+                        }
+                        _ => {}
+                    }
+                }
+                run.exit_code = output.status.code();
+                // A clean result exits 0; differences exit 1. Exit 1 without a single result line,
+                // or a critical error, means rclone could not compare at all (a lost sign-in, a
+                // missing remote): that is a failure, never "no damage".
+                let broken = !matches!(output.status.code(), Some(0 | 1))
+                    || (output.status.code() == Some(1) && lines == 0)
+                    || stderr.contains("CRITICAL")
+                    || stderr.contains("Failed to create file system");
+                if broken {
+                    run.status = RunStatus::Failed;
+                    run.message = Some(stderr.lines().last().unwrap_or("rclone check failed").trim().to_string());
+                    return Ok(());
+                }
+                // Without a hash both sides know, check compares sizes only: no content check.
+                if stderr.contains("No common hash found") {
+                    run.status = RunStatus::Failed;
+                    run.message = Some("source and target share no checksum, so the content cannot be compared without downloading it".into());
+                    return Ok(());
+                }
+                // Changed since the last sync is not damage: only same size and same date with
+                // other content is. Both sides are listed for just the differing files.
+                let mut silent = Vec::new();
+                if !differing.is_empty() {
+                    let source = listing(&plan.program, config, &plan.source, &differing).await?;
+                    let target = listing(&plan.program, config, &plan.target, &differing).await?;
+                    for path in &differing {
+                        let same_look = match (source.get(path), target.get(path)) {
+                            (Some((a_size, a_time)), Some((b_size, b_time))) => a_size == b_size && (*a_time - *b_time).num_seconds().abs() <= 1,
+                            _ => false,
+                        };
+                        if same_look {
+                            silent.push(path.clone());
+                        }
+                    }
+                }
+                for path in &silent {
+                    log.write_all(format!("{DIFFERS}{path}\n").as_bytes()).await?;
+                }
+                run.files_conflicted = silent.len() as i64;
+                run.files_changed = (differing.len() - silent.len()) as i64;
+                run.files_new = missing;
+                run.status = if !silent.is_empty() || errors > 0 { RunStatus::Partial } else { RunStatus::Succeeded };
+                run.message = if !silent.is_empty() {
+                    Some(format!("{} file(s) differ in content although size and date match", silent.len()))
+                } else if errors > 0 {
+                    Some(format!("{errors} file(s) could not be checked"))
+                } else {
+                    None
+                };
+            }
+        }
+        Ok(())
+    }
+
+    /// Repairs a two-way job: for every file the last integrity check found, the target's
+    /// version is copied to "<name>.target-<time>.<ext>" and the source's version copied
+    /// over the original. Copy, never move: whatever fails in between, the file is never
+    /// missing (a missing file would make the next sync delete it on the other side too).
+    /// The next sync brings the kept version to the source as well, so both sides show both.
+    async fn repair_two_way(&self, job: &Job, plan: &Plan, run: &mut Run, log: &mut BufWriter<tokio::fs::File>) -> Result<()> {
+        let Tool::Bisync { config } = &plan.tool else { unreachable!("two-way jobs use bisync") };
+        let paths = self.damaged_paths(&job.id, &run.id)?;
+        let stamp = archive_stamp(run.started_at);
+        let join = |base: &str, path: &str| {
+            let base = base.trim_end_matches('/');
+            if base.ends_with(':') { format!("{base}{path}") } else { format!("{base}/{path}") }
+        };
+        let mut repaired = 0_i64;
+        for path in &paths {
+            let kept = kept_name(path, "target", &stamp);
+            for (verb, from, to) in [("copyto", join(&plan.target, path), join(&plan.target, &kept)), ("copyto", join(&plan.source, path), join(&plan.target, path))] {
+                // --ignore-times: the damaged copy has the same size and date, which copyto would skip.
+                let output = Command::new(&plan.program)
+                    .arg(verb)
+                    .arg(&from)
+                    .arg(&to)
+                    .arg("--ignore-times")
+                    .arg("--config")
+                    .arg(config)
+                    .env("LC_ALL", "C")
+                    .stdin(Stdio::null())
+                    .kill_on_drop(true)
+                    .output()
+                    .await?;
+                if !output.status.success() {
+                    let reason = String::from_utf8_lossy(&output.stderr).lines().last().unwrap_or_default().trim().to_string();
+                    log.write_all(format!("! could not repair {path}: {reason}\n").as_bytes()).await?;
+                    run.status = RunStatus::Failed;
+                    run.files_changed = repaired;
+                    run.message = Some(format!("could not repair {path}: {reason}"));
+                    return Ok(());
+                }
+            }
+            log.write_all(format!("> repaired: {path} (the target's version is kept as {kept})\n").as_bytes()).await?;
+            repaired += 1;
+        }
+        run.files_changed = repaired;
+        run.status = RunStatus::Succeeded;
+        Ok(())
+    }
+
+    /// The files the job's last integrity check found damaged, from its log. A sync since then
+    /// may have changed them, so the list is only used while it is the newest word on the job.
+    fn damaged_paths(&self, job_id: &str, this_run: &str) -> Result<Vec<String>> {
+        let Some(log) = self.history.last_verify_log(job_id)? else { return Ok(Vec::new()) };
+        if let Some(checked) = self.history.last_verify(job_id)?
+            && self.history.ran_since(job_id, checked, this_run)?
+        {
+            return Err(Error::Job("the job ran since the last integrity check; run the check again before repairing".into()));
+        }
+        let text = std::fs::read_to_string(log).unwrap_or_default();
+        // The path is exactly what follows the mark, spaces at either end included.
+        Ok(text.lines().filter_map(|line| line.strip_prefix(DIFFERS)).filter(|path| !path.is_empty()).map(str::to_string).collect())
+    }
+
+    /// Repairs a one-way cloud job: only the damaged files are uploaded again, compared by
+    /// nothing (--ignore-times), and the replaced versions go to the archive. A run with
+    /// --checksum would not do: encrypted and many cloud files have no hash to compare.
+    async fn repair_rclone(&self, job: &Job, plan: &Plan, run: &mut Run, log: &mut BufWriter<tokio::fs::File>) -> Result<()> {
+        let Tool::Rclone { config } = &plan.tool else { unreachable!("one-way cloud jobs use rclone") };
+        let paths = self.damaged_paths(&job.id, &run.id)?;
+        if paths.is_empty() {
+            run.status = RunStatus::Succeeded;
+            return Ok(());
+        }
+        let list = self.log_dir.join(format!("{}.repair", run.id));
+        tokio::fs::write(&list, paths.join("\n")).await?;
+        let output = Command::new(&plan.program)
+            .arg("copy")
+            .arg(&plan.source)
+            .arg(&plan.target)
+            .arg("--config")
+            .arg(config)
+            .arg("--files-from-raw")
+            .arg(&list)
+            .arg("--ignore-times")
+            .args(plan.archive_args(&archive_stamp(run.started_at)))
+            .env("LC_ALL", "C")
+            .stdin(Stdio::null())
+            .kill_on_drop(true)
+            .output()
+            .await;
+        let _ = tokio::fs::remove_file(&list).await;
+        let output = output?;
+        run.exit_code = output.status.code();
+        if !output.status.success() {
+            run.status = RunStatus::Failed;
+            run.message = Some(String::from_utf8_lossy(&output.stderr).lines().last().unwrap_or("rclone copy failed").trim().to_string());
+            return Ok(());
+        }
+        mark_kept(plan, &archive_stamp(run.started_at)).await;
+        for path in &paths {
+            log.write_all(format!("> repaired: {path} (the replaced version is in the archive)\n").as_bytes()).await?;
+        }
+        run.files_changed = paths.len() as i64;
+        run.status = RunStatus::Succeeded;
+        Ok(())
+    }
+
+    /// Lists the snapshots, removes unfinished ones (not in a dry run), and plans this run into a
+    /// new folder named after its start, hard-linked against the newest complete snapshot.
+    async fn prepare_snapshot(&self, plan: &Plan, run: &Run, options: RunOptions, log: &mut BufWriter<tokio::fs::File>) -> Result<Snapshot> {
+        let stamp = archive_stamp(run.started_at);
+        let base = format!("{}/", plan.target.trim_end_matches('/'));
+        let (complete, incomplete) = match &plan.target_path {
+            Some(path) => versions::list_local(path),
+            None => versions::list_remote(&plan.program, &plan.rsh(), &base).await?,
+        };
+        if !options.dry_run && !incomplete.is_empty() {
+            log.write_all(format!("# versions: removing {} unfinished snapshot(s)\n", incomplete.len()).as_bytes()).await?;
+            // A leftover that cannot be removed must never stop new snapshots; it is tried again next time.
+            if let Err(error) = delete_snapshots(plan, &incomplete).await {
+                log.write_all(format!("! versions: could not remove an unfinished snapshot: {error}\n").as_bytes()).await?;
+            }
+        }
+        let previous = complete.last().cloned();
+        let mut snapshot = plan.clone();
+        // A marker in the source (a copied snapshot, say) must never mark this one complete.
+        snapshot.base_args.push(format!("--exclude=/{}*", versions::MARKER));
+        snapshot.target = format!("{base}{stamp}");
+        snapshot.target_path = plan.target_path.as_ref().map(|path| path.join(&stamp));
+        if let Some(previous) = &previous {
+            // Relative to the new folder, which is how rsync reads a relative --link-dest.
+            snapshot.base_args.push(format!("--link-dest=../{previous}"));
+        }
+        log.write_all(format!("# versions: snapshot {stamp}, linked to {}\n", previous.as_deref().unwrap_or("nothing (first snapshot)")).as_bytes()).await?;
+        Ok(Snapshot { plan: snapshot, stamp, complete })
+    }
+
+    /// Marks the new snapshot complete (and partial when some files were missed), then thins
+    /// out older ones. Thinning trouble never turns a good snapshot into a failed run.
+    async fn finish_snapshot(&self, base: &Plan, snapshot: &Snapshot, partial: bool, log: &mut BufWriter<tokio::fs::File>) -> Result<()> {
+        // The partial marker goes first: a snapshot is never complete-looking without it.
+        let markers: &[&str] = if partial { &[versions::PARTIAL, versions::MARKER] } else { &[versions::MARKER] };
+        for name in markers {
+            match &snapshot.plan.target_path {
+                Some(path) => std::fs::write(path.join(name), &snapshot.stamp)?,
+                None => {
+                    let marker = std::env::temp_dir().join(format!("clonq-marker-{}", uuid::Uuid::new_v4()));
+                    std::fs::write(&marker, &snapshot.stamp)?;
+                    let output = Command::new(&base.program)
+                        .env("LC_ALL", "C")
+                        .args(base.rsh())
+                        .arg("--secluded-args")
+                        .arg(&marker)
+                        .arg(format!("{}/{name}", snapshot.plan.target))
+                        .output()
+                        .await;
+                    let _ = std::fs::remove_file(&marker);
+                    let output = output?;
+                    if !output.status.success() {
+                        return Err(Error::Job(crate::ssh::explain(&String::from_utf8_lossy(&output.stderr))));
+                    }
+                }
+            }
+        }
+        let partials = match &base.target_path {
+            Some(path) => versions::partial_local(path),
+            None => match versions::partial_remote(&base.program, &base.rsh(), &format!("{}/", base.target.trim_end_matches('/'))).await {
+                Ok(partials) => partials,
+                Err(error) => {
+                    // Without knowing which snapshots are partial, thinning could pick the wrong ones.
+                    log.write_all(format!("! versions: thinning skipped, the snapshots could not be listed: {error}\n").as_bytes()).await?;
+                    return Ok(());
+                }
+            },
+        };
+        let mut all = snapshot.complete.clone();
+        all.push(snapshot.stamp.clone());
+        let kept = versions::keep_with_partial(&all, &partials, versions::now());
+        let old: Vec<String> = all.into_iter().filter(|stamp| !kept.contains(stamp)).collect();
+        if !old.is_empty() {
+            log.write_all(format!("# versions: thinning out {} older snapshot(s)\n", old.len()).as_bytes()).await?;
+            if let Err(error) = delete_snapshots(base, &old).await {
+                log.write_all(format!("! versions: could not remove an old snapshot, trying again next time: {error}\n").as_bytes()).await?;
+            }
+        }
+        Ok(())
     }
 
     /// Removes archive folders older than `keep_days`; failures only end up in the log.
@@ -831,6 +1291,7 @@ impl Engine {
 
 /// Everything rsync needs for one job, resolved from the config.
 /// Which program moves the data.
+#[derive(Clone)]
 enum Tool {
     Rsync,
     Rclone { config: PathBuf },
@@ -846,6 +1307,7 @@ impl Tool {
 
 }
 
+#[derive(Clone)]
 struct Plan {
     tool: Tool,
     program: String,
@@ -876,6 +1338,10 @@ impl Plan {
         if job.mode == Mode::Bidirectional {
             return Self::bisync(job, &config.rclone_path, rclone_config, source, target);
         }
+        // Snapshots need hard links, which only rsync into a folder, a drive or a server makes.
+        if job.mode == Mode::Versioned && (!matches!(source, Resolved::Local(_)) || matches!(target, Resolved::Cloud { .. })) {
+            return Err(Error::Job("versioned backups need a source on this Mac and a folder, drive or server as the target".into()));
+        }
         // rsync pushes from this Mac to a disk or a server; everything else goes through rclone:
         // clouds on either side, and a server as the source (rclone reads it over SFTP).
         let uses_cloud = matches!(source, Resolved::Cloud { .. }) || matches!(target, Resolved::Cloud { .. });
@@ -886,14 +1352,18 @@ impl Plan {
             return Self::rclone(job, &config.rclone_path, rclone_config, source, target);
         }
         let mut args: Vec<String> = match target {
-            Resolved::Local(_) => ["--archive", "--hard-links", "--acls", "--xattrs", "--crtimes", "--mkpath"]
+            // com.apple.provenance is macOS's own bookkeeping, not the user's data, and it
+            // cannot be set on a read-only folder: copying it made such runs end "partial".
+            Resolved::Local(_) => ["--archive", "--hard-links", "--acls", "--xattrs", "--filter=-x com.apple.provenance", "--crtimes", "--mkpath"]
                 .map(String::from)
                 .to_vec(),
             // A server keeps its own owners and cannot take macOS metadata.
             Resolved::Remote { ssh, .. } => {
                 // --timeout ends a transfer that has stalled for five minutes.
+                // Du+w: a read-only folder copied as it is could never be deleted on the server
+                // (thinning, archive, mirror deletions); the owner keeps write access to folders.
                 let mut remote: Vec<String> =
-                    ["--archive", "--hard-links", "--no-owner", "--no-group", "--mkpath", "--secluded-args", "--timeout=300"]
+                    ["--archive", "--hard-links", "--no-owner", "--no-group", "--chmod=Du+w", "--mkpath", "--secluded-args", "--timeout=300"]
                         .map(String::from)
                         .to_vec();
                 remote.push(format!("--rsh={}", shell_join(ssh)));
@@ -1071,6 +1541,11 @@ impl Plan {
 
     /// A local target folder may be missing, but its parent and its volume must
     /// exist, or rsync would create the path on the system disk.
+    /// The `--rsh=` argument for a server target, empty for everything else.
+    fn rsh(&self) -> Vec<String> {
+        self.base_args.iter().filter(|arg| arg.starts_with("--rsh=")).cloned().collect()
+    }
+
     fn check_target(&self) -> Result<()> {
         let Some(path) = &self.target_path else { return Ok(()) };
         let parent = path
@@ -1083,13 +1558,91 @@ impl Plan {
     }
 }
 
+/// A snapshot being written: the plan into its folder, its name, the complete ones before it.
+struct Snapshot {
+    plan: Plan,
+    stamp: String,
+    complete: Vec<String>,
+}
+
+/// Deletes snapshot folders from the target. Only names that are snapshot stamps are touched.
+async fn delete_snapshots(plan: &Plan, names: &[String]) -> Result<()> {
+    let names: Vec<&String> = names.iter().filter(|name| crate::archive::is_stamp(name)).collect();
+    if names.is_empty() {
+        return Ok(());
+    }
+    if let Some(target) = &plan.target_path {
+        for name in names {
+            remove_tree(&target.join(name))?;
+        }
+        return Ok(());
+    }
+    // A server: an empty folder synced over the target with a filter that matches only these
+    // folders deletes exactly them, without a shell on the server.
+    let empty = std::env::temp_dir().join(format!("clonq-empty-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&empty)?;
+    let mut command = Command::new(&plan.program);
+    command.env("LC_ALL", "C").args(plan.rsh()).args(["-r", "--delete", "--secluded-args"]);
+    for name in &names {
+        command.arg(format!("--include=/{name}/***"));
+    }
+    command.arg("--exclude=*").arg(format!("{}/", empty.display())).arg(format!("{}/", plan.target.trim_end_matches('/')));
+    let output = command.output().await;
+    let _ = std::fs::remove_dir_all(&empty);
+    let output = output?;
+    if !output.status.success() {
+        return Err(Error::Job(crate::ssh::explain(&String::from_utf8_lossy(&output.stderr))));
+    }
+    Ok(())
+}
+
+/// Marks the archive folder of a repair so the archive's cleanup never removes it. Where the
+/// repair replaced nothing there is no folder, and the marker is simply not written.
+async fn mark_kept(plan: &Plan, stamp: &str) {
+    let folder = format!("{}/{ARCHIVE_DIR}/{stamp}", plan.target.trim_end_matches('/'));
+    let marker = std::env::temp_dir().join(format!("clonq-keep-{}", uuid::Uuid::new_v4()));
+    if std::fs::write(&marker, stamp).is_err() {
+        return;
+    }
+    match (&plan.tool, &plan.target_path) {
+        (Tool::Rsync, Some(target)) => {
+            let dir = target.join(ARCHIVE_DIR).join(stamp);
+            if dir.is_dir() {
+                let _ = std::fs::write(dir.join(KEEP), stamp);
+            }
+        }
+        (Tool::Rsync, None) => {
+            let _ = Command::new(&plan.program).env("LC_ALL", "C").args(plan.rsh()).arg("--secluded-args").arg(&marker).arg(format!("{folder}/{KEEP}")).output().await;
+        }
+        (Tool::Rclone { config } | Tool::Bisync { config }, _) => {
+            let _ = Command::new(&plan.program).arg("copyto").arg(&marker).arg(format!("{folder}/{KEEP}")).arg("--config").arg(config).output().await;
+        }
+    }
+    let _ = std::fs::remove_file(&marker);
+}
+
+/// Removes a folder clonq made (a snapshot, an archive folder) with everything in it. rsync
+/// copies what protects the originals: the "everyone deny delete" ACL macOS puts on
+/// Documents and Desktop, read-only folders, locked files. Those are lifted inside this
+/// folder only, then it is removed.
+fn remove_tree(path: &Path) -> Result<()> {
+    if std::fs::remove_dir_all(path).is_ok() || !path.exists() {
+        return Ok(());
+    }
+    let _ = std::process::Command::new("/bin/chmod").arg("-R").arg("-N").arg(path).output();
+    let _ = std::process::Command::new("/usr/bin/chflags").arg("-R").arg("nouchg,noschg").arg(path).output();
+    let _ = std::process::Command::new("/bin/chmod").arg("-R").arg("u+w").arg(path).output();
+    std::fs::remove_dir_all(path)?;
+    Ok(())
+}
+
 fn prune_local(archive: &Path, cutoff: &str) -> Result<usize> {
     let Ok(entries) = std::fs::read_dir(archive) else { return Ok(0) };
     let mut removed = 0;
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        if entry.path().is_dir() && is_stamp(&name) && name.as_str() < cutoff {
-            std::fs::remove_dir_all(entry.path())?;
+        if entry.path().is_dir() && is_stamp(&name) && name.as_str() < cutoff && !entry.path().join(KEEP).exists() {
+            remove_tree(&entry.path())?;
             removed += 1;
         }
     }
@@ -1098,8 +1651,14 @@ fn prune_local(archive: &Path, cutoff: &str) -> Result<usize> {
 
 async fn prune_rclone(program: &str, config: &Path, archive: &str, cutoff: &str) -> Result<usize> {
     let listed = cloud::list_dirs(program, config, archive).await.unwrap_or_default();
+    // Folders a repair marked stay; without knowing which those are, nothing is removed.
+    let Ok(marked) = Command::new(program).args(["lsf", "-R", "--files-only", "--include", &format!("/*/{KEEP}"), archive, "--config"]).arg(config).output().await else { return Ok(0) };
+    if !marked.status.success() && !listed.is_empty() {
+        return Ok(0);
+    }
+    let kept: Vec<String> = String::from_utf8_lossy(&marked.stdout).lines().filter_map(|line| line.strip_suffix(&format!("/{KEEP}"))).map(str::to_string).collect();
     let mut removed = 0;
-    for name in listed.into_iter().filter(|name| is_stamp(name) && name.as_str() < cutoff) {
+    for name in listed.into_iter().filter(|name| is_stamp(name) && name.as_str() < cutoff && !kept.contains(name)) {
         let output = Command::new(program).args(["purge", &format!("{archive}/{name}"), "--config"]).arg(config).output().await?;
         if output.status.success() {
             removed += 1;
@@ -1113,15 +1672,23 @@ async fn prune_ssh(plan: &Plan, cutoff: &str) -> Result<usize> {
     // syncs an empty folder over it with a filter that only matches old stamps.
     let archive = format!("{}/{ARCHIVE_DIR}/", plan.target.trim_end_matches('/'));
     let rsh: Vec<String> = plan.base_args.iter().filter(|arg| arg.starts_with("--rsh=")).cloned().collect();
-    let listing = Command::new(&plan.program).env("LC_ALL", "C").args(&rsh).arg("--list-only").arg(&archive).output().await?;
+    let listing = Command::new(&plan.program)
+        .env("LC_ALL", "C")
+        .args(&rsh)
+        .args(["--list-only", "--secluded-args", "-r", "--include=/*/", &format!("--include=/*/{KEEP}"), "--exclude=*"])
+        .arg(&archive)
+        .output()
+        .await?;
     if !listing.status.success() {
         return Ok(0);
     }
-    let old: Vec<String> = String::from_utf8_lossy(&listing.stdout)
-        .lines()
-        .filter_map(|line| line.split_whitespace().last())
-        .filter(|name| is_stamp(name) && *name < cutoff)
-        .map(str::to_string)
+    let text = String::from_utf8_lossy(&listing.stdout);
+    let names: Vec<&str> = text.lines().filter_map(|line| line.split_whitespace().last()).collect();
+    let kept: Vec<&str> = names.iter().filter_map(|name| name.strip_suffix(&format!("/{KEEP}"))).collect();
+    let old: Vec<String> = names
+        .iter()
+        .filter(|name| is_stamp(name) && **name < cutoff && !kept.contains(name))
+        .map(|name| name.to_string())
         .collect();
     if old.is_empty() {
         return Ok(0);
@@ -1129,7 +1696,7 @@ async fn prune_ssh(plan: &Plan, cutoff: &str) -> Result<usize> {
     let empty = std::env::temp_dir().join(format!("clonq-empty-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&empty)?;
     let mut command = Command::new(&plan.program);
-    command.env("LC_ALL", "C").args(&rsh).args(["-r", "--delete"]);
+    command.env("LC_ALL", "C").args(&rsh).args(["-r", "--delete", "--secluded-args"]);
     for name in &old {
         command.arg(format!("--include=/{name}/***"));
     }
@@ -1158,12 +1725,12 @@ pub(crate) fn shell_join(parts: &[String]) -> String {
     parts
         .iter()
         .map(|part| {
+            // rsync splits --rsh itself: single quotes keep spaces, and a doubled single quote
+            // inside them is one quote (rsync(1), --rsh). No shell and no backslashes involved.
             if part.chars().all(|c| c.is_ascii_alphanumeric() || "-_=./:@".contains(c)) {
                 part.clone()
-            } else if part.contains('\'') {
-                format!("\"{part}\"")
             } else {
-                format!("'{part}'")
+                format!("'{}'", part.replace('\'', "''"))
             }
         })
         .collect::<Vec<_>>()
@@ -1208,6 +1775,8 @@ struct RsyncResult {
     delete_limit_hit: bool,
     /// Two-way sync: files changed on both sides.
     conflicts: i64,
+    /// Changed paths, when asked for (integrity check).
+    paths: Vec<(Change, String)>,
 }
 
 /// What a finished run stores beside its row.
@@ -1230,6 +1799,49 @@ fn signal_group(group: Option<i32>, signal: i32) {
 /// Archive folder names sort by time: `2026-09-23_14-05-09`.
 /// Milliseconds are part of the name: two runs in the same second must never share a folder,
 /// or the second would overwrite what the first kept.
+/// Size and modification time of some files under a remote path, keyed by relative path.
+async fn listing(program: &str, config: &Path, spec: &str, paths: &[String]) -> Result<HashMap<String, (i64, chrono::DateTime<Utc>)>> {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    struct Entry {
+        path: String,
+        size: i64,
+        mod_time: chrono::DateTime<Utc>,
+    }
+    let list = std::env::temp_dir().join(format!("clonq-files-{}", uuid::Uuid::new_v4()));
+    tokio::fs::write(&list, paths.join("\n")).await?;
+    let output = Command::new(program)
+        .args(["lsjson", "-R", "--files-only", "--no-mimetype", "--files-from-raw"])
+        .arg(&list)
+        .arg(spec)
+        .arg("--config")
+        .arg(config)
+        .env("LC_ALL", "C")
+        .output()
+        .await;
+    let _ = tokio::fs::remove_file(&list).await;
+    let output = output?;
+    let entries: Vec<Entry> = serde_json::from_slice(&output.stdout).unwrap_or_default();
+    Ok(entries.into_iter().map(|entry| (entry.path, (entry.size, entry.mod_time))).collect())
+}
+
+/// In an archive folder: the versions a repair replaced, never removed by the archive's cleanup
+/// (if the source was the damaged side, they are the only intact ones).
+pub const KEEP: &str = ".clonq-keep";
+
+/// How the integrity check marks a damaged file in its log; a repair reads it back.
+const DIFFERS: &str = "! content differs: ";
+
+/// "report.pdf" → "report.target-<stamp>.pdf": a kept version beside the file, still openable.
+fn kept_name(path: &str, side: &str, stamp: &str) -> String {
+    let (dir, name) = path.rsplit_once('/').map_or(("", path), |(dir, name)| (dir, name));
+    let kept = match name.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() => format!("{stem}.{side}-{stamp}.{ext}"),
+        _ => format!("{name}.{side}-{stamp}"),
+    };
+    if dir.is_empty() { kept } else { format!("{dir}/{kept}") }
+}
+
 pub fn archive_stamp(at: chrono::DateTime<Utc>) -> String {
     at.with_timezone(&chrono::Local).format("%Y-%m-%d_%H-%M-%S-%3f").to_string()
 }
@@ -1422,6 +2034,7 @@ mod tests {
                 triggers: Triggers::default(),
                 archive: crate::config::Archive::default(),
                 conflicts: crate::config::Conflicts::default(),
+                encrypted: false,
             });
             config
         }
@@ -1671,7 +2284,7 @@ mod tests {
         let blocked = f.run(&config, RunOptions::default()).await;
         assert_eq!(blocked.status, RunStatus::Blocked, "{:?}", blocked.message);
         assert_eq!(Fixture::count_files(&f.dst()), 40);
-        let forced = f.run(&config, RunOptions { dry_run: false, force: true }).await;
+        let forced = f.run(&config, RunOptions { force: true, ..Default::default() }).await;
         assert_eq!(forced.status, RunStatus::Succeeded, "{:?}", forced.message);
         assert_eq!(Fixture::count_files(&f.dst()), 10);
     }
@@ -1711,7 +2324,7 @@ mod tests {
             assert_eq!(again.status, RunStatus::Blocked, "{:?}", again.message);
             assert_eq!(Fixture::count_files(&f.dst()), left, "a stopped job must not delete another batch");
         }
-        let forced = f.run(&config, RunOptions { dry_run: false, force: true }).await;
+        let forced = f.run(&config, RunOptions { force: true, ..Default::default() }).await;
         assert_eq!(forced.status, RunStatus::Succeeded);
         assert_eq!(Fixture::count_files(&f.dst()), 5);
     }
@@ -1775,7 +2388,7 @@ mod tests {
         let f = Fixture::new();
         f.write("src/a.txt", "a");
         f.write("dst/stale.txt", "old");
-        let run = f.run(&f.config(Mode::Mirror, "dst"), RunOptions { dry_run: true, force: false }).await;
+        let run = f.run(&f.config(Mode::Mirror, "dst"), RunOptions { dry_run: true, ..Default::default() }).await;
         assert_eq!(run.status, RunStatus::Succeeded, "{:?}", run.message);
         assert!(run.dry_run);
         assert_eq!(run.files_transferred, 1);
@@ -1815,7 +2428,7 @@ mod tests {
         assert_eq!(run.status, RunStatus::Blocked, "{:?}", run.message);
         assert_eq!(Fixture::count_files(&f.dst()), 30, "nothing may change while blocked");
 
-        let forced = f.run(&config, RunOptions { dry_run: false, force: true }).await;
+        let forced = f.run(&config, RunOptions { force: true, ..Default::default() }).await;
         assert_eq!(forced.status, RunStatus::Succeeded, "{:?}", forced.message);
         assert_eq!(Fixture::count_files(&f.dst()), 1);
     }
@@ -1881,6 +2494,57 @@ mod tests {
 #[cfg(test)]
 mod plan_tests {
     use super::*;
+
+    /// The server path of delete_snapshots (rsync syncing an empty folder with a filter) run
+    /// against a local folder: it must remove exactly the named snapshots and nothing else.
+    #[tokio::test]
+    async fn deleting_snapshots_on_a_server_removes_only_those_folders() {
+        let root = std::env::temp_dir().join(format!("clonq-delete-{}", uuid::Uuid::new_v4()));
+        for dir in ["2026-01-01_10-00-00-000", "2026-01-02_10-00-00-000", "2026-01-03_10-00-00-000", "Photos"] {
+            std::fs::create_dir_all(root.join(dir).join("inner")).unwrap();
+            std::fs::write(root.join(dir).join("inner/f.txt"), dir).unwrap();
+        }
+        std::fs::write(root.join("notes.txt"), "user file").unwrap();
+        let rsync = format!("{}/binaries/rsync-aarch64-apple-darwin", env!("CARGO_MANIFEST_DIR"));
+        let plan = Plan {
+            tool: Tool::Rsync,
+            program: rsync,
+            base_args: vec![],
+            source: String::new(),
+            target: root.to_string_lossy().into_owned(),
+            source_path: None,
+            target_path: None,
+        };
+        // "Photos" is no snapshot name and must be ignored even if asked for.
+        let names = vec!["2026-01-01_10-00-00-000".to_string(), "2026-01-02_10-00-00-000".to_string(), "Photos".to_string()];
+        delete_snapshots(&plan, &names).await.unwrap();
+        assert!(!root.join("2026-01-01_10-00-00-000").exists());
+        assert!(!root.join("2026-01-02_10-00-00-000").exists());
+        assert!(root.join("2026-01-03_10-00-00-000/inner/f.txt").exists(), "a snapshot not named must stay");
+        assert!(root.join("Photos/inner/f.txt").exists(), "a user folder must stay");
+        assert_eq!(std::fs::read_to_string(root.join("notes.txt")).unwrap(), "user file");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn rsh_survives_apostrophes_and_quotes_in_paths() {
+        // A fake ssh in a folder named like "Sam's Mac" records the arguments rsync hands it.
+        let dir = std::env::temp_dir().join(format!("clonq rsh {} Sam's \"Mac\"", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("fake ssh");
+        let record = dir.join("args");
+        std::fs::write(&fake, format!("#!/bin/sh\nfor a in \"$@\"; do printf '%s\\n' \"$a\"; done > '{}'\nexit 1\n", record.display().to_string().replace('\'', "'\\''"))).unwrap();
+        std::fs::set_permissions(&fake, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        let key = dir.join("key file").to_string_lossy().into_owned();
+        let known = format!("UserKnownHostsFile=\"{}\"", dir.join("known_hosts").display());
+        let rsh = shell_join(&[fake.to_string_lossy().into_owned(), "-i".into(), key.clone(), "-o".into(), known.clone()]);
+        let rsync = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries/rsync-aarch64-apple-darwin");
+        let _ = std::process::Command::new(rsync).arg(format!("--rsh={rsh}")).args(["--list-only", "host:x/"]).output().unwrap();
+        let args = std::fs::read_to_string(&record).unwrap();
+        let args: Vec<&str> = args.lines().collect();
+        assert_eq!(&args[..4], &["-i", key.as_str(), "-o", known.as_str()], "{args:?}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn rsh_quotes_paths_with_spaces() {

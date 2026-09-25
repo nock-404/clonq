@@ -2,6 +2,7 @@
 // catalog at call time, because the language can change while the app runs.
 
 import { locale, texts } from "../i18n";
+import { formatDate } from "./format";
 import type { Config, Location, Mode, Place, Reach, RunStatus } from "./types";
 
 export function statusLabel(status: RunStatus): string {
@@ -107,6 +108,36 @@ export function messageLabel(message: string): string {
     [/^a name is required$/, () => t.nameRequired],
     [/^login refused: wrong user, password or key$/, () => t.loginRefused],
     [/^host name not found$/, () => t.hostNotFound],
+    [/^this is not a clonq licence key$/, () => t.notLicenceKey],
+    [/^this licence key is not genuine$/, () => t.licenceNotGenuine],
+    [/^this licence key is for another product or version$/, () => t.licenceOtherProduct],
+    [/^versioned backups are part of clonq Pro: enter a licence in Settings$/, () => t.proNeeded],
+    [/^your clonq Pro licence covers versions released until (\S+); this version is newer$/, (m) => t.licenceNotCovering(formatDate(m[1] ?? ""))],
+    [/^this clonq Pro licence has been withdrawn$/, () => t.licenceWithdrawn],
+    [/^the integrity check is part of clonq Pro: enter a licence in Settings$/, () => t.checkNeedsPro],
+    [/^(\d+) file\(s\) differ in content (?:although size and date match|between source and target)$/, (m) => t.contentDiffers(Number(m[1]))],
+    [/^there is no snapshot to check yet$/, () => t.noSnapshotToCheck],
+    [/^the key for this server is missing; start again$/, () => t.serverKeyMissing],
+    [/^no parent folder$/, () => t.noParentFolder],
+    [/^the job ran since the last integrity check; run the check again before repairing$/, () => t.repairStale],
+    [/^source and target share no checksum, so the content cannot be compared without downloading it$/, () => t.noCommonHash],
+    [/^(\d+) file\(s\) could not be checked$/, (m) => t.notChecked(Number(m[1]))],
+    [/^some files could not be read and were not checked; the log names them$/, () => t.unreadNotChecked],
+    [/^the target folder overlaps with the job (.+); a versioned job needs a folder of its own$/, (m) => t.versionedOverlap(m[1] ?? "")],
+    [/^versioned backups need an empty target folder; choose a new one$/, () => t.versionedNeedsEmpty],
+    [/^this folder holds the snapshots; choose another folder for the new mode$/, () => t.snapshotsFolderInUse],
+    [/^the encryption password of this job is missing on this Mac; without it the copy cannot be read, so clonq does not make a new one$/, () => t.encryptionPasswordMissing],
+    [/^the rclone configuration could not be read$/, () => t.rcloneConfigUnreadable],
+    [/^the encryption password could not be read$/, () => t.encryptionPasswordUnreadable],
+    [/^versioned backups need a folder, drive or server as the target$/, () => t.versionedNeedsFolder],
+    [/^encrypted cloud copies are part of clonq Pro: enter a licence in Settings$/, () => t.encryptionPro],
+    [/^encryption needs a cloud as the target$/, () => t.encryptionNeedsCloud],
+    [/^encryption needs an empty target folder; choose a new one$/, () => t.encryptionNeedsEmpty],
+    [/^this folder holds the encrypted copy; choose an empty folder for a copy without encryption$/, () => t.encryptedFolderInUse],
+    [/^could not repair (.+?): (.*)$/, (m) => t.couldNotRepair(m[1] ?? "", m[2] ?? "")],
+    [/^versioned backups need a source on this Mac and a folder, drive or server as the target$/, () => t.versionedNeedsLocalAndFolder],
+    [/^only versioned jobs keep snapshots$/, () => t.onlyVersionedSnapshots],
+    [/^only two-way jobs keep an archive on the source$/, () => t.onlyTwoWaySourceArchive],
     [/^the server refused the connection on this port$/, () => t.portRefused],
     [/^no answer from the server \(timeout\)$/, () => t.serverTimeout],
     [/^still used by (.+)$/, (m) => t.stillUsedBy(m[1] ?? "")],

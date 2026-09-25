@@ -1,0 +1,7 @@
+{
+  "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAFpaVQjaBV27Wc3wFqaU4iZUSNmAUMh7TTS8iFasWMtk=\n-----END PUBLIC KEY-----\n",
+  "active": "CLONQ1-eyJ2IjoxLCJpZCI6ImxpY19pbnRlcm9wX2FjdGl2ZSIsImVtYWlsIjoia8OkdWZlckBleGFtcGxlLm9yZyIsInBsYW4iOiJwcm8iLCJpc3N1ZWQiOiIyMDI2LTA5LTI1IiwidXBkYXRlc1VudGlsIjoiMjAyNy0wOS0yNSJ9.6rV9BCj2w9RD57Mm6Dd66mfjLek-5fDHTIaFe1M6oR85nxOaHMb7fh7LqXz_ZMSBfgqysdd7iESlWl1gbCKnDw",
+  "forever": "CLONQ1-eyJ2IjoxLCJpZCI6ImxpY19pbnRlcm9wX2ZvcmV2ZXIiLCJlbWFpbCI6ImFAZXhhbXBsZS5vcmciLCJwbGFuIjoicHJvIiwiaXNzdWVkIjoiMjAyNi0wOS0yNSIsInVwZGF0ZXNVbnRpbCI6bnVsbH0.9gBWgL0YY64yAYDvxTqg0o76LcAJaCq31b2_Fg7gnhpxW8s32FOw8wk7kX6cZDmBnW-KNEPwipNFzzPvRyKMCQ",
+  "revokedKey": "CLONQ1-eyJ2IjoxLCJpZCI6ImxpY19pbnRlcm9wX3Jldm9rZWQiLCJlbWFpbCI6ImJAZXhhbXBsZS5vcmciLCJwbGFuIjoicHJvIiwiaXNzdWVkIjoiMjAyNi0wOS0yNSIsInVwZGF0ZXNVbnRpbCI6IjIwMjctMDktMjUifQ.1BoyfhnS2dTZw_8F6jx3Earc_0rr9dbUJ5QWGrzLUodSvwB-yVmHSGu9IV204HuNWiT8E1rEnjbpAhjcMUZJAg",
+  "revocations": "{\"list\":\"eyJ2IjoxLCJhdCI6IjIwMjYtMDktMjVUMTA6MDA6MDAuMDAwWiIsInJldm9rZWQiOlsibGljX2ludGVyb3BfcmV2b2tlZCJdfQ\",\"signature\":\"k4EMmHkI6byTbn46CGjiaZYrBRX0Jd89ku9tt29V0BZ_SmKKM7yAGtGFdgtIjmS72axdWYEZtxxqXB_ohHuaCw\"}"
+}

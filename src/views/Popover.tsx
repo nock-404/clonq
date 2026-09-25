@@ -102,7 +102,7 @@ export function Popover() {
       {state.error ? (
         <div className="px-2 pt-2">
           <UiNotice tone="danger" onDismiss={clearError}>
-            {state.error}
+            {messageLabel(state.error)}
           </UiNotice>
         </div>
       ) : null}

@@ -42,6 +42,32 @@ pub fn overview(state: State<'_, AppState>) -> Result<Overview> {
     stats::overview(&state.history, &job_ids, chrono::Utc::now())
 }
 
+/// The password of an encrypted job, to keep it safe or to decrypt the copy with rclone alone.
+#[tauri::command]
+pub async fn encryption_key(state: State<'_, AppState>, job_id: String) -> Result<Option<String>> {
+    let rclone = state.config.read().expect("config lock").rclone_path.clone();
+    crate::cloud::crypt_password(&rclone, &state.config_dir.join("rclone.conf"), &job_id).await
+}
+
+/// Asked before an update is installed: does the licence cover the new version? `published`
+/// is the update's date as the updater reports it (RFC 3339 or YYYY-MM-DD).
+#[tauri::command]
+pub fn licence_covers_update(state: State<'_, AppState>, published: String) -> crate::licence::UpdateCover {
+    let day = published.get(..10).and_then(|day| chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d").ok());
+    match day {
+        Some(day) => crate::licence::covers_update(&state.config_dir, day),
+        // An update without a date cannot be judged; say nothing rather than guess.
+        None => crate::licence::UpdateCover { covered: true, updates_until: None, renew_url: None },
+    }
+}
+
+/// The last seven days: runs, data and space per target, with the watchdog's verdict.
+#[tauri::command]
+pub async fn weekly_report(state: State<'_, AppState>) -> Result<crate::report::WeeklyReport> {
+    let config = state.config.read().expect("config lock").clone();
+    crate::report::weekly(&state.history, &config, chrono::Utc::now())
+}
+
 #[tauri::command]
 pub fn set_ui_settings(app: AppHandle, state: State<'_, AppState>, settings: UiSettings) -> Result<Config> {
     let config = {
@@ -57,7 +83,26 @@ pub fn set_ui_settings(app: AppHandle, state: State<'_, AppState>, settings: UiS
 #[tauri::command]
 pub fn run_job(state: State<'_, AppState>, job_id: String, dry_run: bool, force: bool) -> Result<String> {
     let config = state.config.read().expect("config lock").clone();
-    state.engine.start(&config, &job_id, "manual", RunOptions { dry_run, force })
+    crate::licence::allows(&state.config_dir, &config, &job_id)?;
+    state.engine.start(&config, &job_id, "manual", RunOptions { dry_run, force, ..Default::default() })
+}
+
+/// Compares source and target by content (Pro); changes nothing on either side.
+#[tauri::command]
+pub fn verify_job(state: State<'_, AppState>, job_id: String) -> Result<String> {
+    let config = state.config.read().expect("config lock").clone();
+    crate::licence::allows_check(&state.config_dir)?;
+    crate::licence::allows(&state.config_dir, &config, &job_id)?;
+    state.engine.start(&config, &job_id, "verify", RunOptions { verify: true, ..Default::default() })
+}
+
+/// Repairs what the last integrity check found (Pro); nothing is lost, see RunOptions::repair.
+#[tauri::command]
+pub fn repair_job(state: State<'_, AppState>, job_id: String) -> Result<String> {
+    let config = state.config.read().expect("config lock").clone();
+    crate::licence::allows_check(&state.config_dir)?;
+    crate::licence::allows(&state.config_dir, &config, &job_id)?;
+    state.engine.start(&config, &job_id, "repair", RunOptions { repair: true, ..Default::default() })
 }
 
 #[tauri::command]
@@ -87,6 +132,31 @@ pub fn open_main_window(app: AppHandle, job_id: Option<String>) -> Result<()> {
 #[tauri::command]
 pub fn quit(app: AppHandle) {
     app.exit(0);
+}
+
+/// What the settings show about clonq Pro.
+#[tauri::command]
+pub fn licence_status(state: State<'_, AppState>) -> crate::licence::Status {
+    crate::licence::Store::new(&state.config_dir).status()
+}
+
+/// Whether Pro features may be used now, decided exactly as the backend decides it.
+#[tauri::command]
+pub fn licence_pro(state: State<'_, AppState>) -> bool {
+    crate::licence::Store::new(&state.config_dir).pro()
+}
+
+/// Checks and saves a pasted licence key.
+#[tauri::command]
+pub fn enter_licence(state: State<'_, AppState>, key: String) -> Result<crate::licence::Status> {
+    crate::licence::Store::new(&state.config_dir).enter(&key).map_err(|error| Error::Job(error.message().into()))
+}
+
+#[tauri::command]
+pub fn remove_licence(state: State<'_, AppState>) -> crate::licence::Status {
+    let store = crate::licence::Store::new(&state.config_dir);
+    store.remove();
+    store.status()
 }
 
 /// File in the app data folder that asks the next start to open the main window.
@@ -137,6 +207,13 @@ pub async fn archive_snapshots(state: State<'_, AppState>, job_id: String, side:
 pub async fn archive_files(state: State<'_, AppState>, job_id: String, side: Option<crate::archive::Side>, stamp: String) -> Result<Vec<crate::archive::ArchivedFile>> {
     let (job, config) = job_and_config(&state, &job_id)?;
     crate::archive::files(&job, &config, &state.config_dir.join("rclone.conf"), side.unwrap_or_default(), &stamp).await
+}
+
+/// The snapshots of a versioned job, newest first.
+#[tauri::command]
+pub async fn version_snapshots(state: State<'_, AppState>, job_id: String) -> Result<Vec<String>> {
+    let (job, config) = job_and_config(&state, &job_id)?;
+    crate::archive::version_list(&job, &config).await
 }
 
 /// Restores a snapshot or one file of it into a new folder in Downloads and returns that folder.

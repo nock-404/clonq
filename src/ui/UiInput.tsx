@@ -10,13 +10,16 @@ interface UiInputProps {
   disabled?: boolean;
   onKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void;
   ref?: Ref<HTMLInputElement>;
+  /** For a field without a visible label of its own. */
+  label?: string;
 }
 
-export function UiInput({ value, onChange, placeholder, type = "text", mono = false, autoFocus = false, disabled = false, onKeyDown, ref }: UiInputProps) {
+export function UiInput({ value, onChange, placeholder, type = "text", mono = false, autoFocus = false, disabled = false, onKeyDown, ref, label }: UiInputProps) {
   return (
     <input
       ref={ref}
       type={type}
+      aria-label={label}
       value={value}
       placeholder={placeholder}
       autoFocus={autoFocus}

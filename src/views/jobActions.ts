@@ -1,4 +1,4 @@
-import { FlaskConical, PanelRight, Play, ShieldAlert, Square } from "lucide-react";
+import { FlaskConical, PanelRight, Play, ShieldAlert, ShieldCheck, Square } from "lucide-react";
 import { texts } from "../i18n";
 import { api } from "../lib/api";
 import { isRunning, jobActions } from "../lib/jobs";
@@ -14,6 +14,7 @@ export function actionsFor(job: Job, live: LiveRun | undefined, latest: Run | un
   const actions: UiAction[] = [
     { id: "run", title: t.detail.actions.syncNow, icon: Play, keys: ["↵"], disabled: running || remote, run: () => void jobActions.run(job.id) },
     { id: "dry", title: t.detail.dryRun, icon: FlaskConical, keys: ["⌘", "↵"], disabled: running || remote, run: () => void jobActions.dryRun(job.id) },
+    { id: "verify", title: t.detail.actions.verify, icon: ShieldCheck, disabled: running || remote, run: () => void jobActions.verify(job.id) },
     { id: "cancel", title: t.common.cancel, icon: Square, keys: ["⌘", "."], tone: "danger", disabled: !running, run: () => void jobActions.cancel(job.id) },
     {
       id: "force",

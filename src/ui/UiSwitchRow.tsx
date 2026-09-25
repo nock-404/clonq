@@ -11,6 +11,8 @@ interface UiSwitchRowProps {
   onChange: (checked: boolean) => void;
   /** Settings that belong to the option, beside the switch, e.g. "after 60 seconds". Dimmed while the option is off. */
   inline?: ReactNode;
+  /** The switch cannot be turned on, e.g. a Pro option without a licence. */
+  disabled?: boolean;
   /** Settings shown below the row while it is on. */
   children?: ReactNode;
 }
@@ -19,7 +21,7 @@ interface UiSwitchRowProps {
  * An option that is on or off, with its own small settings beside or below it.
  * Rows stacked in a list are separated by hairlines.
  */
-export function UiSwitchRow({ title, description, icon: Icon, checked, onChange, inline, children }: UiSwitchRowProps) {
+export function UiSwitchRow({ title, description, icon: Icon, checked, onChange, inline, disabled, children }: UiSwitchRowProps) {
   return (
     <div className="flex flex-col gap-2 px-3 py-0.5 not-last:hairline-b">
       <div className="flex min-h-8 items-center gap-3">
@@ -31,7 +33,7 @@ export function UiSwitchRow({ title, description, icon: Icon, checked, onChange,
         {inline ? (
           <div className={`flex shrink-0 items-center gap-1.5 text-xs transition-opacity ${checked ? "text-ink-soft" : "text-ink-faint opacity-60"}`}>{inline}</div>
         ) : null}
-        <UiSwitch checked={checked} onChange={onChange} label={title} />
+        <UiSwitch checked={checked} onChange={onChange} label={title} disabled={disabled} />
       </div>
       {checked && children ? <div className={Icon ? "pb-1 pl-7" : "pb-1"}>{children}</div> : null}
     </div>

@@ -1,4 +1,4 @@
-import { Archive, ListFilter, ShieldAlert, Zap } from "lucide-react";
+import { Archive, History, ListFilter, Lock, ShieldAlert, Zap } from "lucide-react";
 import { useEffect, useEffectEvent, useId, useState, type KeyboardEvent, type ReactNode } from "react";
 import { texts, useT } from "../../i18n";
 import { modeLabel } from "../../lib/labels";
@@ -30,6 +30,10 @@ import {
 interface ModeStepProps {
   mode: Mode | null;
   onMode: (mode: Mode) => void;
+  /** Why the chosen places can't hold a versioned job, or null; the card is then disabled with this reason. */
+  versionedBlocked: string | null;
+  /** The card is blocked because Versions need clonq Pro, not because of the places. */
+  versionedNeedsPro: boolean;
   excludes: string[];
   onExcludes: (excludes: string[]) => void;
   maxDeletePercent: string;
@@ -38,27 +42,33 @@ interface ModeStepProps {
   onArchive: (archive: ArchiveDraft) => void;
   conflicts: Conflicts;
   onConflicts: (conflicts: Conflicts) => void;
+  /** Shown only with a cloud as the target. */
+  encryption: { cloud: boolean; pro: boolean; on: boolean; onChange: (on: boolean) => void };
   /** Enter in the pattern field with nothing to add: go on, like Enter anywhere else. */
   onSubmit: () => void;
   /** False while something covers the step, e.g. the question whether to discard the draft; 1 to 3 then do nothing. */
   shortcuts: boolean;
 }
 
-type ShownMode = "mirror" | "backup" | "bidirectional";
+type ShownMode = "mirror" | "backup" | "bidirectional" | "versioned";
 
 const SHORTCUTS: { mode: ShownMode; key: string }[] = [
   { mode: "mirror", key: "1" },
   { mode: "backup", key: "2" },
   { mode: "bidirectional", key: "3" },
+  { mode: "versioned", key: "4" },
 ];
 
-/** The three cards; each description fits two lines of a card, so the three cards keep the height of two. */
+/**
+ * The four cards in a 2 × 2 grid, each with its picture, title and description.
+ */
 function modeOptions(): { mode: ShownMode; key: string; description: string; extra: string }[] {
   const t = texts().wizard.mode;
   const words: Record<ShownMode, [string, string]> = {
     mirror: [t.mirror, t.mirrorCaption],
     backup: [t.backup, t.backupCaption],
     bidirectional: [t.bidirectional, t.bidirectionalCaption],
+    versioned: [t.versioned, t.versionedCaption],
   };
   return SHORTCUTS.map((option) => ({ ...option, description: words[option.mode][0], extra: words[option.mode][1] }));
 }
@@ -107,6 +117,8 @@ function excludesSummary(excludes: string[]): string {
 export function ModeStep({
   mode,
   onMode,
+  versionedBlocked,
+  versionedNeedsPro,
   excludes,
   onExcludes,
   maxDeletePercent,
@@ -115,6 +127,7 @@ export function ModeStep({
   onArchive,
   conflicts,
   onConflicts,
+  encryption,
   onSubmit,
   shortcuts,
 }: ModeStepProps) {
@@ -129,18 +142,19 @@ export function ModeStep({
   const ids = useId();
   const percentBad = percentOf(maxDeletePercent) === null;
   const twoWay = mode === "bidirectional";
+  const versioned = mode === "versioned";
   const noWinner = conflicts.prefer === "none";
   const daysProblem = archiveProblem(archive);
   const [beforeFolder, afterFolder] = archivePlace(mode);
 
-  // 1 to 3 pick a mode, as long as no text field or menu has the keys. The arrow keys belong to
+  // 1 to 4 pick a mode, as long as no text field or menu has the keys. The arrow keys belong to
   // the focused control: inside the cards they move between the modes, elsewhere they scroll.
   const onShortcut = useEffectEvent((event: globalThis.KeyboardEvent) => {
     if (!shortcuts || event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
     const target = event.target instanceof Element ? event.target : null;
     if (target?.closest("input, textarea, select")) return;
     const option = SHORTCUTS.find((item) => item.key === event.key);
-    if (option) onMode(option.mode);
+    if (option && !(option.mode === "versioned" && versionedBlocked)) onMode(option.mode);
   });
   useEffect(() => {
     const listener = (event: globalThis.KeyboardEvent) => onShortcut(event);
@@ -166,20 +180,30 @@ export function ModeStep({
 
   return (
     <div className="flex flex-col gap-3">
-      <UiRadioGroup label={m.groupLabel} columns={3}>
-        {options.map((option) => (
-          <UiOptionCard
-            key={option.mode}
-            layout="tall"
-            art={<UiModeDiagram mode={option.mode} active={mode === option.mode} extraLabel={option.extra} />}
-            title={modeLabel(option.mode)}
-            shortcut={option.key}
-            description={option.description}
-            selected={mode === option.mode}
-            onPress={() => onMode(option.mode)}
-          />
-        ))}
-      </UiRadioGroup>
+      <div className="flex flex-col gap-1.5">
+        {/* Two by two: each card keeps its picture and its own description. */}
+        <UiRadioGroup label={m.groupLabel} columns={2}>
+          {options.map((option) => {
+            // A versioned job the places can't hold stays visible, dimmed, with the reason on the card.
+            const blocked = option.mode === "versioned" && versionedBlocked !== null;
+            return (
+              <UiOptionCard
+                key={option.mode}
+                layout="row"
+                art={
+                  <UiModeDiagram mode={option.mode} active={mode === option.mode} extraLabel={blocked ? (versionedNeedsPro ? m.versionedProLabel : m.versionedUnavailable) : option.extra} />
+                }
+                title={modeLabel(option.mode)}
+                description={blocked ? versionedBlocked : option.description}
+                shortcut={option.key}
+                selected={mode === option.mode}
+                disabled={blocked && mode !== option.mode}
+                onPress={() => onMode(option.mode)}
+              />
+            );
+          })}
+        </UiRadioGroup>
+      </div>
 
       <div className="hairline flex flex-col rounded-[var(--radius-panel)] bg-well">
         {twoWay ? (
@@ -236,43 +260,59 @@ export function ModeStep({
           />
         ) : null}
 
-        <UiDisclosureRow
-          icon={Archive}
-          title={m.archiveTitle}
-          summary={daysProblem ?? (archive.enabled ? m.archiveOn(archive.keepDays, keepDaysOf(archive.keepDays)) : m.archiveOff)}
-          invalid={daysProblem !== null}
-          // An invalid number must stay in sight until it is fixed.
-          open={openArchive || daysProblem !== null}
-          onToggle={() => setOpenArchive((value) => !value)}
-        >
-          <div className="flex items-center gap-3">
-            <UiSwitch checked={archive.enabled} onChange={(enabled) => onArchive({ ...archive, enabled })} label={m.archiveTitle} />
-            <div className={`flex items-center gap-1.5 text-xs transition-opacity ${archive.enabled ? "text-ink-soft" : "text-ink-faint opacity-60"}`}>
-              <UiNumberField
-                label={m.keepLabel}
-                before={m.keepBefore}
-                after={m.dayUnit(keepDaysOf(archive.keepDays))}
-                value={archive.keepDays}
-                onChange={(keepDays) => onArchive({ ...archive, keepDays })}
-                disabled={!archive.enabled}
-                invalid={daysProblem !== null}
-                min={1}
-                max={365}
-                describedBy={`${ids}-days`}
-              />
+        {versioned ? (
+          // Snapshots are the history of a versioned job; they thin out by a fixed rule.
+          <UiSettingRow icon={History} title={m.keepTitle} description={m.keepRule} />
+        ) : (
+          <UiDisclosureRow
+            icon={Archive}
+            title={m.archiveTitle}
+            summary={daysProblem ?? (archive.enabled ? m.archiveOn(archive.keepDays, keepDaysOf(archive.keepDays)) : m.archiveOff)}
+            invalid={daysProblem !== null}
+            // An invalid number must stay in sight until it is fixed.
+            open={openArchive || daysProblem !== null}
+            onToggle={() => setOpenArchive((value) => !value)}
+          >
+            <div className="flex items-center gap-3">
+              <UiSwitch checked={archive.enabled} onChange={(enabled) => onArchive({ ...archive, enabled })} label={m.archiveTitle} />
+              <div className={`flex items-center gap-1.5 text-xs transition-opacity ${archive.enabled ? "text-ink-soft" : "text-ink-faint opacity-60"}`}>
+                <UiNumberField
+                  label={m.keepLabel}
+                  before={m.keepBefore}
+                  after={m.dayUnit(keepDaysOf(archive.keepDays))}
+                  value={archive.keepDays}
+                  onChange={(keepDays) => onArchive({ ...archive, keepDays })}
+                  disabled={!archive.enabled}
+                  invalid={daysProblem !== null}
+                  min={1}
+                  max={365}
+                  describedBy={`${ids}-days`}
+                />
+              </div>
             </div>
-          </div>
-          <span id={`${ids}-days`} className={`text-[0.6875rem] leading-snug ${daysProblem ? "text-danger" : "text-ink-faint"}`}>
-            {daysProblem ??
-              (archive.enabled ? (
-                <>
-                  {beforeFolder} <span className="font-mono">{ARCHIVE_FOLDER}</span> {afterFolder}
-                </>
-              ) : (
-                m.archiveNone
-              ))}
-          </span>
-        </UiDisclosureRow>
+            <span id={`${ids}-days`} className={`text-[0.6875rem] leading-snug ${daysProblem ? "text-danger" : "text-ink-faint"}`}>
+              {daysProblem ??
+                (archive.enabled ? (
+                  <>
+                    {beforeFolder} <span className="font-mono">{ARCHIVE_FOLDER}</span> {afterFolder}
+                  </>
+                ) : (
+                  m.archiveNone
+                ))}
+            </span>
+          </UiDisclosureRow>
+        )}
+
+        {encryption.cloud ? (
+          <UiSettingRow
+            icon={Lock}
+            title={m.encryptTitle}
+            description={!encryption.pro && !encryption.on ? m.encryptPro : encryption.on ? m.encryptOn : m.encryptOff}
+            control={
+              <UiSwitch checked={encryption.on} onChange={encryption.onChange} label={m.encryptTitle} disabled={!encryption.pro && !encryption.on} />
+            }
+          />
+        ) : null}
 
         <UiDisclosureRow
           icon={ListFilter}

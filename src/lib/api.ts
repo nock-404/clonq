@@ -2,7 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { ArchiveSide,
+import type { LicenceStatus, ArchiveSide,
   ArchivedFile,
   BrowseEntry,
   FilePreview,
@@ -21,6 +21,7 @@ import type { ArchiveSide,
   LocationStatus,
   MountedVolume,
   Overview,
+  WeeklyReport,
   Run,
   ServerDraft,
   ServerInput,
@@ -45,6 +46,8 @@ export const api = {
   /** Copies into a new folder in Downloads; returns that folder. */
   restoreArchive: (jobId: string, stamp: string, path?: string, side: ArchiveSide = "target") =>
     invoke<string>("restore_archive", { jobId, side, stamp, path: path ?? null }),
+  /** The finished snapshots of a versioned job, newest first; restore one with restoreArchive(…, "snapshots"). */
+  versionSnapshots: (jobId: string) => invoke<string[]>("version_snapshots", { jobId }),
   browseList: (location: string, path: string) => invoke<BrowseEntry[]>("browse_list", { location, path }),
   browsePreview: (location: string, path: string) => invoke<FilePreview>("browse_preview", { location, path }),
   /** Copies into Downloads/clonq-dateien; returns the copy. */
@@ -53,12 +56,23 @@ export const api = {
   browseDelete: (location: string, path: string) => invoke<void>("browse_delete", { location, path }),
   jobStats: (jobId: string) => invoke<JobStats>("job_stats", { jobId }),
   overview: () => invoke<Overview>("overview"),
+  weeklyReport: () => invoke<WeeklyReport>("weekly_report"),
+  /** The password of an encrypted job, or null when it has none. */
+  encryptionKey: (jobId: string) => invoke<string | null>("encryption_key", { jobId }),
   setUiSettings: (settings: UiSettings) => invoke<Config>("set_ui_settings", { settings }),
   runJob: (jobId: string, options: RunOptions = {}) =>
     invoke<string>("run_job", { jobId, dryRun: options.dryRun ?? false, force: options.force ?? false }),
+  verifyJob: (jobId: string) => invoke<string>("verify_job", { jobId }),
+  repairJob: (jobId: string) => invoke<string>("repair_job", { jobId }),
   cancelJob: (jobId: string) => invoke<void>("cancel_job", { jobId }),
   openMainWindow: (jobId?: string) => invoke<void>("open_main_window", { jobId: jobId ?? null }),
   quit: () => invoke<void>("quit"),
+  licenceStatus: () => invoke<LicenceStatus>("licence_status"),
+  /** Whether Pro features may be used, decided as the backend decides it. */
+  licencePro: () => invoke<boolean>("licence_pro"),
+  /** Checks and saves a pasted key; rejects with the reason when it is not valid. */
+  enterLicence: (key: string) => invoke<LicenceStatus>("enter_licence", { key }),
+  removeLicence: () => invoke<LicenceStatus>("remove_licence"),
 
   mountedVolumes: () => invoke<MountedVolume[]>("mounted_volumes"),
   locationStatuses: () => invoke<LocationStatus[]>("location_statuses"),

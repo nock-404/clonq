@@ -17,7 +17,7 @@ interface Scene {
 
 const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
 
-const triggers = { onMount: false, onChangeAfterSeconds: null, everyMinutes: null, dailyAt: null, afterJob: null };
+const triggers = { onMount: false, onChangeAfterSeconds: null, everyMinutes: null, dailyAt: null, afterJob: null, verifyEveryDays: null, watchdogDays: null };
 const safety = { maxDeletePercent: 10, alwaysAllowedDeletions: 10 };
 const archive = { enabled: true, keepDays: 30 };
 const conflicts = { prefer: "newer" as const, loser: "keep" as const };
@@ -32,7 +32,7 @@ const language: Language = langParam === "en" || langParam === "de" ? langParam 
 // every other language keeps the German data below. The ids stay the same, so every scenario works.
 export const englishData = langParam === "en";
 
-const ui = { accent: "amber" as const, lamps: true, notifySuccess: false, reels, language };
+const ui = { accent: "amber" as const, lamps: true, notifySuccess: false, reels, language, weeklyReport: true };
 const photosDriveUuid = "53955C00-5DD6-4953-8E31-335F53043B30";
 const configEn: Config = {
   version: 2,
@@ -63,6 +63,7 @@ const configEn: Config = {
       safety,
       archive,
       conflicts,
+      encrypted: false,
       ring: "blue",
       triggers: { ...triggers, onMount: true, onChangeAfterSeconds: 60 },
     },
@@ -77,6 +78,7 @@ const configEn: Config = {
       safety,
       archive,
       conflicts,
+      encrypted: false,
       ring: "green",
       triggers: { ...triggers, everyMinutes: 30 },
     },
@@ -91,8 +93,24 @@ const configEn: Config = {
       safety,
       archive,
       conflicts,
+      encrypted: false,
       ring: "red",
       triggers: { ...triggers, dailyAt: "20:00" },
+    },
+    {
+      id: "documents-versions",
+      name: "Documents → Photos Drive",
+      enabled: true,
+      source: { location: "documents", path: "" },
+      target: { location: "m2mini", path: "Document Versions" },
+      mode: "versioned",
+      excludes: [".DS_Store"],
+      safety,
+      archive,
+      conflicts,
+      encrypted: false,
+      ring: "yellow",
+      triggers: { ...triggers, everyMinutes: 60 },
     },
   ],
 };
@@ -101,7 +119,7 @@ const config: Config = englishData ? configEn : {
   version: 2,
   rsyncPath: "/opt/homebrew/bin/rsync",
   rclonePath: "/opt/homebrew/bin/rclone",
-  ui: { accent: "amber", lamps: true, notifySuccess: false, reels, language },
+  ui: { accent: "amber", lamps: true, notifySuccess: false, reels, language, weeklyReport: true },
   locations: [
     { id: "desktop", name: "Schreibtisch", kind: { type: "folder", path: "/Users/matthias/Desktop" } },
     { id: "m2mini", name: "M2mini", kind: { type: "volume", volumeUuid: "53955C00-5DD6-4953-8E31-335F53043B30", volumeName: "M2mini" } },
@@ -123,6 +141,7 @@ const config: Config = englishData ? configEn : {
       safety,
       archive,
       conflicts,
+      encrypted: false,
       ring: "blue",
       triggers: { ...triggers, onMount: true, onChangeAfterSeconds: 60 },
     },
@@ -137,6 +156,7 @@ const config: Config = englishData ? configEn : {
       safety,
       archive,
       conflicts,
+      encrypted: false,
       ring: "green",
       triggers: { ...triggers, everyMinutes: 60 },
     },
@@ -151,8 +171,24 @@ const config: Config = englishData ? configEn : {
       safety,
       archive,
       conflicts,
+      encrypted: false,
       ring: "red",
       triggers: { ...triggers, dailyAt: "02:00" },
+    },
+    {
+      id: "documents-versions",
+      name: "Projekte → M2mini",
+      enabled: true,
+      source: { location: "desktop", path: "Projekte" },
+      target: { location: "m2mini", path: "Projekte-Versionen" },
+      mode: "versioned",
+      excludes: ["node_modules/"],
+      safety,
+      archive,
+      conflicts,
+      encrypted: false,
+      ring: "yellow",
+      triggers: { ...triggers, everyMinutes: 60 },
     },
   ],
 };
@@ -340,6 +376,7 @@ const running: LiveRun = {
   runId: "live1",
   jobId: "work-to-m2mini",
   dryRun: false,
+  verify: false,
   phase: "transferring",
   percent: 62,
   bytes: 1_240_000_000,
@@ -511,7 +548,8 @@ export const modusTwoWayJob: Job = {
   safety: { maxDeletePercent: 25, alwaysAllowedDeletions: 10 },
   archive: { enabled: true, keepDays: 14 },
   conflicts: { prefer: "source", loser: "delete" },
+  encrypted: false,
   ring: "yellow",
-  triggers: { onMount: true, onChangeAfterSeconds: null, everyMinutes: null, dailyAt: null, afterJob: null },
+  triggers: { onMount: true, onChangeAfterSeconds: null, everyMinutes: null, dailyAt: null, afterJob: null, verifyEveryDays: null, watchdogDays: null },
 };
 // --- end Modus -------------------------------------------------------------------------------

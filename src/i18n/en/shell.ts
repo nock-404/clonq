@@ -1,6 +1,22 @@
 // English texts for the app shell: main window, popover, onboarding, overview, settings, updates.
 
 export const shell = {
+  licence: {
+    title: "clonq Pro",
+    reading: "Reading the licence…",
+    none: "No licence entered. Versioned backups are part of clonq Pro.",
+    active: (email: string) => `Pro is active for ${email}.`,
+    updatesUntil: (date: string) => `Updates included until ${date}.`,
+    updatesForGood: "Updates are included for good.",
+    notCovered: (until: string, released: string) => `The licence covers versions released until ${until}; this version is from ${released}. Existing snapshots stay readable and restorable.`,
+    revoked: "This licence has been withdrawn. Existing snapshots stay readable and restorable.",
+    unchecked: "This build cannot check licences. A development build therefore unlocks Pro; a released one keeps it locked.",
+    enter: "Enter licence",
+    activate: "Activate",
+    checking: "Checking…",
+    cancel: "Cancel",
+    remove: "Remove licence",
+  },
   nav: {
     overview: "Overview",
     jobs: "Jobs",
@@ -63,6 +79,22 @@ export const shell = {
     tape: (reels: string) => `≈ ${reels} of magnetic tape`,
     perJob: "Status by job",
     jobLine: (streak: number, moved: string) => `Streak ${streak} · ${moved} moved`,
+    week: {
+      title: "Last 7 days",
+      pro: "The weekly report, the warning when backups stop and the forecast of when a target is full are part of clonq Pro.",
+      summary: (bytes: string, runs: number, shown: string) => `${bytes} backed up in ${shown} ${runs === 1 ? "run" : "runs"}`,
+      jobLine: (runs: number, shown: string, bytes: string) => `${shown} ${runs === 1 ? "run" : "runs"} · ${bytes}`,
+      fine: "All good",
+      noRuns: "No run this week",
+      someFailed: (count: number) => (count === 1 ? "One run failed" : `${count} runs failed`),
+      failing: "Every run failed",
+      overdue: (days: number) => (days === 1 ? "No backup for a day" : `No backup for ${days} days`),
+      space: "Space on the targets",
+      free: (free: string, total: string) => `${free} of ${total} free`,
+      fullIn: (days: number) => (days === 1 ? "Full in about a day" : `Full in about ${days} days`),
+      lasts: "Lasts over a year",
+      noSpace: "Space is measured after each successful run; the forecast follows after a few days.",
+    },
   },
 
   settings: {
@@ -85,6 +117,8 @@ export const shell = {
     notifications: "Notifications",
     notificationsDetail: "clonq always reports problems with automatic runs. Optionally, every successful run too.",
     notifySuccess: "Report successful runs",
+    weeklyReport: "Weekly report",
+    weeklyReportDetail: "With clonq Pro you get a summary of the week every Monday morning. It says what was backed up, what needs attention and which target will soon be full.",
     about: "About clonq",
     version: (version: string) => `Version ${version}`,
     tools: "Tools",
@@ -94,6 +128,11 @@ export const shell = {
     available: (version: string) => `clonq ${version} is available`,
     install: "Install",
     restartsAfter: "clonq restarts afterwards.",
+    notCovered: (until: string) =>
+      `Your clonq Pro licence covers versions released until ${until}; this one is newer. After installing it, Pro features stop and jobs that need them no longer run. Everything else keeps working, and existing snapshots stay readable.`,
+    notCoveredShort: "Your clonq Pro licence does not cover this version. Settings has the details.",
+    renew: "Renew licence",
+    installAnyway: "Install anyway",
     restarting: "clonq is restarting…",
     loaded: (received: string, total: string) => `${received} of ${total} downloaded`,
     loading: "Downloading…",

@@ -6,7 +6,7 @@ import { api } from "../lib/api";
 import { isRunning } from "../lib/jobs";
 import { useT } from "../i18n";
 import { closeSheet, navigate, openSheet, useNav } from "../lib/nav";
-import { reachLabel } from "../lib/labels";
+import { messageLabel, reachLabel } from "../lib/labels";
 import { UiIconButton, UiNavItem, UiNotice, UiReel } from "../ui";
 import { UiLogo } from "../ui/UiLogo";
 import { UpdateBand } from "./UpdateBand";
@@ -102,7 +102,7 @@ export function MainWindow() {
         {state.error ? (
           <div className="px-8 pb-2">
             <UiNotice tone="danger" onDismiss={clearError}>
-              {state.error}
+              {messageLabel(state.error)}
             </UiNotice>
           </div>
         ) : null}

@@ -38,11 +38,18 @@ jobs:
       # rsync (built from source) and rclone go into the app bundle.
       - run: ./scripts/fetch-tools.sh
 
+      # The day licences compare against (src-tauri/build.rs), fixed for this release.
+      - run: echo "CLONQ_RELEASE_DATE=$(date -u +%Y-%m-%d)" >> "$GITHUB_ENV"
+
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # clonq Pro: the licence service's public key and address, as repository variables.
+          # Without the key a release keeps Pro locked (see src-tauri/src/licence.rs).
+          CLONQ_LICENCE_PUBLIC_KEY: ${{ vars.CLONQ_LICENCE_PUBLIC_KEY }}
+          CLONQ_LICENCE_SERVICE: ${{ vars.CLONQ_LICENCE_SERVICE }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: clonq ${{ github.ref_name }}

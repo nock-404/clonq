@@ -84,3 +84,14 @@ pub fn servers(app: AppHandle) {
         }
     });
 }
+
+/// Fetches the licence revocation list at start and once a day; offline keeps the last one.
+pub fn licence(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            let dir = app.state::<AppState>().config_dir.clone();
+            crate::licence::refresh(&crate::licence::Store::new(&dir)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(24 * 60 * 60)).await;
+        }
+    });
+}

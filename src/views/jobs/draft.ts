@@ -32,6 +32,10 @@ export interface TriggerDraft {
   dailyAt: string;
   after: boolean;
   afterJob: string | null;
+  verify: boolean;
+  verifyDays: string;
+  watchdog: boolean;
+  watchdogDays: string;
 }
 
 /** The archive as the form holds it: the days as typed, kept while the archive is off. */
@@ -50,6 +54,8 @@ export interface Draft {
   archive: ArchiveDraft;
   /** Only used by a two-way job, but kept while another mode is tried. */
   conflicts: Conflicts;
+  /** Only means something with a cloud as the target (Pro). */
+  encrypted: boolean;
   triggers: TriggerDraft;
   /** Whether the triggers act; without triggers it does not matter. */
   enabled: boolean;
@@ -75,6 +81,10 @@ function triggerDraft(triggers: Triggers | null): TriggerDraft {
     dailyAt: triggers?.dailyAt ?? "02:00",
     after: triggers?.afterJob != null,
     afterJob: triggers?.afterJob ?? null,
+    verify: triggers?.verifyEveryDays != null,
+    verifyDays: String(triggers?.verifyEveryDays ?? 7),
+    watchdog: triggers?.watchdogDays != null,
+    watchdogDays: String(triggers?.watchdogDays ?? 3),
   };
 }
 
@@ -95,6 +105,7 @@ export function draftFrom(job: Job | undefined, config: Config | null): Draft {
       maxDeletePercent: String(job.safety.maxDeletePercent),
       archive: { enabled: job.archive.enabled, keepDays: String(job.archive.keepDays) },
       conflicts: { ...job.conflicts },
+      encrypted: job.encrypted,
       triggers: triggerDraft(job.triggers),
       enabled: job.enabled,
       name: job.name,
@@ -110,6 +121,7 @@ export function draftFrom(job: Job | undefined, config: Config | null): Draft {
     maxDeletePercent: String(DEFAULT_DELETE_PERCENT),
     archive: { enabled: true, keepDays: String(DEFAULT_KEEP_DAYS) },
     conflicts: { ...DEFAULT_CONFLICTS },
+    encrypted: false,
     triggers: triggerDraft(null),
     enabled: true,
     name: "",
@@ -195,7 +207,7 @@ export function reachProblem(location: Location, state: ClonqState): string | nu
 }
 
 /** Where a place is on this Mac, when that can be known without asking the Rust side. */
-function localPath(place: Place, location: Location | undefined, status: LocationStatus | undefined): string | null {
+export function localPath(place: Place, location: Location | undefined, status: LocationStatus | undefined): string | null {
   if (!location) return null;
   let base: string | null = null;
   if (location.kind.type === "folder") base = location.kind.path;
@@ -278,6 +290,8 @@ export function triggerProblem(triggers: TriggerDraft): string | null {
   if (triggers.every && wholeNumber(triggers.everyMinutes) === null) return t.interval;
   if (triggers.daily && !TIME.test(triggers.dailyAt.trim())) return t.time;
   if (triggers.after && !triggers.afterJob) return t.noAfterJob;
+  if (triggers.verify && wholeNumber(triggers.verifyDays) === null) return t.verifyDays;
+  if (triggers.watchdog && wholeNumber(triggers.watchdogDays) === null) return t.watchdogDays;
   return null;
 }
 
@@ -310,6 +324,8 @@ function toTriggers(triggers: TriggerDraft): Triggers {
     everyMinutes: triggers.every ? wholeNumber(triggers.everyMinutes) : null,
     dailyAt: triggers.daily ? triggers.dailyAt.trim() : null,
     afterJob: triggers.after ? triggers.afterJob : null,
+    verifyEveryDays: triggers.verify ? wholeNumber(triggers.verifyDays) : null,
+    watchdogDays: triggers.watchdog ? wholeNumber(triggers.watchdogDays) : null,
   };
 }
 
@@ -319,7 +335,8 @@ export function hasAutomatic(triggers: Triggers): boolean {
     triggers.onChangeAfterSeconds !== null ||
     triggers.everyMinutes !== null ||
     triggers.dailyAt !== null ||
-    triggers.afterJob !== null
+    triggers.afterJob !== null ||
+    triggers.verifyEveryDays !== null
   );
 }
 
@@ -332,6 +349,7 @@ export function triggerWords(triggers: Triggers, config: Config | null): string[
   if (triggers.everyMinutes !== null) words.push(t.every(triggers.everyMinutes));
   if (triggers.dailyAt !== null) words.push(t.daily(triggers.dailyAt));
   if (triggers.afterJob !== null) words.push(t.after(config?.jobs.find((job) => job.id === triggers.afterJob)?.name ?? null));
+  if (triggers.verifyEveryDays !== null) words.push(t.verify(triggers.verifyEveryDays));
   return words;
 }
 
@@ -367,9 +385,24 @@ export function archiveProblem(archive: ArchiveDraft): string | null {
   return archive.enabled && keepDaysOf(archive.keepDays) === null ? texts().wizard.problem.keepDays : null;
 }
 
+/**
+ * Why these two places can't hold a versioned job, as a sentence, or null. Snapshots need hard
+ * links, which rsync only makes from this Mac into a folder, a drive or a server.
+ */
+export function versionedProblem(draft: Draft, config: Config | null): string | null {
+  const t = texts().wizard.mode;
+  const source = draft.source ? locationOf(draft.source, config)?.kind.type : undefined;
+  const target = draft.target ? locationOf(draft.target, config)?.kind.type : undefined;
+  if (source === "ssh" || source === "cloud") return t.versionedLocalSource;
+  if (target === "cloud") return t.versionedNoCloud;
+  return null;
+}
+
 /** The problem with the mode step, as a sentence, or null. */
-export function modeProblem(draft: Draft): string | null {
+export function modeProblem(draft: Draft, config: Config | null): string | null {
   if (!draft.mode) return texts().wizard.problem.noMode;
+  // The places may have changed after the mode was picked.
+  if (draft.mode === "versioned") return versionedProblem(draft, config);
   if (deletesIn(draft.mode) && percentOf(draft.maxDeletePercent) === null) return texts().wizard.problem.percent;
   return archiveProblem(draft.archive);
 }
@@ -467,7 +500,13 @@ export function toInput(draft: Draft, job: Job | undefined, name: string, config
     // While the archive is off its days cannot be typed, so a stray value falls back to the last good one.
     archive: { enabled: draft.archive.enabled, keepDays: keepDaysOf(draft.archive.keepDays) ?? job?.archive.keepDays ?? DEFAULT_KEEP_DAYS },
     conflicts: { ...draft.conflicts },
+    encrypted: draft.encrypted && cloudTarget(draft, config),
   };
+}
+
+/** Whether the target is a cloud, which is what encryption needs. */
+export function cloudTarget(draft: Draft, config: Config | null): boolean {
+  return (draft.target ? locationOf(draft.target, config)?.kind.type : undefined) === "cloud";
 }
 
 /** The job as the Rust side would take it back, e.g. to undo a deletion. */
@@ -485,6 +524,7 @@ export function inputOf(job: Job): JobInput {
     enabled: job.enabled,
     archive: job.archive,
     conflicts: job.conflicts,
+    encrypted: job.encrypted,
   };
 }
 

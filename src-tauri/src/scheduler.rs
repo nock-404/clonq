@@ -15,6 +15,7 @@ use crate::commands::EVENT_CONFIG_CHANGED;
 use crate::config::{ARCHIVE_DIR, Config, Job, Language, LocationKind, Mode};
 use crate::engine::RunOptions;
 use crate::history::{Run, RunStatus};
+use crate::report;
 use crate::locations::{self, Resolved};
 
 const TICK: Duration = Duration::from_secs(2);
@@ -28,6 +29,7 @@ pub mod reason {
     pub const MOUNT: &str = "mount";
     pub const CHANGE: &str = "change";
     pub const CHAIN: &str = "chain";
+    pub const VERIFY: &str = "verifyScheduled";
 }
 
 #[derive(Default)]
@@ -85,6 +87,38 @@ fn fire(app: &AppHandle, job_id: &str, why: &str) -> bool {
     if state.history.last_real_status(job_id).ok().flatten() == Some(RunStatus::Blocked) {
         return false;
     }
+    // A Pro job without a licence that covers this version must never stop quietly: once a day
+    // it records a failed run with the reason (the job shows red everywhere) and says so.
+    if let Err(refused) = crate::licence::allows(&state.config_dir, &config, job_id) {
+        scheduler.backoff.lock().expect("backoff").insert(job_id.to_string(), Instant::now() + BACKOFF);
+        static TOLD: std::sync::Mutex<Option<HashMap<String, Instant>>> = std::sync::Mutex::new(None);
+        let mut told = TOLD.lock().expect("told");
+        let told = told.get_or_insert_with(HashMap::new);
+        if told.get(job_id).is_none_or(|at| at.elapsed() >= Duration::from_secs(24 * 60 * 60)) {
+            told.insert(job_id.to_string(), Instant::now());
+            let _ = state.engine.record_refusal(job_id, why, &refused.to_string());
+            let name = config.job(job_id).map_or(job_id.to_string(), |job| job.name.clone());
+            let german = config.ui.language.resolved() == Language::De;
+            let _ = app.notification().builder().title(name).body(crate::licence::refusal_text(&refused.to_string(), german)).show();
+        }
+        return false;
+    }
+    // A backup always comes first: a scheduled integrity check in its way is stopped (it only
+    // reads, and counts as not done, so it comes back later) and the backup starts after it.
+    if state.engine.running_with(job_id, reason::VERIFY) {
+        state.engine.cancel(job_id);
+        let (app, job_id, why) = (app.clone(), job_id.to_string(), why.to_string());
+        tauri::async_runtime::spawn(async move {
+            for _ in 0..600 {
+                if !app.state::<AppState>().engine.is_running(&job_id) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            fire(&app, &job_id, &why);
+        });
+        return true;
+    }
     match state.engine.start(&config, job_id, why, RunOptions::default()) {
         Ok(_) => {
             scheduler.backoff.lock().expect("backoff").remove(job_id);
@@ -98,6 +132,26 @@ fn fire(app: &AppHandle, job_id: &str, why: &str) -> bool {
             }
             false
         }
+    }
+}
+
+/// Starts a scheduled integrity check. It waits while the job runs, needs Pro, and like a
+/// failed automatic start leaves an unreachable job alone for a while.
+fn fire_verify(app: &AppHandle, job_id: &str) {
+    let scheduler = app.state::<Scheduler>();
+    let key = format!("verify:{job_id}");
+    if scheduler.backoff.lock().expect("backoff").get(&key).is_some_and(|until| Instant::now() < *until) {
+        return;
+    }
+    let state = app.state::<AppState>();
+    if !crate::licence::Store::new(&state.config_dir).pro() {
+        return;
+    }
+    let config = state.config.read().expect("config lock").clone();
+    if let Err(error) = state.engine.start(&config, job_id, reason::VERIFY, RunOptions { verify: true, ..Default::default() })
+        && !error.to_string().contains("already running")
+    {
+        scheduler.backoff.lock().expect("backoff").insert(key, Instant::now() + BACKOFF);
     }
 }
 
@@ -134,8 +188,52 @@ pub fn volumes_mounted(app: &AppHandle, uuids: &HashSet<String>) {
     });
 }
 
+/// Watchdog notices and the weekly report (Pro), looked at once a minute.
+fn look_after(app: &AppHandle, config: &Config) {
+    static LAST: Mutex<Option<Instant>> = Mutex::new(None);
+    {
+        let mut last = LAST.lock().expect("look after");
+        if last.is_some_and(|at| at.elapsed() < Duration::from_secs(60)) {
+            return;
+        }
+        *last = Some(Instant::now());
+    }
+    let state = app.state::<AppState>();
+    if !crate::licence::Store::new(&state.config_dir).pro() {
+        return;
+    }
+    let now = Utc::now();
+    let german = config.ui.language.resolved() == Language::De;
+    let mut memory = report::Memory::load(&state.config_dir);
+    let mut changed = false;
+    for job in &config.jobs {
+        let last_success = state.history.last_completed(&job.id).ok().flatten().and_then(|detail| detail.run.finished_at);
+        let Some(days) = report::overdue_days(job, last_success, now) else { continue };
+        // One notice per silence: a new success starts the count again.
+        if memory.watchdog_told.get(&job.id) == Some(&last_success) {
+            continue;
+        }
+        let body = if german { format!("Seit {days} Tagen keine erfolgreiche Sicherung.") } else { format!("No successful backup for {days} days.") };
+        let _ = app.notification().builder().title(&job.name).body(body).show();
+        memory.watchdog_told.insert(job.id.clone(), last_success);
+        changed = true;
+    }
+    if config.ui.weekly_report && !config.jobs.is_empty() && report::report_due(memory.report_sent, now.with_timezone(&Local))
+        && let Ok(week) = report::weekly(&state.history, config, now)
+    {
+        let title = if german { "clonq – Wochenbericht" } else { "clonq – weekly report" };
+        let _ = app.notification().builder().title(title).body(report::summary(&week, german)).show();
+        memory.report_sent = Some(now);
+        changed = true;
+    }
+    if changed {
+        memory.save(&state.config_dir);
+    }
+}
+
 fn tick(app: &AppHandle) {
     let config = config(app);
+    look_after(app, &config);
     let now = Utc::now();
     let history = app.state::<AppState>().history.clone();
     for job in config.jobs.iter().filter(|job| job.enabled) {
@@ -150,6 +248,14 @@ fn tick(app: &AppHandle) {
             && daily_due(last, at, now.with_timezone(&Local))
         {
             fire(app, &job.id, reason::DAILY);
+            continue;
+        }
+        // The first check waits for a first real run; before it there is nothing to compare.
+        if let Some(days) = job.triggers.verify_every_days.filter(|d| *d > 0)
+            && history.has_completed(&job.id).unwrap_or(false)
+            && every_due(history.last_verify(&job.id).ok().flatten(), days.saturating_mul(24 * 60), now)
+        {
+            fire_verify(app, &job.id);
         }
     }
     // Source changes whose quiet time is over.
@@ -283,10 +389,34 @@ fn is_excluded(path: &Path, root: &Path, excluded: &[String]) -> bool {
 
 /// Chained jobs and notifications once a run has ended.
 fn after_run(app: &AppHandle, run: &Run) {
+    let config = config(app);
+    // Every finished real run measures its target, for the report's "full in N days".
+    if !run.dry_run && run.status.completed()
+        && let Some(job) = config.job(&run.job_id).cloned()
+    {
+        let state = app.state::<AppState>();
+        let (history, rclone_config, measured) = (state.history.clone(), state.config_dir.join("rclone.conf"), config.clone());
+        tauri::async_runtime::spawn(async move {
+            report::record_space(&history, &job, &measured, &rclone_config, Utc::now()).await;
+        });
+    }
+    let german = config.ui.language.resolved() == Language::De;
+    // A scheduled integrity check speaks up only when it found something or could not finish.
+    if run.trigger == reason::VERIFY {
+        let body = match (run.status, german) {
+            (RunStatus::Partial, false) => "Integrity check: files differ in content. Please check in clonq.",
+            (RunStatus::Partial, true) => "Prüflauf: Dateien unterscheiden sich im Inhalt. Bitte in clonq nachsehen.",
+            (RunStatus::Failed, false) => "Integrity check failed. The reason is in the history.",
+            (RunStatus::Failed, true) => "Prüflauf fehlgeschlagen. Der Grund steht im Verlauf.",
+            _ => return,
+        };
+        let name = config.job(&run.job_id).map_or(run.job_id.clone(), |job| job.name.clone());
+        let _ = app.notification().builder().title(name).body(body).show();
+        return;
+    }
     if run.dry_run {
         return;
     }
-    let config = config(app);
     if run.status.completed() {
         for job in config.jobs.iter().filter(|job| job.enabled && job.triggers.after_job.as_deref() == Some(run.job_id.as_str())) {
             fire(app, &job.id, reason::CHAIN);
@@ -297,7 +427,6 @@ fn after_run(app: &AppHandle, run: &Run) {
         return;
     }
     let name = config.job(&run.job_id).map_or(run.job_id.clone(), |job| job.name.clone());
-    let german = config.ui.language.resolved() == Language::De;
     let body = match (run.status, german) {
         (RunStatus::Blocked, false) => "Stopped: the deletion limit was reached. Please check in clonq.",
         (RunStatus::Blocked, true) => "Gestoppt: Die Schutzschwelle hat angeschlagen. Bitte in clonq nachsehen.",

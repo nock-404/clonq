@@ -32,8 +32,48 @@ mockIPC(
         return scene.recent;
       case "job_stats":
         return scene.stats[String((args as { jobId?: string } | undefined)?.jobId)];
-      case "overview":
-        return scene.overview;
+      case "overview": {
+        // ?files=123456789 tries the counter with a large number.
+        const files = params.get("files");
+        return files ? { ...scene.overview, totals: { ...scene.overview.totals, files: Number(files) } } : scene.overview;
+      }
+      // ?update=covered|notCovered: a newer release is out, with or without licence cover.
+      case "plugin:updater|check":
+        return params.get("update")
+          ? { rid: 1, currentVersion: "0.3.6", version: "0.4.0", date: "2027-10-01 10:00:00.0 +00:00:00", body: "", rawJson: {} }
+          : null;
+      case "licence_covers_update":
+        return params.get("update") === "notCovered"
+          ? { covered: false, updatesUntil: "2027-09-24", renewUrl: "https://licences.example.org/buy" }
+          : { covered: true, updatesUntil: null, renewUrl: null };
+      case "licence_pro":
+        return params.get("licence") !== "none";
+      case "encryption_key":
+        return "K7Q2M-X9PLA-4TRWZ-H3NCE-8VDJF";
+      case "weekly_report": {
+        // ?week=empty shows a first week without space measurements.
+        const day = 86_400_000;
+        const now = Date.now();
+        const jobs = scene.config.jobs.map((job, index) => ({
+          jobId: job.id,
+          name: job.name,
+          runs: [38, 7, 0, 3][index] ?? 1,
+          succeeded: [38, 6, 0, 3][index] ?? 1,
+          failed: [0, 1, 0, 0][index] ?? 0,
+          bytes: [12_400_000_000, 2_100_000_000, 0, 380_000_000][index] ?? 0,
+          files: [1_204, 310, 0, 41][index] ?? 0,
+          lastSuccessAt: new Date(now - [0.02, 0.4, 9, 1][index]! * day).toISOString(),
+          overdueDays: index === 2 ? 9 : null,
+        }));
+        const targets =
+          params.get("week") === "empty"
+            ? []
+            : [
+                { locationId: "box", name: englishData ? "Storage Box" : "Storage Box", total: 1_000_000_000_000, free: 212_000_000_000, measuredAt: new Date(now).toISOString(), daysUntilFull: 41.6 },
+                { locationId: "m2mini", name: englishData ? "Photos Drive" : "M2mini", total: 2_000_000_000_000, free: 1_310_000_000_000, measuredAt: new Date(now).toISOString(), daysUntilFull: null },
+              ];
+        return { from: new Date(now - 7 * day).toISOString(), to: new Date(now).toISOString(), jobs, targets };
+      }
       case "location_statuses":
         return scene.locations;
       case "mounted_volumes":
@@ -47,6 +87,9 @@ mockIPC(
         ];
       case "job_defaults":
         return englishData ? [".DS_Store"] : ["node_modules/"];
+      case "licence_status":
+        // Preview only: ?licence=none shows clonq without Pro.
+        return params.get("licence") === "none" ? { state: "none" } : { state: "active", email: "sam@example.com", updatesUntil: "2027-09-24" };
       case "test_server":
         return "/home";
       case "cloud_providers":
@@ -185,12 +228,23 @@ const root = document.getElementById("root");
 if (root) {
   root.classList.add("preview-frame");
   root.dataset.frame = windowLabel;
+  // ?frameWidth=760 draws the main window at another width, e.g. its minimum.
+  const frameWidth = params.get("frameWidth");
+  if (frameWidth) root.style.width = `${Number(frameWidth) / 16}rem`;
+  const frameHeight = params.get("frameHeight");
+  if (frameHeight) root.style.height = `${Number(frameHeight) / 16}rem`;
 }
 
 await import("../src/main");
 
 // ?job=<id> opens that job in the main window, as the popover would.
 const jobParam = params.get("job");
+// ?encryptJob=<id> shows that job as an encrypted cloud copy.
+const encryptJob = params.get("encryptJob");
+if (encryptJob) for (const job of scene.config.jobs) if (job.id === encryptJob) job.encrypted = true;
+// ?cloudJob=<id> points that job at Google Drive (English data), where encryption is offered.
+const cloudJob = params.get("cloudJob");
+if (cloudJob) for (const job of scene.config.jobs) if (job.id === cloudJob) job.target = { location: "gdrive", path: "Photos" };
 if (jobParam) setTimeout(() => void emit("show-job", jobParam), 300);
 // ?dryResult=1|none sends a finished dry run for ?job, as the backend does at the end of one.
 const dryParam = params.get("dryResult");
@@ -199,9 +253,25 @@ if (jobParam && dryParam) {
   setTimeout(
     () =>
       void emit("run-update", {
-        runId: "dry-preview", jobId: jobParam, dryRun: true, phase: "finished", percent: 100, bytes: 0, bytesPerSecond: 0,
+        runId: "dry-preview", jobId: jobParam, dryRun: true, verify: false, phase: "finished", percent: 100, bytes: 0, bytesPerSecond: 0,
         etaSeconds: null, filesDone: 0, filesTotal: null, filesNew: found[0], filesChanged: found[1], filesDeleted: found[2],
         filesConflicted: 0, filesPerSecond: 0, throughput: [], recentPaths: [], currentPath: null, status: "succeeded", message: null,
+      }),
+    700,
+  );
+}
+
+// ?check=ok|damaged sends a finished integrity check for ?job.
+const checkParam = params.get("check");
+if (jobParam && checkParam) {
+  const damaged = checkParam === "damaged";
+  setTimeout(
+    () =>
+      void emit("run-update", {
+        runId: "check-preview", jobId: jobParam, dryRun: true, verify: true, phase: "finished", percent: 100, bytes: 0, bytesPerSecond: 0,
+        etaSeconds: null, filesDone: 0, filesTotal: null, filesNew: 0, filesChanged: 0, filesDeleted: 0,
+        filesConflicted: damaged ? 2 : 0, filesPerSecond: 0, throughput: [], recentPaths: [], currentPath: null,
+        status: damaged ? "partial" : "succeeded", message: damaged ? "2 file(s) differ in content although size and date match" : null,
       }),
     700,
   );
@@ -564,6 +634,7 @@ function jobWizardSave(input: JobInput): Promise<Job> {
     triggers: input.triggers,
     archive: input.archive ?? { enabled: true, keepDays: 30 },
     conflicts: input.conflicts ?? { prefer: "newer", loser: "keep" },
+    encrypted: input.encrypted ?? false,
   };
   // The store asks for stats of every job once the config changes.
   scene.stats[id] ??= {
@@ -807,6 +878,10 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
       { stamp: stamp(3 * 60 + 12), files: [["2026/2026-09-14 Karwendel/IMG_4820.HEIC", 2_990_114], ["2026/2026-09-14 Karwendel/IMG_4823.HEIC", 3_120_877]] },
     ],
   };
+  // Snapshot names of a versioned job end in milliseconds, newest first.
+  const versionStamps = [12, 75, 9 * 60, 26 * 60, 2 * 1440 + 40, 4 * 1440 + 300, 8 * 1440 + 90, 15 * 1440 + 600, 27 * 1440 + 200, 41 * 1440, 55 * 1440 + 480].map(
+    (minutes) => `${stamp(minutes)}-${String(minutes % 1000).padStart(3, "0")}`,
+  );
   const emptied = params.get("panelsEmpty");
   if (emptied) archives[emptied] = [];
   const archiveOff = params.get("panelsArchiveOff");
@@ -901,6 +976,12 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
   });
 
   const listing = (location: string, path: string): Entry[] | null => {
+    // Inside a snapshot of the versioned job: its top level, the same in every snapshot.
+    if (/^(Document Versions|Projekte-Versionen)\/\d{4}-/.test(path)) {
+      return englishData
+        ? [["Taxes", -1, 52], ["Projects", -1, 52], ["Home", -1, 3 * 1440], ["Recipes", -1, 190], ["Budget 2026.numbers", 412_880, 75], ["Lease.pdf", 1_204_331, 40 * 1440]]
+        : [["clonq", -1, 12], ["plxr", -1, 75], ["wetterstation", -1, 3 * 1440], ["Notizen.md", 8_412, 75], [".DS_Store", 10_244, 1440]];
+    }
     const tree = trees[location];
     if (!tree) return null;
     if (location === "box" && !params.get("panelsNoZfs")) {
@@ -948,6 +1029,7 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
     archive_snapshots: "volume /Volumes/M2mini is not connected",
     archive_files: "2026-09-23_14-05-09 is not an archive folder",
     restore_archive: "restoring from the archive failed",
+    version_snapshots: "volume /Volumes/M2mini is not connected",
     browse_list: "/Volumes/M2mini/WORK/Gesperrt cannot be read",
     browse_preview: "the file is too large for a preview",
     browse_download: "the copy failed",
@@ -961,9 +1043,18 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
     const path = String(args.path ?? "").replace(/^\/+|\/+$/g, "");
     const name = path.split("/").at(-1) ?? path;
     switch (command) {
+      // The versioned job: every snapshot of the last day, one per day for a month, one per week before.
+      case "version_snapshots":
+        return later(job === "documents-versions" && emptied !== job ? versionStamps : [], 250);
       case "archive_snapshots":
         return later(
-          (archives[job] ?? []).map((item) => ({ stamp: item.stamp, files: item.files.length, bytes: item.files.reduce((sum, [, size]) => sum + size, 0) })),
+          // ?keptArchive=1 marks the oldest archive folder as kept by a repair.
+          (archives[job] ?? []).map((item, index, all) => ({
+            stamp: item.stamp,
+            files: item.files.length,
+            bytes: item.files.reduce((sum, [, size]) => sum + size, 0),
+            kept: Boolean(params.get("keptArchive")) && index === all.length - 1,
+          })),
           250,
         );
       case "archive_files": {
@@ -1070,6 +1161,10 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
     "dateien-enter-ohne-fokus": [...files, ["key", "Enter"], ["wait", 400]],
     "archiv-fehler-enter": [...archive, ["wait", 600], ["focus", "Erneut versuchen"], ["key", "Enter"], ["wait", 400]],
     "archiv-ziel-pruefen": [...archive, ["click", "Verbindung prüfen"], ["wait", 1800]],
+    // The versioned job (?job=documents-versions).
+    versionen: [["wait", 700], ["scroll", "Snapshots"]],
+    "versionen-eintrag": [["wait", 700], ["scroll", "Snapshots"], ["pick", say("gestern", "yesterday")], ["wait", 400], ["pick", say("clonq", "Projects")], ["click", say("Eintrag wiederherstellen", "Restore item")], ["wait", 1200]],
+    "versionen-wiederhergestellt": [["wait", 700], ["scroll", "Snapshots"], ["click", say("Snapshot wiederherstellen", "Restore snapshot")], ["wait", 1200]],
   };
 
   const visibleText = (element: Element) => (element.textContent ?? "").replace(/\s+/g, " ").trim();
@@ -1189,6 +1284,8 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
       spiegel: [...toArt, ["radio", mirror]],
       backup: [...toArt, ["radio", backup]],
       beidseitig: twoWay,
+      versionen: [...toArt, ["radio", t.common.mode.versioned]],
+      "versionen-name": [...toArt, ["radio", t.common.mode.versioned], ...toName],
       // Conflict rules and archive are folded rows; the first click on their title opens them.
       "beidseitig-offen": [...twoWay, ["button", CONFLICT_ROW], ["button", ARCHIVE_ROW]],
       "beide-behalten": [...twoWay, ["button", CONFLICT_ROW], ["select", w.mode.preferLabel, "none"]],
@@ -1202,6 +1299,8 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
       bearbeiten: toModeStep,
       "bearbeiten-unten": [...toModeStep, ["scrollEnd"]],
       "bearbeiten-beidseitig": [...toModeStep, ["radio", t.common.mode.bidirectional]],
+      "bearbeiten-ausloeser": [...toModeStep, ["stepper", w.steps.triggers], ["step", w.steps.triggers]],
+      "bearbeiten-ausloeser-unten": [...toModeStep, ["stepper", w.steps.triggers], ["step", w.steps.triggers], ["scrollEnd"]],
       "bearbeiten-beidseitig-name": [...toModeStep, ["radio", t.common.mode.bidirectional], ["stepper", w.steps.name], ["step", w.steps.name]],
     };
   };
@@ -1295,3 +1394,19 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
   }
 }
 // --- end Modus -------------------------------------------------------------------------------
+
+// ?click=<text> presses the first button whose text contains <text>, once it is there.
+const clickParam = params.get("click");
+if (clickParam) {
+  void (async () => {
+    const until = performance.now() + 6000;
+    while (performance.now() < until) {
+      const button = [...document.querySelectorAll("button")].find((item) => (item.textContent ?? "").includes(clickParam));
+      if (button) {
+        button.click();
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  })();
+}
