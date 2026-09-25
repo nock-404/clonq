@@ -254,7 +254,8 @@ pub async fn restore(job: &Job, config: &Config, rclone_config: &Path, side: Sid
                 None => destination.clone(),
             };
             let verb = if inner.is_some() { "copyto" } else { "copy" };
-            Command::new(&config.rclone_path).arg(verb).arg(&source).arg(&target).args(own_markers()).arg("--config").arg(rclone_config).status().await?
+            // --local-no-clone: a restored file is a copy of its own, not a clone sharing blocks.
+            Command::new(&config.rclone_path).arg(verb).arg(&source).arg(&target).arg("--local-no-clone").args(own_markers()).arg("--config").arg(rclone_config).status().await?
         }
     };
     if !status.success() {

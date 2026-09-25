@@ -200,7 +200,11 @@ fn without_archive(tree: &Tree) -> Tree {
 }
 
 fn archived(tree: &Tree) -> Vec<String> {
-    tree.iter().filter(|(path, _)| path.starts_with(ARCHIVE_DIR)).map(|(_, v)| v.clone()).collect()
+    // clonq's own marker for what a repair replaced is not an archived file.
+    tree.iter()
+        .filter(|(path, _)| path.starts_with(ARCHIVE_DIR) && !path.ends_with(&format!("/{}", crate::engine::KEEP)))
+        .map(|(_, v)| v.clone())
+        .collect()
 }
 
 const ODD: &str = "Ordner mit Leerzeichen/Übergröße äöü ß & #1 (final).txt";

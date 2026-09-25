@@ -1021,6 +1021,7 @@ impl Engine {
                     .arg(&from)
                     .arg(&to)
                     .arg("--ignore-times")
+                    .arg("--local-no-clone")
                     .arg("--config")
                     .arg(config)
                     .env("LC_ALL", "C")
@@ -1080,6 +1081,7 @@ impl Engine {
             .arg("--files-from-raw")
             .arg(&list)
             .arg("--ignore-times")
+            .arg("--local-no-clone")
             .args(plan.archive_args(&archive_stamp(run.started_at)))
             .env("LC_ALL", "C")
             .stdin(Stdio::null())
@@ -1423,6 +1425,10 @@ impl Plan {
             "--workdir".into(),
             workdir.to_string_lossy().into_owned(),
             "--use-json-log".into(),
+            // A copy on the same APFS drive would otherwise be a clone sharing its blocks with
+            // the original: one damaged block would ruin both. A backup must be its own copy.
+            // (Cloning also failed under load with "errno -1".)
+            "--local-no-clone".into(),
             "-v".into(),
             "--color".into(),
             "NEVER".into(),
@@ -1464,6 +1470,10 @@ impl Plan {
             "--config".into(),
             rclone_config.to_string_lossy().into_owned(),
             "--use-json-log".into(),
+            // A copy on the same APFS drive would otherwise be a clone sharing its blocks with
+            // the original: one damaged block would ruin both. A backup must be its own copy.
+            // (Cloning also failed under load with "errno -1".)
+            "--local-no-clone".into(),
             "-v".into(),
             "--stats".into(),
             "1s".into(),
