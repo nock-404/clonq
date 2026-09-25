@@ -70,6 +70,8 @@ export const api = {
   licenceStatus: () => invoke<LicenceStatus>("licence_status"),
   /** Whether Pro features may be used, decided as the backend decides it. */
   licencePro: () => invoke<boolean>("licence_pro"),
+  /** The shop page for buying a licence, or null in a build without a licence service. */
+  licenceShopUrl: () => invoke<string | null>("licence_shop_url"),
   /** Checks and saves a pasted key; rejects with the reason when it is not valid. */
   enterLicence: (key: string) => invoke<LicenceStatus>("enter_licence", { key }),
   removeLicence: () => invoke<LicenceStatus>("remove_licence"),

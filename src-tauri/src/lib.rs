@@ -136,6 +136,7 @@ pub fn run() {
             commands::encryption_key,
             commands::licence_covers_update,
             commands::licence_pro,
+            commands::licence_shop_url,
             commands::cancel_job,
             commands::open_main_window,
             commands::quit,

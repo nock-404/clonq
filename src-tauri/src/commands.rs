@@ -146,6 +146,12 @@ pub fn licence_pro(state: State<'_, AppState>) -> bool {
     crate::licence::Store::new(&state.config_dir).pro()
 }
 
+/// Where a licence is bought, as built into this version; None without a licence service.
+#[tauri::command]
+pub fn licence_shop_url() -> Option<String> {
+    crate::licence::shop_url()
+}
+
 /// Checks and saves a pasted licence key.
 #[tauri::command]
 pub fn enter_licence(state: State<'_, AppState>, key: String) -> Result<crate::licence::Status> {

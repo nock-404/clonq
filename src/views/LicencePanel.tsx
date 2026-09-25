@@ -1,4 +1,5 @@
-import { KeyRound } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { KeyRound, ShoppingCart } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useT } from "../i18n";
 import { api } from "../lib/api";
@@ -21,8 +22,10 @@ export function LicencePanel() {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 
+  const [shop, setShop] = useState<string | null>(null);
   useEffect(() => {
     api.licenceStatus().then(setStatus).catch(() => setStatus({ state: "none" }));
+    api.licenceShopUrl().then(setShop).catch(() => setShop(null));
   }, []);
 
   const activate = async () => {
@@ -77,7 +80,12 @@ export function LicencePanel() {
             {problem ? <UiNotice tone="danger">{problem}</UiNotice> : null}
           </div>
         ) : (
-          <div>
+          <div className="flex flex-wrap gap-2">
+            {shop ? (
+              <UiButton variant="primary" icon={ShoppingCart} onPress={() => void openUrl(shop)}>
+                {status?.state === "notCovered" ? t.renew : t.buy}
+              </UiButton>
+            ) : null}
             <UiButton variant="secondary" icon={KeyRound} onPress={() => setEntering(true)}>
               {t.enter}
             </UiButton>

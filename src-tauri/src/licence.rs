@@ -280,6 +280,11 @@ fn require(dir: &Path, missing: &str) -> crate::error::Result<()> {
     }))
 }
 
+/// The licence service's shop, where a licence is bought or renewed; None in a build without it.
+pub fn shop_url() -> Option<String> {
+    SERVICE.map(|service| format!("{}/buy", service.trim_end_matches('/')))
+}
+
 /// What an update would do to Pro, asked before it is installed (LICENSE-FORMAT.md, point 5).
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -297,7 +302,7 @@ pub fn covers_update(dir: &Path, published: NaiveDate) -> UpdateCover {
 }
 
 fn cover_for(status: Status, published: NaiveDate) -> UpdateCover {
-    let renew_url = SERVICE.map(|service| format!("{}/buy", service.trim_end_matches('/')));
+    let renew_url = shop_url();
     match status {
         Status::Active { updates_until: Some(until), .. } if published > until => UpdateCover { covered: false, updates_until: Some(until), renew_url },
         _ => UpdateCover { covered: true, updates_until: None, renew_url: None },

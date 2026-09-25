@@ -46,6 +46,8 @@ mockIPC(
         return params.get("update") === "notCovered"
           ? { covered: false, updatesUntil: "2027-09-24", renewUrl: "https://licences.example.org/buy" }
           : { covered: true, updatesUntil: null, renewUrl: null };
+      case "licence_shop_url":
+        return "https://license.clonq.app/buy";
       case "licence_pro":
         return params.get("licence") !== "none";
       case "encryption_key":
