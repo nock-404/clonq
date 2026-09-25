@@ -446,4 +446,40 @@ mod tests {
         assert!(store.keep_revocations_with(&answer("2026-10-03T08:00:00Z", r#""lic_1","lic_2""#), &verifying));
         let _ = std::fs::remove_dir_all(dir);
     }
+
+    /// Keys and a revocation list made by the licence service's own code (clonq-licenses,
+    /// src/license.ts and /api/revoked) with a throwaway key pair: the two sides agree.
+    #[test]
+    fn keys_and_revocations_from_the_licence_service_are_understood() {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Fixture {
+            public_key: String,
+            active: String,
+            forever: String,
+            revoked_key: String,
+            revocations: String,
+        }
+        let fixture: Fixture = serde_json::from_str(include_str!("../tests/licence-service-interop.json")).unwrap();
+        let verifying = public_key(&fixture.public_key).expect("the service's PEM public key");
+        let active = read(&fixture.active, &verifying).expect("a key the service issued");
+        assert_eq!((active.id.as_str(), active.email.as_str()), ("lic_interop_active", "käufer@example.org"));
+        assert_eq!(active.updates_until, NaiveDate::from_ymd_opt(2027, 9, 25));
+        assert!(covers(&active, NaiveDate::from_ymd_opt(2027, 9, 25).unwrap()));
+        assert!(!covers(&active, NaiveDate::from_ymd_opt(2027, 9, 26).unwrap()));
+        assert_eq!(read(&fixture.forever, &verifying).unwrap().updates_until, None);
+        // Pasted with the whitespace a mail programme adds.
+        assert!(read(&format!("  {}\n", fixture.active), &verifying).is_ok());
+        let signed: Signed = serde_json::from_str(&fixture.revocations).unwrap();
+        assert_eq!(revoked_ids(&signed, &verifying), Some(vec!["lic_interop_revoked".to_string()]));
+        let dir = std::env::temp_dir().join(format!("clonq-interop-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Store::new(&dir);
+        assert!(store.keep_revocations_with(&fixture.revocations, &verifying));
+        std::fs::write(dir.join(KEY_FILE), &fixture.revoked_key).unwrap();
+        assert!(matches!(store.status_with(Some(&verifying), NaiveDate::from_ymd_opt(2026, 10, 1).unwrap()), Status::Revoked { .. }));
+        std::fs::write(dir.join(KEY_FILE), &fixture.active).unwrap();
+        assert!(matches!(store.status_with(Some(&verifying), NaiveDate::from_ymd_opt(2026, 10, 1).unwrap()), Status::Active { .. }));
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
