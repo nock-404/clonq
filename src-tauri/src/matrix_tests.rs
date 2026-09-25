@@ -1359,3 +1359,13 @@ async fn the_archive_of_an_encrypted_repair_outlives_the_keep_days() {
     let left = crate::archive::snapshots(&job, &config, &conf, crate::archive::Side::Target).await.unwrap();
     assert!(left.iter().any(|snapshot| snapshot.stamp == "2020-01-01_10-00-00-000"), "{left:?}");
 }
+
+#[tokio::test]
+async fn a_stored_password_whose_obscured_form_starts_with_a_dash_is_read() {
+    let b = Bench::new();
+    let conf = b.root.join("rclone.conf");
+    // A real obscured form of this password that begins with "-", found by trying.
+    fs::write(&conf, "[clonq-crypt-job]\ntype = crypt\nremote = /tmp/x\npassword = -zXcV4XQBaeit4hbHHCrq3xNsUAbJGfJw6MWdMB2hdo-5i_3akoa_0YR8rfG\n").unwrap();
+    let password = crate::cloud::crypt_password(&tool("rclone"), &conf, "job").await.unwrap();
+    assert_eq!(password.as_deref(), Some("K7Q2M-X9PLA-4TRWZ-H3NCE-8VDJF"));
+}

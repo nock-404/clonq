@@ -350,7 +350,8 @@ pub async fn crypt_password(rclone: &str, config_file: &Path, job_id: &str) -> R
     let Some(obscured) = dump.get(crypt_name(job_id)).and_then(|remote| remote.get("password")).and_then(|value| value.as_str()) else {
         return Ok(None);
     };
-    let revealed = Command::new(rclone).args(["reveal", obscured]).output().await?;
+    // "--": an obscured value may start with "-" (about one in 64), which rclone would read as a flag.
+    let revealed = Command::new(rclone).args(["reveal", "--", obscured]).output().await?;
     if !revealed.status.success() {
         return Err(Error::Job("the encryption password could not be read".into()));
     }
@@ -360,7 +361,7 @@ pub async fn crypt_password(rclone: &str, config_file: &Path, job_id: &str) -> R
 /// Whether everything at the top of `spec` opens with `password`: then the folder holds this
 /// job's own encrypted copy (a wrong password or plain files show as "undecryptable").
 pub async fn decrypts(rclone: &str, config_file: &Path, spec: &str, password: &str) -> Result<bool> {
-    let obscured = Command::new(rclone).args(["obscure", password]).output().await?;
+    let obscured = Command::new(rclone).args(["obscure", "--", password]).output().await?;
     let obscured = String::from_utf8_lossy(&obscured.stdout).trim().to_string();
     let remote = format!(":crypt,remote='{}',password='{obscured}':", spec.replace('\'', ""));
     let output = Command::new(rclone).args(["lsf", "--max-depth", "1", &remote, "--config"]).arg(config_file).output().await?;
