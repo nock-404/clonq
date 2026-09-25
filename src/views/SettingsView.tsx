@@ -1,3 +1,4 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { getVersion } from "@tauri-apps/api/app";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { useEffect, useState } from "react";
@@ -91,6 +92,12 @@ export function SettingsView({ state }: SettingsViewProps) {
           <div className="flex flex-col gap-1">
             <UiLogo variant="wordmark" size="sm" label="clonq" />
             {version ? <span className="font-mono text-xs text-ink-faint">{s.version(version)}</span> : null}
+            <span className="text-xs text-ink-faint">
+              © {new Date().getFullYear()} clonq — made with <span className="text-danger">♥</span> by{" "}
+              <button type="button" className="font-medium text-ink-soft hover:text-ink" onClick={() => void openUrl("https://and5.de")}>
+                and5.de
+              </button>
+            </span>
           </div>
         </div>
         <div className="pt-4">
