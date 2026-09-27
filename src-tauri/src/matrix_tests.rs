@@ -1369,3 +1369,19 @@ async fn a_stored_password_whose_obscured_form_starts_with_a_dash_is_read() {
     let password = crate::cloud::crypt_password(&tool("rclone"), &conf, "job").await.unwrap();
     assert_eq!(password.as_deref(), Some("K7Q2M-X9PLA-4TRWZ-H3NCE-8VDJF"));
 }
+
+#[tokio::test]
+async fn a_two_way_run_counts_its_target_from_the_bisync_listing() {
+    let b = Bench::new();
+    let config = b.config(Mode::Bidirectional, false, newer_wins());
+    for n in 0..25 {
+        b.put("src", &format!("d{}/f{n}.txt", n % 5), &format!("file {n}"));
+    }
+    b.put("src", "node_modules/pkg/index.js", "excluded");
+    ok(&b.run(&config).await);
+    ok(&b.run(&config).await);
+    let last = b.history.recent(1).unwrap().remove(0);
+    assert_eq!(last.target_entries, 25, "every file of the target, excluded ones not");
+    let dry = b.run_with(&config, RunOptions { dry_run: true, ..Default::default() }).await;
+    assert_eq!(dry.target_entries, 0, "a dry run does not count");
+}

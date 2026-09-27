@@ -9,12 +9,13 @@ interface UiInputProps {
   autoFocus?: boolean;
   disabled?: boolean;
   onKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void;
+  onBlur?: () => void;
   ref?: Ref<HTMLInputElement>;
   /** For a field without a visible label of its own. */
   label?: string;
 }
 
-export function UiInput({ value, onChange, placeholder, type = "text", mono = false, autoFocus = false, disabled = false, onKeyDown, ref, label }: UiInputProps) {
+export function UiInput({ value, onChange, placeholder, type = "text", mono = false, autoFocus = false, disabled = false, onKeyDown, onBlur, ref, label }: UiInputProps) {
   return (
     <input
       ref={ref}
@@ -29,6 +30,7 @@ export function UiInput({ value, onChange, placeholder, type = "text", mono = fa
       autoCorrect="off"
       onChange={(event) => onChange(event.target.value)}
       onKeyDown={onKeyDown}
+      onBlur={onBlur}
       className={[
         "hairline h-8 w-full rounded-[var(--radius-control)] bg-well px-2.5 text-[0.8125rem] text-ink outline-none",
         "placeholder:text-ink-faint focus:bg-hover disabled:opacity-50",

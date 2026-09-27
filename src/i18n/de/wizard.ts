@@ -195,7 +195,8 @@ export const wizard: Shape<typeof source> = {
     excludesMore: (shown, more) => `${shown} und ${more} weitere`,
     removeExclude: (pattern) => `${pattern} entfernen`,
     patternPlaceholder: "Muster, zum Beispiel .DS_Store",
-    patternHint: "Endet ein Muster auf /, gilt es nur für Ordner; beginnt es mit /, nur für die oberste Ebene.",
+    patternHint: "Mit Enter oder Komma übernehmen. Endet ein Muster auf /, gilt es nur für Ordner; beginnt es mit /, nur für die oberste Ebene.",
+    nodeModulesTypo: "„node-modules“ gibt es nicht; gemeint ist sicher node_modules/ mit Unterstrich.",
   },
 
   conflict: {

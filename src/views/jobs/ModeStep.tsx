@@ -162,15 +162,22 @@ export function ModeStep({
     return () => window.removeEventListener("keydown", listener);
   }, []);
 
+  // Several patterns at once are fine, separated by commas or spaces ("node_modules/, .next/").
   const add = () => {
-    const next = pattern.trim();
-    if (!next) return;
-    if (!excludes.includes(next)) onExcludes(sortExcludes([...excludes, next]));
+    const typed = pattern.split(/[,\s]+/).map((item) => item.trim()).filter(Boolean);
+    if (typed.length === 0) return;
+    const fresh = typed.filter((item, index) => !excludes.includes(item) && typed.indexOf(item) === index);
+    if (fresh.length > 0) onExcludes(sortExcludes([...excludes, ...fresh]));
     setPattern("");
   };
 
   // Enter adds the pattern while there is one; with an empty field it moves on as everywhere else.
   const onPatternKey = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "," && pattern.trim()) {
+      event.preventDefault();
+      add();
+      return;
+    }
     if (event.key !== "Enter" || event.metaKey) return;
     event.preventDefault();
     event.stopPropagation();
@@ -328,12 +335,15 @@ export function ModeStep({
               </UiChip>
             ))}
             <span className="min-w-[10rem] flex-1" data-own-enter>
-              <UiInput value={pattern} onChange={setPattern} onKeyDown={onPatternKey} placeholder={m.patternPlaceholder} mono />
+              <UiInput value={pattern} onChange={setPattern} onKeyDown={onPatternKey} onBlur={add} placeholder={m.patternPlaceholder} mono />
             </span>
           </div>
           <span className="text-[0.6875rem] leading-snug text-ink-faint">
             {m.patternHint}
           </span>
+          {[...excludes, pattern].some((item) => /^\/?node-modules\/?$/i.test(item.trim())) ? (
+            <span className="text-[0.6875rem] leading-snug text-warn">{m.nodeModulesTypo}</span>
+          ) : null}
         </UiDisclosureRow>
       </div>
     </div>

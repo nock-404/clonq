@@ -196,7 +196,8 @@ export const wizard = {
     excludesMore: (shown: string, more: number) => `${shown} and ${more} more`,
     removeExclude: (pattern: string) => `Remove ${pattern}`,
     patternPlaceholder: "Pattern, e.g. .DS_Store",
-    patternHint: "A pattern ending in / applies only to folders; one starting with / only to the top level.",
+    patternHint: "Press Enter or type a comma to add it. A pattern ending in / applies only to folders; one starting with / only to the top level.",
+    nodeModulesTypo: "There is no “node-modules”; you surely mean node_modules/ with an underscore.",
   },
 
   conflict: {

@@ -375,7 +375,15 @@ impl Engine {
                     let (deleted, before) = match &plan.tool {
                         Tool::Rsync => (check.stats.deleted, check.stats.target_entries_before()),
                         Tool::Rclone { config } | Tool::Bisync { config } => {
-                            (check.deleted_lines, cloud::count(&plan.program, config, &plan.target, &job.excludes).await?)
+                            // Counting a large target takes a while; a cancel must reach it too.
+                            let counted = tokio::select! {
+                                counted = cloud::count(&plan.program, config, &plan.target, &job.excludes) => counted?,
+                                _ = cancel.changed() => {
+                                    run.status = RunStatus::Cancelled;
+                                    return Ok(());
+                                }
+                            };
+                            (check.deleted_lines, counted)
                         }
                     };
                     let percent = if before > 0 { deleted as f64 * 100.0 / before as f64 } else { 0.0 };
@@ -489,10 +497,17 @@ impl Engine {
             (Tool::Rsync, true, _) => result.stats.target_entries_before(),
             (Tool::Rsync, false, Mode::Mirror) => result.stats.files,
             (Tool::Rsync, false, _) => result.stats.target_entries_before() + result.stats.created,
-            // rclone does not count the target itself; ask it once the run is over.
-            (Tool::Rclone { config } | Tool::Bisync { config }, _, _) => {
-                cloud::count(&plan.program, config, &plan.target, &job.excludes).await.unwrap_or(0)
+            // Only real runs keep the count (the next run's deletion limit); a dry run needs none.
+            (Tool::Rclone { .. } | Tool::Bisync { .. }, true, _) => 0,
+            // bisync has just written the full listing of the target itself: count that, it is instant.
+            (Tool::Bisync { .. }, false, _) => {
+                bisync_listing_entries(&self.rclone_config.with_file_name("bisync").join(&job.id)).unwrap_or(0)
             }
+            // rclone does not count a cloud target itself; ask it, but never past a cancel.
+            (Tool::Rclone { config }, false, _) => tokio::select! {
+                counted = cloud::count(&plan.program, config, &plan.target, &job.excludes) => counted.unwrap_or(0),
+                _ = cancel.changed() => 0,
+            },
         };
         run.status = match (&plan.tool, result.cancelled, result.exit_code) {
             (_, true, _) => RunStatus::Cancelled,
@@ -1615,6 +1630,14 @@ async fn delete_snapshots(plan: &Plan, names: &[String]) -> Result<()> {
         return Err(Error::Job(crate::ssh::explain(&String::from_utf8_lossy(&output.stderr))));
     }
     Ok(())
+}
+
+/// Entries in bisync's listing of the target (Path2), from its workdir: one line per file,
+/// header lines start with "#".
+fn bisync_listing_entries(workdir: &Path) -> Option<i64> {
+    let listing = std::fs::read_dir(workdir).ok()?.flatten().map(|entry| entry.path()).find(|path| path.to_string_lossy().ends_with(".path2.lst"))?;
+    let text = std::fs::read_to_string(listing).ok()?;
+    Some(text.lines().filter(|line| !line.is_empty() && !line.starts_with('#')).count() as i64)
 }
 
 /// Marks the archive folder of a repair so the archive's cleanup never removes it. Where the

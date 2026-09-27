@@ -1296,6 +1296,7 @@ if (jobOffline || jobFailed) setTimeout(() => void emit("servers-checked"), 400)
       "beide-behalten": [...twoWay, ["button", CONFLICT_ROW], ["select", w.mode.preferLabel, "none"]],
       "verlierer-loeschen": [...twoWay, ["button", CONFLICT_ROW], ["radio", w.mode.deleteLoser]],
       // The second click finds the switch inside, whose label is exactly the row's title.
+      "ausschluss-tippfehler": [...twoWay, ["button", w.mode.excludesTitle], ["fill", "", "node-modules/"], ["scrollEnd"]],
       "archiv-aus": [...twoWay, ["button", ARCHIVE_ROW], ["button", ARCHIVE_ROW], ["scrollEnd"]],
       "archiv-tage": [...toArt, ["radio", mirror], ["button", ARCHIVE_ROW], ["fill", "30", "7"]],
       "archiv-ungueltig": [...toArt, ["radio", backup], ["button", ARCHIVE_ROW], ["fill", "30", "400"]],

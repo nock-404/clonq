@@ -271,7 +271,8 @@ pub async fn count(rclone: &str, config_file: &Path, spec: &str, excludes: &[Str
         let pattern = pattern.strip_suffix('/').map_or(pattern.clone(), |folder| format!("{folder}/**"));
         command.arg("--exclude").arg(pattern);
     }
-    let output = command.arg("--config").arg(config_file).output().await?;
+    // kill_on_drop: a cancelled run drops this future, and rclone must stop with it.
+    let output = command.arg("--config").arg(config_file).kill_on_drop(true).output().await?;
     if !output.status.success() {
         // A target that does not exist yet holds nothing.
         return Ok(0);
