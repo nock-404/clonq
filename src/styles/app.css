@@ -305,3 +305,27 @@
   0%, 92% { --scroll-fade: 1.5rem; }
   100% { --scroll-fade: 0rem; }
 }
+
+/* Scrollbars: a thin rounded thumb on no track, as quiet as the rest of the window. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(1 0 0 / 0.14) transparent;
+}
+::-webkit-scrollbar {
+  width: 0.625rem;
+  height: 0.625rem;
+  background: transparent;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  border: 0.1875rem solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+  background-color: oklch(1 0 0 / 0.14);
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: oklch(1 0 0 / 0.26);
+}

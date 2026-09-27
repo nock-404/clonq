@@ -1410,3 +1410,27 @@ async fn a_plain_name_excludes_its_folder_with_rclone_as_with_rsync() {
         assert_eq!(copied, vec!["app/page.tsx".to_string()], "{kind}: only the page is copied");
     }
 }
+
+#[tokio::test]
+async fn a_two_way_run_survives_files_that_change_while_it_runs() {
+    // A working folder: logs and build output change while the first merge is under way.
+    let b = Bench::new();
+    let config = b.config(Mode::Bidirectional, false, newer_wins());
+    for n in 0..4000 {
+        b.put("src", &format!("d{}/f{n}.txt", n % 40), &format!("file {n}"));
+    }
+    b.put("dst", "log/dev.log", "first line");
+    let run_id = b.engine.start(&config, "job", "manual", RunOptions::default()).unwrap();
+    // Keep writing to the log on the target side until the run is over.
+    let mut line = 0;
+    while !b.engine.live_runs().is_empty() {
+        line += 1;
+        fs::write(b.side("dst").join("log/dev.log"), format!("line {line} {}", "x".repeat(line % 97))).unwrap();
+        tokio::time::sleep(Duration::from_millis(30)).await;
+    }
+    let run = b.history.recent(5).unwrap().into_iter().find(|run| run.id == run_id).unwrap();
+    assert_eq!(run.status, RunStatus::Succeeded, "{:?}", run.message);
+    // The next run takes up what changed in the meantime.
+    ok(&b.run(&config).await);
+    assert_eq!(b.tree("src").get("log/dev.log"), b.tree("dst").get("log/dev.log"));
+}

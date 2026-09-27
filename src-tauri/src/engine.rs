@@ -1474,6 +1474,11 @@ impl Plan {
             "--recover".into(),
             "--max-lock".into(),
             "2m".into(),
+            // A working folder changes while it is synced (logs, build output). bisync's final
+            // comparison of both listings would then abort the run and demand a new --resync,
+            // every time; what changed meanwhile is simply taken up by the next run.
+            "--check-sync".into(),
+            "false".into(),
             "--conflict-resolve".into(),
             prefer.into(),
             "--conflict-loser".into(),
