@@ -1385,3 +1385,28 @@ async fn a_two_way_run_counts_its_target_from_the_bisync_listing() {
     let dry = b.run_with(&config, RunOptions { dry_run: true, ..Default::default() }).await;
     assert_eq!(dry.target_entries, 0, "a dry run does not count");
 }
+
+#[tokio::test]
+async fn a_plain_name_excludes_its_folder_with_rclone_as_with_rsync() {
+    // Mirror (rsync), two-way (bisync) and an encrypted cloud (rclone sync).
+    for kind in ["mirror", "two-way", "cloud"] {
+        let b = Bench::new();
+        let mut config = match kind {
+            "mirror" => b.config(Mode::Mirror, false, newer_wins()),
+            "two-way" => b.config(Mode::Bidirectional, false, newer_wins()),
+            _ => b.encrypted(Mode::Mirror, false).await,
+        };
+        config.jobs[0].excludes = vec![".next".into(), "node_modules/".into()];
+        b.put("src", "app/page.tsx", "page");
+        b.put("src", "app/.next/cache/x.meta", "cache");
+        b.put("src", "app/node_modules/pkg/index.js", "pkg");
+        b.put("src", ".next", "a file of that name");
+        ok(&b.run(&config).await);
+        let copied: Vec<String> = if kind == "cloud" {
+            b.decrypt_with(&b.password().await).await.into_keys().collect()
+        } else {
+            b.tree("dst").into_keys().collect()
+        };
+        assert_eq!(copied, vec!["app/page.tsx".to_string()], "{kind}: only the page is copied");
+    }
+}

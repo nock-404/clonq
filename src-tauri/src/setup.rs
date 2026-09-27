@@ -665,6 +665,11 @@ pub async fn save_job(app: AppHandle, state: State<'_, AppState>, job: JobInput)
     };
     let stored = saved.clone();
     crate::scheduler::resume(&app, &id);
+    // New settings count at once: a run in progress stops and starts again with them.
+    let restart = state.engine.running_for_real(&id);
+    if state.engine.is_running(&id) {
+        state.engine.cancel(&id);
+    }
     commit(&app, &state, |config| {
         match config.jobs.iter_mut().find(|existing| existing.id == id) {
             Some(existing) => *existing = stored,
@@ -672,6 +677,20 @@ pub async fn save_job(app: AppHandle, state: State<'_, AppState>, job: JobInput)
         }
         Ok(())
     })?;
+    if restart {
+        let (app, id) = (app.clone(), id.clone());
+        tauri::async_runtime::spawn(async move {
+            let state = app.state::<AppState>();
+            for _ in 0..600 {
+                if !state.engine.is_running(&id) {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+            let config = state.config.read().expect("config lock").clone();
+            let _ = state.engine.start(&config, &id, "settings", crate::engine::RunOptions::default());
+        });
+    }
     Ok(saved)
 }
 

@@ -399,7 +399,8 @@ fn watch_roots(config: &Config, volumes: &[locations::MountedVolume]) -> Vec<(St
 fn excluded_folders(job: &Job) -> Vec<String> {
     job.excludes
         .iter()
-        .filter(|pattern| pattern.ends_with('/') && !pattern.contains('*'))
+        // "name/" and a plain "name" both keep a folder of that name out of the triggers.
+        .filter(|pattern| !pattern.contains('*') && !pattern.trim_matches('/').contains('/'))
         .map(|pattern| pattern.trim_matches('/').to_string())
         .filter(|name| !name.is_empty())
         .chain([ARCHIVE_DIR.to_string()])
@@ -550,5 +551,20 @@ mod tests {
         let excluded = vec!["node_modules".to_string(), "WORK".to_string()];
         assert!(is_excluded(Path::new("/Users/m/Desktop/WORK/app/node_modules/x/y.js"), root, &excluded));
         assert!(!is_excluded(Path::new("/Users/m/Desktop/WORK/app/src/main.rs"), root, &excluded));
+    }
+
+    #[test]
+    fn a_plain_name_keeps_its_folder_out_of_the_triggers_too() {
+        let job: Job = serde_json::from_value(serde_json::json!({
+            "id": "j", "name": "J", "enabled": true,
+            "source": { "location": "a", "path": "" }, "target": { "location": "b", "path": "" },
+            "mode": "bidirectional", "excludes": [".next", "node_modules/", "*.log"], "safety": { "maxDeletePercent": 10.0 },
+            "triggers": { "onMount": false }
+        }))
+        .unwrap();
+        let excluded = excluded_folders(&job);
+        assert!(excluded.contains(&".next".to_string()) && excluded.contains(&"node_modules".to_string()), "{excluded:?}");
+        let root = Path::new("/Users/m/Desktop/WORK");
+        assert!(is_excluded(Path::new("/Users/m/Desktop/WORK/GM8/app/.next/cache/x.meta"), root, &excluded));
     }
 }

@@ -307,6 +307,7 @@ export const detail = {
       verify: "Integrity check",
       verifyScheduled: "Scheduled check",
       repair: "Repair",
+      settings: "Settings changed",
     },
   },
 
@@ -333,6 +334,7 @@ export const detail = {
       verify: "as an integrity check",
       verifyScheduled: "as a scheduled integrity check",
       repair: "as a repair",
+      settings: "after the settings changed",
     },
   },
 };

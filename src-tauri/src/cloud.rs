@@ -267,9 +267,8 @@ pub async fn count(rclone: &str, config_file: &Path, spec: &str, excludes: &[Str
     // Only what a sync could delete counts: the job's excludes and the archive stay out.
     let mut command = Command::new(rclone);
     command.args(["size", "--json", spec, "--exclude", &format!("/{ARCHIVE_DIR}/**")]);
-    for pattern in excludes {
-        let pattern = pattern.strip_suffix('/').map_or(pattern.clone(), |folder| format!("{folder}/**"));
-        command.arg("--exclude").arg(pattern);
+    for filter in excludes.iter().flat_map(|pattern| rclone_filters(pattern)) {
+        command.arg("--exclude").arg(filter);
     }
     // kill_on_drop: a cancelled run drops this future, and rclone must stop with it.
     let output = command.arg("--config").arg(config_file).kill_on_drop(true).output().await?;
@@ -288,6 +287,19 @@ fn last_error(stderr: &str) -> String {
         .find(|line| !line.trim().is_empty())
         .map(|line| line.split_once(": ").map_or(line, |(_, rest)| rest).trim().to_string())
         .unwrap_or_else(|| "rclone failed".into())
+}
+
+/// An exclude pattern as rclone filters, meaning what it means to rsync (and in the job form):
+/// "name/" is a folder of that name with everything in it; a plain "name" is a file *or* a
+/// folder of that name. rclone alone would read "name" as files only, and sync the folder.
+pub fn rclone_filters(pattern: &str) -> Vec<String> {
+    if let Some(folder) = pattern.strip_suffix('/') {
+        return vec![format!("{folder}/**")];
+    }
+    if pattern.ends_with("**") {
+        return vec![pattern.to_string()];
+    }
+    vec![pattern.to_string(), format!("{pattern}/**")]
 }
 
 /// The rclone crypt remote that wraps an encrypted job's cloud folder.

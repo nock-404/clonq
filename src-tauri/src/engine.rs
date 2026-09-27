@@ -172,6 +172,11 @@ impl Engine {
         self.active.lock().expect("active lock").contains_key(job_id)
     }
 
+    /// Whether the job's current run changes files (not a dry run or an integrity check).
+    pub fn running_for_real(&self, job_id: &str) -> bool {
+        self.active.lock().expect("active lock").get(job_id).is_some_and(|entry| !entry.live.dry_run)
+    }
+
     /// Whether the job's current run is one started only by `trigger`.
     pub fn running_with(&self, job_id: &str, trigger: &str) -> bool {
         self.active.lock().expect("active lock").get(job_id).is_some_and(|entry| entry.trigger == trigger)
@@ -827,6 +832,9 @@ impl Engine {
                     } else if *cancel.borrow() {
                         result.cancelled = true;
                         if let Some(kill) = kill_tx.take() {
+                            // Written down so a cancel that seems not to work can be traced.
+                            log.write_all(format!("# cancel requested at {}; stopping {}\n", Utc::now().to_rfc3339(), plan.program).as_bytes()).await?;
+                            log.flush().await?;
                             let _ = kill.send(());
                         }
                     }
@@ -940,7 +948,7 @@ impl Engine {
                 if !matches!(plan.tool, Tool::Bisync { .. }) {
                     command.arg("--one-way");
                 }
-                command.args(job.excludes.iter().map(|pattern| format!("--exclude={}", rclone_pattern(pattern))));
+                command.args(rclone_excludes(&job.excludes));
                 command.arg(format!("--exclude=/{ARCHIVE_DIR}/**"));
                 command.env("LC_ALL", "C").stdin(Stdio::null()).kill_on_drop(true);
                 let output = tokio::select! {
@@ -1474,7 +1482,7 @@ impl Plan {
             "--max-delete".into(),
             format!("{}", job.safety.max_delete_percent.round() as i64),
         ];
-        args.extend(job.excludes.iter().map(|pattern| format!("--exclude={}", rclone_pattern(pattern))));
+        args.extend(rclone_excludes(&job.excludes));
         args.push(format!("--exclude=/{ARCHIVE_DIR}/**"));
         Ok(Self {
             tool: Tool::Bisync { config: rclone_config.to_path_buf() },
@@ -1506,7 +1514,7 @@ impl Plan {
             "--stats-log-level".into(),
             "NOTICE".into(),
         ];
-        args.extend(job.excludes.iter().map(|pattern| format!("--exclude={}", rclone_pattern(pattern))));
+        args.extend(rclone_excludes(&job.excludes));
         args.push(format!("--exclude=/{ARCHIVE_DIR}/**"));
         Ok(Self {
             tool: Tool::Rclone { config: rclone_config.to_path_buf() },
@@ -1757,11 +1765,9 @@ fn is_stamp(name: &str) -> bool {
 }
 
 /// rsync patterns name a folder with a trailing slash; rclone wants `/**` for its contents.
-fn rclone_pattern(pattern: &str) -> String {
-    match pattern.strip_suffix('/') {
-        Some(folder) => format!("{folder}/**"),
-        None => pattern.to_string(),
-    }
+/// `--exclude` arguments for rclone that mean what the pattern means to rsync.
+fn rclone_excludes(patterns: &[String]) -> Vec<String> {
+    patterns.iter().flat_map(|pattern| cloud::rclone_filters(pattern)).map(|filter| format!("--exclude={filter}")).collect()
 }
 
 /// rsync splits `--rsh` on spaces and honours single quotes (see rsync(1), -e).

@@ -306,6 +306,7 @@ export const detail: Shape<typeof source> = {
       verify: "Prüflauf",
       verifyScheduled: "Geplanter Prüflauf",
       repair: "Reparatur",
+      settings: "Einstellungen geändert",
     },
   },
 
@@ -332,6 +333,7 @@ export const detail: Shape<typeof source> = {
       verify: "als Prüflauf",
       verifyScheduled: "als geplanter Prüflauf",
       repair: "als Reparatur",
+      settings: "nach geänderten Einstellungen",
     },
   },
 };
