@@ -15,7 +15,7 @@ export function actionsFor(job: Job, live: LiveRun | undefined, latest: Run | un
     { id: "run", title: t.detail.actions.syncNow, icon: Play, keys: ["↵"], disabled: running || remote, run: () => void jobActions.run(job.id) },
     { id: "dry", title: t.detail.dryRun, icon: FlaskConical, keys: ["⌘", "↵"], disabled: running || remote, run: () => void jobActions.dryRun(job.id) },
     { id: "verify", title: t.detail.actions.verify, icon: ShieldCheck, disabled: running || remote, run: () => void jobActions.verify(job.id) },
-    { id: "cancel", title: t.common.cancel, icon: Square, keys: ["⌘", "."], tone: "danger", disabled: !running, run: () => void jobActions.cancel(job.id) },
+    { id: "cancel", title: t.detail.job.stop, icon: Square, keys: ["⌘", "."], tone: "danger", disabled: !running, run: () => void jobActions.cancel(job.id) },
     {
       id: "force",
       title: t.detail.job.runAnyway,

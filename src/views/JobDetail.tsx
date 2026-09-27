@@ -94,7 +94,7 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
       <JobHeader job={job} config={state.config} running={running}>
         {running ? (
           <UiButton variant="danger" icon={Square} keys={["⌘", "."]} onPress={() => void jobActions.cancel(job.id)}>
-            {t.common.cancel}
+            {j.stop}
           </UiButton>
         ) : (
           <>

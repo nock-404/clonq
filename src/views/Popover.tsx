@@ -183,7 +183,7 @@ export function Popover() {
         primary={
           job
             ? running
-              ? { label: t.common.cancel, keys: ["⌘", "."], onPress: () => void jobActions.cancel(job.id) }
+              ? { label: t.detail.job.stop, keys: ["⌘", "."], onPress: () => void jobActions.cancel(job.id) }
               : { label: t.shell.popover.syncNow, keys: ["↵"], onPress: () => void jobActions.run(job.id), disabled: !ready }
             : undefined
         }

@@ -30,7 +30,7 @@ export const common = {
     partial: "Finished with warnings",
     blocked: "Stopped",
     failed: "Failed",
-    cancelled: "Cancelled",
+    cancelled: "Stopped",
   },
   mode: {
     mirror: "Mirror",

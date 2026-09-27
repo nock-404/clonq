@@ -31,7 +31,7 @@ export const common: Shape<typeof source> = {
     partial: "Mit Warnungen",
     blocked: "Gestoppt",
     failed: "Fehlgeschlagen",
-    cancelled: "Abgebrochen",
+    cancelled: "Gestoppt",
   },
   mode: {
     mirror: "Spiegel",
