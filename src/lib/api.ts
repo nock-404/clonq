@@ -64,6 +64,9 @@ export const api = {
     invoke<string>("run_job", { jobId, dryRun: options.dryRun ?? false, force: options.force ?? false }),
   verifyJob: (jobId: string) => invoke<string>("verify_job", { jobId }),
   repairJob: (jobId: string) => invoke<string>("repair_job", { jobId }),
+  /** Jobs whose automatic starts rest after a cancel. */
+  pausedJobs: () => invoke<string[]>("paused_jobs"),
+  resumeJob: (jobId: string) => invoke<void>("resume_job", { jobId }),
   cancelJob: (jobId: string) => invoke<void>("cancel_job", { jobId }),
   openMainWindow: (jobId?: string) => invoke<void>("open_main_window", { jobId: jobId ?? null }),
   quit: () => invoke<void>("quit"),

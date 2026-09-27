@@ -110,6 +110,18 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
       </JobHeader>
 
       {overdue !== null ? <UiNotice tone="danger">{t.shell.overview.week.overdue(overdue)}</UiNotice> : null}
+      {!running && job.enabled && state.paused.includes(job.id) ? (
+        <UiNotice
+          tone="neutral"
+          actions={
+            <UiButton variant="secondary" icon={Play} onPress={() => void jobActions.resume(job.id)}>
+              {j.resumeAutomation}
+            </UiButton>
+          }
+        >
+          {j.pausedAfterCancel}
+        </UiNotice>
+      ) : null}
       {remote ? (
         <UiNotice tone="neutral">
           {j.waiting(blockerName, blockerReach)}

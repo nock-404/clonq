@@ -648,6 +648,17 @@ impl Engine {
                                         });
                                     }
                                 }
+                                Event::Step(step) => {
+                                    // Listing and checking show no progress; the view says "checking" instead of a stale percentage.
+                                    if report {
+                                        let phase = match step {
+                                            rclone_output::Step::Checking => Phase::Checking,
+                                            rclone_output::Step::Copying => Phase::Transferring,
+                                        };
+                                        self.update(job_id, |live| live.phase = phase);
+                                        self.emit(job_id);
+                                    }
+                                }
                                 Event::MovedAside(path) => {
                                     moved_aside.insert(path);
                                 }

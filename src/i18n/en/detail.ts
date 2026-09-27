@@ -71,6 +71,8 @@ export const detail = {
   job: {
     runNow: "Run now",
     runAnyway: "Run anyway",
+    pausedAfterCancel: "After the cancel, this job does not start by itself until you start it again.",
+    resumeAutomation: "Resume automation",
     showDryRun: "Show dry run",
     waiting: (name: string | undefined, reach: string) =>
       `${name ?? "A location"} isn't available right now (${reach}). This job can run as soon as it is.`,

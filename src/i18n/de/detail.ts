@@ -72,6 +72,8 @@ export const detail: Shape<typeof source> = {
   job: {
     runNow: "Jetzt starten",
     runAnyway: "Trotzdem ausführen",
+    pausedAfterCancel: "Nach dem Abbrechen startet dieser Job nicht mehr von selbst, bis du ihn wieder startest.",
+    resumeAutomation: "Automatik fortsetzen",
     showDryRun: "Probelauf ansehen",
     waiting: (name, reach) => `${name ?? "Ein Ort"} ist gerade ${reach}. Sobald er erreichbar ist, kann dieser Job laufen.`,
     tapeRunning: "Band läuft",

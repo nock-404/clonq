@@ -40,6 +40,28 @@ pub struct Scheduler {
     /// Automatic starts that failed (location not reachable) wait until this
     /// time, or until a drive or server check changes the picture.
     backoff: Mutex<HashMap<String, Instant>>,
+    /// Jobs a person cancelled: no automatic start until they start it again, turn its
+    /// automation back on or edit it. Otherwise a change trigger restarts it at once.
+    paused: Mutex<HashSet<String>>,
+}
+
+/// After a cancel: the job waits for a person.
+pub fn pause(app: &AppHandle, job_id: &str) {
+    let scheduler = app.state::<Scheduler>();
+    scheduler.paused.lock().expect("paused").insert(job_id.to_string());
+    scheduler.pending_changes.lock().expect("pending").remove(job_id);
+}
+
+/// A person started the job, switched its automation on or saved it.
+pub fn resume(app: &AppHandle, job_id: &str) {
+    app.state::<Scheduler>().paused.lock().expect("paused").remove(job_id);
+}
+
+/// Jobs whose automatic starts rest after a cancel.
+pub fn paused(app: &AppHandle) -> Vec<String> {
+    let mut jobs: Vec<String> = app.state::<Scheduler>().paused.lock().expect("paused").iter().cloned().collect();
+    jobs.sort();
+    jobs
 }
 
 /// How long a job whose automatic start failed is left alone.
@@ -75,6 +97,9 @@ fn config(app: &AppHandle) -> Config {
 /// Starts a job if it is enabled; a job that is running or unreachable is skipped quietly.
 fn fire(app: &AppHandle, job_id: &str, why: &str) -> bool {
     let scheduler = app.state::<Scheduler>();
+    if scheduler.paused.lock().expect("paused").contains(job_id) {
+        return false;
+    }
     if scheduler.backoff.lock().expect("backoff").get(job_id).is_some_and(|until| Instant::now() < *until) {
         return false;
     }
@@ -139,6 +164,9 @@ fn fire(app: &AppHandle, job_id: &str, why: &str) -> bool {
 /// failed automatic start leaves an unreachable job alone for a while.
 fn fire_verify(app: &AppHandle, job_id: &str) {
     let scheduler = app.state::<Scheduler>();
+    if scheduler.paused.lock().expect("paused").contains(job_id) {
+        return;
+    }
     let key = format!("verify:{job_id}");
     if scheduler.backoff.lock().expect("backoff").get(&key).is_some_and(|until| Instant::now() < *until) {
         return;

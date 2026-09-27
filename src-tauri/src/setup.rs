@@ -664,6 +664,7 @@ pub async fn save_job(app: AppHandle, state: State<'_, AppState>, job: JobInput)
         encrypted: job.encrypted,
     };
     let stored = saved.clone();
+    crate::scheduler::resume(&app, &id);
     commit(&app, &state, |config| {
         match config.jobs.iter_mut().find(|existing| existing.id == id) {
             Some(existing) => *existing = stored,
@@ -692,6 +693,11 @@ pub fn set_job_enabled(app: AppHandle, state: State<'_, AppState>, id: String, e
         let job = config.jobs.iter_mut().find(|job| job.id == id).ok_or_else(|| Error::Job(format!("job {id} does not exist")))?;
         job.enabled = enabled;
         Ok(())
+    })
+    .inspect(|_| {
+        if enabled {
+            crate::scheduler::resume(&app, &id);
+        }
     })
 }
 

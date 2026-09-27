@@ -61,6 +61,20 @@ pub fn licence_covers_update(state: State<'_, AppState>, published: String) -> c
     }
 }
 
+/// Jobs whose automatic starts rest after a cancel.
+#[tauri::command]
+pub fn paused_jobs(app: AppHandle) -> Vec<String> {
+    crate::scheduler::paused(&app)
+}
+
+/// Lets a cancelled job start by itself again.
+#[tauri::command]
+pub fn resume_job(app: AppHandle, job_id: String) -> Result<()> {
+    crate::scheduler::resume(&app, &job_id);
+    app.emit(crate::engine::EVENT_RUNS_CHANGED, ())?;
+    Ok(())
+}
+
 /// The last seven days: runs, data and space per target, with the watchdog's verdict.
 #[tauri::command]
 pub async fn weekly_report(state: State<'_, AppState>) -> Result<crate::report::WeeklyReport> {
@@ -81,9 +95,13 @@ pub fn set_ui_settings(app: AppHandle, state: State<'_, AppState>, settings: UiS
 }
 
 #[tauri::command]
-pub fn run_job(state: State<'_, AppState>, job_id: String, dry_run: bool, force: bool) -> Result<String> {
+pub fn run_job(app: AppHandle, state: State<'_, AppState>, job_id: String, dry_run: bool, force: bool) -> Result<String> {
     let config = state.config.read().expect("config lock").clone();
     crate::licence::allows(&state.config_dir, &config, &job_id)?;
+    // A real run started by hand ends the rest after a cancel; a dry run only looks.
+    if !dry_run {
+        crate::scheduler::resume(&app, &job_id);
+    }
     state.engine.start(&config, &job_id, "manual", RunOptions { dry_run, force, ..Default::default() })
 }
 
@@ -106,8 +124,11 @@ pub fn repair_job(state: State<'_, AppState>, job_id: String) -> Result<String> 
 }
 
 #[tauri::command]
-pub fn cancel_job(state: State<'_, AppState>, job_id: String) -> Result<()> {
+pub fn cancel_job(app: AppHandle, state: State<'_, AppState>, job_id: String) -> Result<()> {
     if state.engine.cancel(&job_id) {
+        // A cancel means "stop": the triggers wait until the job is started again by hand.
+        crate::scheduler::pause(&app, &job_id);
+        app.emit(crate::engine::EVENT_RUNS_CHANGED, ())?;
         Ok(())
     } else {
         Err(Error::Job(format!("{job_id} is not running")))

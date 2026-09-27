@@ -21,11 +21,25 @@ pub enum Event {
     ConflictWinner(String),
     /// Two-way sync renamed a conflicting copy (a name like `x.txt.conflict1`).
     ConflictRenamed(String),
+    /// bisync moved on to another step; its long listing and checking steps report no progress.
+    Step(Step),
     /// A stats block: progress for the live view and the counters so far.
     Stats { progress: Progress, totals: Totals },
     Error(String),
     Other,
 }
+
+/// What bisync is doing, from its own step messages (rclone 1.75.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    /// Listing both sides, comparing, updating or validating its listings: can take long, shows no progress.
+    Checking,
+    /// Copying and deleting files.
+    Copying,
+}
+
+const CHECKING_STEPS: &[&str] = &["Building Path1 and Path2 listings", "checking for diffs", "updating listings", "Validating listings", "Synching Path1"];
+const COPYING_STEPS: &[&str] = &["Applying changes", "Resync is copying files to", "Copying Path2 files to Path1"];
 
 /// The counters of the latest stats block.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -99,6 +113,12 @@ pub fn parse(text: &str) -> Event {
                 listed: stats.listed,
             },
         };
+    }
+    if CHECKING_STEPS.iter().any(|step| line.msg.contains(step)) {
+        return Event::Step(Step::Checking);
+    }
+    if COPYING_STEPS.iter().any(|step| line.msg.contains(step)) {
+        return Event::Step(Step::Copying);
     }
     // bisync reports its own steps as text: "- WARNING   New or changed in both paths   - name".
     if line.msg.contains("New or changed in both paths") {
@@ -213,5 +233,15 @@ mod tests {
         let Event::Error(message) = parse(line) else { panic!("not an error") };
         assert!(is_delete_limit(&message));
         assert_eq!(parse("plain text"), Event::Error("plain text".into()));
+    }
+
+    #[test]
+    fn bisync_steps_are_recognised() {
+        let line = |msg: &str| format!(r#"{{"level":"info","msg":"{msg}","source":"bisync/operations.go:1"}}"#);
+        assert_eq!(parse(&line("Building Path1 and Path2 listings")), Event::Step(Step::Checking));
+        assert_eq!(parse(&line("Resync updating listings")), Event::Step(Step::Checking));
+        assert_eq!(parse(&line("Validating listings for Path1 \\\"/a/\\\" vs Path2 \\\"/b/\\\"")), Event::Step(Step::Checking));
+        assert_eq!(parse(&line("Applying changes")), Event::Step(Step::Copying));
+        assert_eq!(parse(&line("- Path2    Resync is copying files to         - Path1")), Event::Step(Step::Copying));
     }
 }

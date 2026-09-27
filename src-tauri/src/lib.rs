@@ -137,6 +137,8 @@ pub fn run() {
             commands::licence_covers_update,
             commands::licence_pro,
             commands::licence_shop_url,
+            commands::paused_jobs,
+            commands::resume_job,
             commands::cancel_job,
             commands::open_main_window,
             commands::quit,

@@ -17,6 +17,8 @@ export interface ClonqState {
   stats: Record<string, JobStats>;
   overview: Overview | null;
   week: WeeklyReport | null;
+  /** Jobs whose automatic starts rest after a cancel. */
+  paused: string[];
   /** Reachability of every location, by location id. */
   locations: Record<string, LocationStatus>;
   /** Drives mounted right now. */
@@ -38,6 +40,7 @@ let state: ClonqState = {
   stats: {},
   overview: null,
   week: null,
+  paused: [],
   locations: {},
   volumes: [],
   dryRuns: {},
@@ -85,6 +88,7 @@ async function refreshRuns() {
     set({ latest: byJob(latest), recent, overview, stats: byJob(stats) });
     // The week report is an extra: when it fails, everything else is still up to date.
     api.weeklyReport().then((week) => set({ week }), () => undefined);
+    api.pausedJobs().then((paused) => set({ paused }), () => undefined);
   } catch (error) {
     set({ error: String(error) });
   }
