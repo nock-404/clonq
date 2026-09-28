@@ -50,7 +50,7 @@ export const shell = {
     noJobs: "No jobs yet",
     noJobsDetail: "Locations and jobs are set up in the main window.",
     setUp: "Set up in clonq",
-    runAnyway: "Run anyway",
+    runAnyway: "Delete this time",
     today: (amount: string) => `today ${amount}`,
     syncNow: "Sync now",
     actions: "Actions",

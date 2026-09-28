@@ -18,7 +18,7 @@ export function actionsFor(job: Job, live: LiveRun | undefined, latest: Run | un
     { id: "cancel", title: t.detail.job.stop, icon: Square, keys: ["⌘", "."], tone: "danger", disabled: !running, run: () => void jobActions.cancel(job.id) },
     {
       id: "force",
-      title: t.detail.job.runAnyway,
+      title: t.detail.job.deleteThisTime,
       icon: ShieldAlert,
       tone: "danger",
       disabled: !blocked || remote,

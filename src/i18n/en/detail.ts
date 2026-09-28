@@ -71,6 +71,9 @@ export const detail = {
   job: {
     runNow: "Run now",
     runAnyway: "Run anyway",
+    deleteThisTime: "Delete this time",
+    blockedDeletes: (count: number, shown: string, place: string) => `${count === 1 ? "1 entry" : `${shown} entries`} on ${place} in`,
+    blockedTopLevel: "the top level",
     stop: "Stop",
     pausedAfterCancel: "Since it was stopped, this job does not start by itself until you start it again.",
     resumeAutomation: "Resume automation",

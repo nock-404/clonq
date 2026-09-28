@@ -53,7 +53,7 @@ export const shell: Shape<typeof source> = {
     noJobs: "Noch keine Jobs",
     noJobsDetail: "Orte und Jobs werden im Hauptfenster eingerichtet.",
     setUp: "In clonq einrichten",
-    runAnyway: "Trotzdem ausführen",
+    runAnyway: "Diesmal löschen",
     today: (amount) => `heute ${amount}`,
     syncNow: "Jetzt syncen",
     actions: "Aktionen",

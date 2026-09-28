@@ -1434,3 +1434,26 @@ async fn a_two_way_run_survives_files_that_change_while_it_runs() {
     ok(&b.run(&config).await);
     assert_eq!(b.tree("src").get("log/dev.log"), b.tree("dst").get("log/dev.log"));
 }
+
+#[tokio::test]
+async fn a_stopped_run_says_which_folders_it_would_have_emptied() {
+    for mode in [Mode::Bidirectional, Mode::Mirror] {
+        let b = Bench::new();
+        let config = b.config(mode, false, newer_wins());
+        b.put("src", "keep.txt", "keep");
+        for n in 0..60 {
+            b.put("src", &format!("GM8/app/out/page{n}.html"), "built");
+        }
+        b.put("src", "GM8/app/out/de/nested.html", "built");
+        ok(&b.run(&config).await);
+        fs::remove_dir_all(b.side("src").join("GM8/app/out")).unwrap();
+        let run = b.run(&config).await;
+        assert_eq!(run.status, RunStatus::Blocked, "{mode:?}: {:?}", run.message);
+        let planned = b.history.planned_deletions(&run.id).unwrap();
+        assert_eq!(planned.len(), 1, "{mode:?}: {planned:?}");
+        // rclone counts the 61 files; rsync also the two folders it would remove.
+        assert_eq!((planned[0].folder.as_str(), planned[0].on_target), ("GM8/app/out", true), "{mode:?}");
+        assert!((61..=63).contains(&planned[0].files), "{mode:?}: {planned:?}");
+        assert!(b.side("dst").join("GM8/app/out/page1.html").exists(), "{mode:?}: nothing was deleted");
+    }
+}

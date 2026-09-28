@@ -21,6 +21,9 @@ pub enum Event {
     ConflictWinner(String),
     /// Two-way sync renamed a conflicting copy (a name like `x.txt.conflict1`).
     ConflictRenamed(String),
+    /// bisync plans to delete a file because it is gone on one side: `on_target` when it was
+    /// deleted on Path1 (the source) and will be deleted on Path2 (the target).
+    PlannedDelete { on_target: bool, path: String },
     /// bisync moved on to another step; its long listing and checking steps report no progress.
     Step(Step),
     /// A stats block: progress for the live view and the counters so far.
@@ -113,6 +116,15 @@ pub fn parse(text: &str) -> Event {
                 listed: stats.listed,
             },
         };
+    }
+    // "- Path1             File was deleted                            - out/o1.html"
+    if let Some(rest) = line.msg.strip_prefix("- Path")
+        && let Some((side, detail)) = rest.split_once(' ')
+        && let Some((what, path)) = detail.trim_start().split_once(" - ")
+        && what.trim_end() == "File was deleted"
+        && (side == "1" || side == "2")
+    {
+        return Event::PlannedDelete { on_target: side == "1", path: path.trim().to_string() };
     }
     if CHECKING_STEPS.iter().any(|step| line.msg.contains(step)) {
         return Event::Step(Step::Checking);
@@ -243,5 +255,16 @@ mod tests {
         assert_eq!(parse(&line("Validating listings for Path1 \\\"/a/\\\" vs Path2 \\\"/b/\\\"")), Event::Step(Step::Checking));
         assert_eq!(parse(&line("Applying changes")), Event::Step(Step::Copying));
         assert_eq!(parse(&line("- Path2    Resync is copying files to         - Path1")), Event::Step(Step::Copying));
+    }
+
+    #[test]
+    fn planned_deletions_are_read_with_their_side() {
+        let line = |msg: &str| format!(r#"{{"level":"info","msg":"{msg}","source":"bisync/deltas.go:1"}}"#);
+        assert_eq!(
+            parse(&line("- Path1             File was deleted                            - GM8/app/out/a b.html")),
+            Event::PlannedDelete { on_target: true, path: "GM8/app/out/a b.html".into() }
+        );
+        assert_eq!(parse(&line("- Path2             File was deleted                            - x.txt")), Event::PlannedDelete { on_target: false, path: "x.txt".into() });
+        assert!(!matches!(parse(&line("- Path1             File is new                                 - x.txt")), Event::PlannedDelete { .. }));
     }
 }

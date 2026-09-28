@@ -394,6 +394,7 @@ impl Engine {
                     let percent = if before > 0 { deleted as f64 * 100.0 / before as f64 } else { 0.0 };
                     let allowed = job.safety.allowed_deletions(before);
                     if deleted > allowed {
+                        let _ = self.history.set_planned_deletions(&run.id, &check.planned_deletions());
                         run.status = RunStatus::Blocked;
                         run.files_deleted = deleted;
                         run.target_entries = before;
@@ -524,6 +525,9 @@ impl Engine {
             (Tool::Bisync { .. }, false, Some(_)) if result.delete_limit_hit => RunStatus::Blocked,
             _ => RunStatus::Failed,
         };
+        if run.status == RunStatus::Blocked {
+            let _ = self.history.set_planned_deletions(&run.id, &result.planned_deletions());
+        }
         if let Some(snapshot) = &snapshot
             && !options.dry_run
             && run.status.completed()
@@ -679,6 +683,9 @@ impl Engine {
                                         self.emit(job_id);
                                     }
                                 }
+                                Event::PlannedDelete { on_target, path } => {
+                                    result.plan_delete(&path, on_target);
+                                }
                                 Event::MovedAside(path) => {
                                     moved_aside.insert(path);
                                 }
@@ -717,6 +724,7 @@ impl Engine {
                                     moved_aside.insert(path);
                                 }
                                 Event::Deleted(path) => {
+                                    result.plan_delete(&path, true);
                                     moved_aside.remove(&path);
                                     result.deleted_lines += 1;
                                     if report {
@@ -759,6 +767,7 @@ impl Engine {
                                     }
                                 }
                                 Line::Deleted(path) => {
+                                    result.plan_delete(path, true);
                                     result.deleted_lines += 1;
                                     if report {
                                         log.write_all(format!("- {path}\n").as_bytes()).await?;
@@ -1832,6 +1841,37 @@ struct RsyncResult {
     conflicts: i64,
     /// Changed paths, when asked for (integrity check).
     paths: Vec<(Change, String)>,
+    /// Deletions per folder and side (true: target), for the note when the safety rule stops a run.
+    planned: HashMap<(String, bool), i64>,
+}
+
+impl RsyncResult {
+    fn plan_delete(&mut self, path: &str, on_target: bool) {
+        *self.planned.entry((deletion_folder(path), on_target)).or_default() += 1;
+    }
+
+    /// The folders with the most deletions, largest first.
+    fn planned_deletions(&self) -> Vec<crate::history::PlannedDeletion> {
+        let mut planned: Vec<crate::history::PlannedDeletion> = self
+            .planned
+            .iter()
+            .map(|((folder, on_target), files)| crate::history::PlannedDeletion { folder: folder.clone(), files: *files, on_target: *on_target })
+            .collect();
+        planned.sort_by(|a, b| b.files.cmp(&a.files).then_with(|| a.folder.cmp(&b.folder)));
+        planned.truncate(8);
+        planned
+    }
+}
+
+/// The folder a deleted path is counted under: its parent, at most three levels deep
+/// ("GM8/app/out/de/x.html" → "GM8/app/out"), so a large tree reads as one line.
+fn deletion_folder(path: &str) -> String {
+    // rsync names deleted folders too ("out/de/"); a folder counts under itself.
+    let parent = match path.strip_suffix('/') {
+        Some(folder) => folder,
+        None => path.rsplit_once('/').map_or("", |(dir, _)| dir),
+    };
+    parent.split('/').filter(|part| !part.is_empty()).take(3).collect::<Vec<_>>().join("/")
 }
 
 /// What a finished run stores beside its row.

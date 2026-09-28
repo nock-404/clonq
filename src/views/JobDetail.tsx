@@ -1,5 +1,5 @@
 import { FlaskConical, Play, ShieldAlert, ShieldCheck, Square } from "lucide-react";
-import { useState, type KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import type { ClonqState } from "../hooks/useClonq";
 import { useHotkeys } from "../hooks/useHotkeys";
 import { texts, useT } from "../i18n";
@@ -17,7 +17,8 @@ import { isRunning, jobActions, jobReady, progressLine } from "../lib/jobs";
 import { locationOf, messageLabel, reachLabel, statusLabel } from "../lib/labels";
 import { durationSeconds, ratesOf, savedPercent } from "../lib/runs";
 import { openSheet } from "../lib/nav";
-import type { ArchiveSide, Job } from "../lib/types";
+import type { ArchiveSide, Job, PlannedDeletion } from "../lib/types";
+import { api } from "../lib/api";
 import {
   UiBadge,
   UiBars,
@@ -74,6 +75,22 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
     "mod+Enter": () => !running && !remote && void jobActions.dryRun(job.id),
     "mod+.": () => running && void jobActions.cancel(job.id),
   });
+
+  // A run the safety rule stopped: what it would have deleted, per folder.
+  const [planned, setPlanned] = useState<PlannedDeletion[]>([]);
+  const blockedRun = blocked ? latest?.id : undefined;
+  useEffect(() => {
+    if (!blockedRun) {
+      setPlanned([]);
+      return;
+    }
+    let current = true;
+    api.plannedDeletions(blockedRun).then((list) => current && setPlanned(list), () => undefined);
+    return () => {
+      current = false;
+    };
+  }, [blockedRun]);
+  const sideName = (onTarget: boolean) => locationOf(onTarget ? job.target : job.source, state.config)?.name ?? "";
 
   // The watchdog's verdict (Pro): counted from the last success, like the notification.
   const lastSuccess = stats?.lastSuccessAt ? Date.parse(stats.lastSuccessAt) : null;
@@ -134,7 +151,7 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
             blocked ? (
               <>
                 <UiButton variant="danger" icon={ShieldAlert} onPress={() => void jobActions.force(job.id)}>
-                  {j.runAnyway}
+                  {j.deleteThisTime}
                 </UiButton>
                 <UiButton variant="ghost" icon={FlaskConical} onPress={() => void jobActions.dryRun(job.id)}>
                   {j.showDryRun}
@@ -144,6 +161,16 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
           }
         >
           {messageLabel(latest.message)}
+          {blocked && planned.length > 0 ? (
+            <ul className="mt-1.5 flex flex-col gap-0.5">
+              {planned.map((item) => (
+                <li key={`${item.onTarget}:${item.folder}`} className="text-xs">
+                  {j.blockedDeletes(item.files, formatCount(item.files), sideName(item.onTarget))}{" "}
+                  <span className="font-mono">{item.folder || j.blockedTopLevel}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </UiNotice>
       ) : null}
 

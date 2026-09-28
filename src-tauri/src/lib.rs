@@ -138,6 +138,7 @@ pub fn run() {
             commands::licence_pro,
             commands::licence_shop_url,
             commands::paused_jobs,
+            commands::planned_deletions,
             commands::resume_job,
             commands::cancel_job,
             commands::open_main_window,

@@ -322,6 +322,14 @@ export interface WeeklyReport {
   targets: TargetSpace[];
 }
 
+/** What a run stopped by its safety rule would have deleted, per folder. */
+export interface PlannedDeletion {
+  /** Up to three folders deep, "" for the top level. */
+  folder: string;
+  files: number;
+  onTarget: boolean;
+}
+
 export interface Overview {
   totals: Totals;
   todayBytes: number;

@@ -72,6 +72,9 @@ export const detail: Shape<typeof source> = {
   job: {
     runNow: "Jetzt starten",
     runAnyway: "Trotzdem ausführen",
+    deleteThisTime: "Diesmal löschen",
+    blockedDeletes: (count, shown, place) => `${count === 1 ? "Ein Eintrag" : `${shown} Einträge`} auf ${place} in`,
+    blockedTopLevel: "der obersten Ebene",
     stop: "Stoppen",
     pausedAfterCancel: "Seit dem Stoppen startet dieser Job nicht mehr von selbst, bis du ihn wieder startest.",
     resumeAutomation: "Automatik fortsetzen",

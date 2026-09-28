@@ -47,6 +47,11 @@ mockIPC(
           ? { covered: false, updatesUntil: "2027-09-24", renewUrl: "https://licences.example.org/buy" }
           : { covered: true, updatesUntil: null, renewUrl: null };
       // ?paused=<jobId>: that job rests after a cancel.
+      case "planned_deletions":
+        return [
+          { folder: englishData ? "Photos/2026/exports" : "GM8/iemoncrewdex-build/out", files: 583208, onTarget: true },
+          { folder: englishData ? "Photos/drafts" : "GM8/iemoncrewdex/.cache", files: 48, onTarget: false },
+        ];
       case "paused_jobs":
         return params.get("paused") ? [params.get("paused")] : [];
       case "licence_shop_url":

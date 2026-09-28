@@ -61,6 +61,12 @@ pub fn licence_covers_update(state: State<'_, AppState>, published: String) -> c
     }
 }
 
+/// What a run stopped by its safety rule would have deleted, per folder.
+#[tauri::command]
+pub fn planned_deletions(state: State<'_, AppState>, run_id: String) -> Result<Vec<crate::history::PlannedDeletion>> {
+    state.history.planned_deletions(&run_id)
+}
+
 /// Jobs whose automatic starts rest after a cancel.
 #[tauri::command]
 pub fn paused_jobs(app: AppHandle) -> Vec<String> {

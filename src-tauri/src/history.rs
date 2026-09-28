@@ -162,7 +162,24 @@ const MIGRATIONS: &[&str] = &[
          free INTEGER NOT NULL
      );
      CREATE INDEX space_location_at ON space_samples (location_id, at DESC);",
+    "CREATE TABLE run_deletions (
+         run_id TEXT NOT NULL REFERENCES runs (id) ON DELETE CASCADE,
+         folder TEXT NOT NULL,
+         files INTEGER NOT NULL,
+         on_target INTEGER NOT NULL
+     );",
 ];
+
+/// What a run stopped by its safety rule would have deleted, per folder.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlannedDeletion {
+    /// Up to three folders deep, "" for the top level.
+    pub folder: String,
+    pub files: i64,
+    /// On the target (else on the source, which only a two-way job deletes on).
+    pub on_target: bool,
+}
 
 impl History {
     pub fn open(path: &Path) -> Result<Self> {
@@ -396,6 +413,29 @@ impl History {
             )
             .optional()?;
         Ok(started.as_deref().map(parse_time))
+    }
+
+    pub fn set_planned_deletions(&self, run_id: &str, planned: &[PlannedDeletion]) -> Result<()> {
+        let mut connection = self.connection.lock().expect("history lock");
+        let transaction = connection.transaction()?;
+        transaction.execute("DELETE FROM run_deletions WHERE run_id = ?1", [run_id])?;
+        for item in planned {
+            transaction.execute(
+                "INSERT INTO run_deletions (run_id, folder, files, on_target) VALUES (?1, ?2, ?3, ?4)",
+                params![run_id, item.folder, item.files, item.on_target],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn planned_deletions(&self, run_id: &str) -> Result<Vec<PlannedDeletion>> {
+        let connection = self.connection.lock().expect("history lock");
+        let mut statement = connection.prepare("SELECT folder, files, on_target FROM run_deletions WHERE run_id = ?1 ORDER BY files DESC")?;
+        let rows = statement
+            .query_map([run_id], |row| Ok(PlannedDeletion { folder: row.get(0)?, files: row.get(1)?, on_target: row.get(2)? }))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
     }
 
     /// Keeps one measurement of a location's space.
