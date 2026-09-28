@@ -47,6 +47,16 @@ mockIPC(
           ? { covered: false, updatesUntil: "2027-09-24", renewUrl: "https://licences.example.org/buy" }
           : { covered: true, updatesUntil: null, renewUrl: null };
       // ?paused=<jobId>: that job rests after a cancel.
+      // The run sheet: a stopped run lists what it would have deleted.
+      case "run_entries": {
+        const { kind, query, offset, limit } = args as { kind: string | null; query: string; offset: number; limit: number };
+        const stopped = scene.recent.find((item) => item.id === (args as { runId: string }).runId)?.status === "blocked";
+        const all = stopped
+          ? Array.from({ length: 1200 }, (_, index) => ({ kind: "planned", size: null, path: `GM8/iemoncrewdex-build/out/_next/static/chunk-${index}.js`, onSource: index % 7 === 0 }))
+          : [];
+        const matching = all.filter((entry) => (!kind || entry.kind === kind) && entry.path.includes(query));
+        return { entries: matching.slice(offset, offset + limit), total: matching.length };
+      }
       case "planned_deletions":
         return [
           { folder: englishData ? "Photos/2026/exports" : "GM8/iemoncrewdex-build/out", files: 583208, onTarget: true },
@@ -291,6 +301,7 @@ if (jobParam && checkParam) {
 const nav = await import("../src/lib/nav");
 const sheetParam = params.get("sheet");
 if (sheetParam === "addLocation") nav.openSheet({ kind: "addLocation" });
+if (sheetParam === "run") nav.openSheet({ kind: "run", runId: params.get("run") ?? "" });
 if (sheetParam === "jobWizard") nav.openSheet({ kind: "jobWizard", jobId: params.get("edit") ?? undefined });
 const locationParam = params.get("location");
 if (locationParam) nav.navigate({ kind: "location", locationId: locationParam });

@@ -1,4 +1,4 @@
-import { FlaskConical, Play, ShieldAlert, ShieldCheck, Square } from "lucide-react";
+import { FileText, FlaskConical, Play, ShieldAlert, ShieldCheck, Square } from "lucide-react";
 import { useEffect, useState, type KeyboardEvent } from "react";
 import type { ClonqState } from "../hooks/useClonq";
 import { useHotkeys } from "../hooks/useHotkeys";
@@ -109,6 +109,7 @@ export function JobDetail({ state, job, index, now }: JobDetailProps) {
   return (
     <div className="flex flex-col gap-4">
       <JobHeader job={job} config={state.config} running={running}>
+        {latest ? <UiIconButton icon={FileText} label={j.showLog} onPress={() => openSheet({ kind: "run", runId: latest.id })} /> : null}
         {running ? (
           <UiButton variant="danger" icon={Square} keys={["⌘", "."]} onPress={() => void jobActions.cancel(job.id)}>
             {j.stop}

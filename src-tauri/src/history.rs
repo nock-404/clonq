@@ -379,6 +379,13 @@ impl History {
         Ok(connection.query_row("SELECT log_path FROM runs WHERE id = ?1", [run_id], |row| row.get(0)).optional()?)
     }
 
+    /// How a run ended, or that it is still running.
+    pub fn status_of(&self, run_id: &str) -> Result<Option<RunStatus>> {
+        let connection = self.connection.lock().expect("history lock");
+        let status: Option<String> = connection.query_row("SELECT status FROM runs WHERE id = ?1", [run_id], |row| row.get(0)).optional()?;
+        Ok(status.as_deref().map(RunStatus::parse))
+    }
+
     /// Whether the job ever finished a real run.
     pub fn has_completed(&self, job_id: &str) -> Result<bool> {
         let connection = self.connection.lock().expect("history lock");

@@ -25,6 +25,8 @@ pub const EVENT_RUN_UPDATE: &str = "run-update";
 pub const EVENT_RUNS_CHANGED: &str = "runs-changed";
 
 const EMIT_INTERVAL: Duration = Duration::from_millis(120);
+/// How often a running job's log reaches the disk, so the run sheet can follow it.
+const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 /// One throughput sample per second while a run is going.
 const SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 /// The live curve shows the last minute.
@@ -630,6 +632,7 @@ impl Engine {
         let mut result = RsyncResult::default();
         let started = Instant::now();
         let mut last_emit = started - EMIT_INTERVAL;
+        let mut last_flush = started;
         let mut last_sample = started;
         let mut rate = Rate::default();
         let mut file_rate = Rate::default();
@@ -689,6 +692,7 @@ impl Engine {
                                 }
                                 Event::PlannedDelete { on_target, path } => {
                                     result.plan_delete(&path, on_target);
+                                    log_planned(log, &path, on_target).await?;
                                 }
                                 Event::MovedAside(path) => {
                                     moved_aside.insert(path);
@@ -733,6 +737,8 @@ impl Engine {
                                     result.deleted_lines += 1;
                                     if report {
                                         log.write_all(format!("- {path}\n").as_bytes()).await?;
+                                    } else {
+                                        log_planned(log, &path, true).await?;
                                     }
                                     if report {
                                         let deleted = result.deleted_lines;
@@ -775,6 +781,8 @@ impl Engine {
                                     result.deleted_lines += 1;
                                     if report {
                                         log.write_all(format!("- {path}\n").as_bytes()).await?;
+                                    } else {
+                                        log_planned(log, path, true).await?;
                                     }
                                     if report {
                                         let deleted = result.deleted_lines;
@@ -828,6 +836,10 @@ impl Engine {
                     if report && last_emit.elapsed() >= EMIT_INTERVAL {
                         self.emit(job_id);
                         last_emit = Instant::now();
+                    }
+                    if last_flush.elapsed() >= FLUSH_INTERVAL {
+                        log.flush().await?;
+                        last_flush = Instant::now();
                     }
                 }
                 // After a cancel the pipes may be held by a straggler; do not wait for them forever.
@@ -2060,6 +2072,13 @@ impl Rate {
     }
 }
 
+/// A deletion the run plans, written down so a stopped run can show every file.
+async fn log_planned(log: &mut BufWriter<tokio::fs::File>, path: &str, on_target: bool) -> Result<()> {
+    let marker = if on_target { crate::runlog::PLANNED_ON_TARGET } else { crate::runlog::PLANNED_ON_SOURCE };
+    log.write_all(format!("{marker}{path}\n").as_bytes()).await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2212,9 +2231,9 @@ mod tests {
         assert_eq!(detail.folders, vec![FolderChange { folder: "GM8/clonq".into(), files: 1, bytes: 8 }]);
 
         // The first run went through the safety check; its would-be list must not repeat in the log.
-        let first_log = crate::runlog::read(Path::new(&first.log_path), None, "", 0, 100).unwrap();
+        let first_log = crate::runlog::read(Path::new(&first.log_path), None, "", 0, 100, false).unwrap();
         assert_eq!(first_log.total, 3, "{:?}", first_log.entries);
-        let second_log = crate::runlog::read(Path::new(&second.log_path), None, "", 0, 100).unwrap();
+        let second_log = crate::runlog::read(Path::new(&second.log_path), None, "", 0, 100, false).unwrap();
         assert_eq!(second_log.entries.len(), 1);
         assert_eq!(second_log.entries[0].kind, crate::runlog::EntryKind::Changed);
         assert_eq!(second_log.entries[0].path, "GM8/clonq/a.txt");
@@ -2386,6 +2405,10 @@ mod tests {
         let blocked = f.run(&config, RunOptions::default()).await;
         assert_eq!(blocked.status, RunStatus::Blocked, "{:?}", blocked.message);
         assert_eq!(Fixture::count_files(&f.dst()), 40);
+        // Every file it would have deleted is in the log, for the run sheet's filter and search.
+        let planned = crate::runlog::read(Path::new(&blocked.log_path), Some(crate::runlog::EntryKind::Planned), "keep1", 0, 100, true).unwrap();
+        assert_eq!(planned.total, 11, "keep1 and keep10..keep19");
+        assert!(planned.entries.iter().all(|entry| !entry.on_source));
         let forced = f.run(&config, RunOptions { force: true, ..Default::default() }).await;
         assert_eq!(forced.status, RunStatus::Succeeded, "{:?}", forced.message);
         assert_eq!(Fixture::count_files(&f.dst()), 10);
@@ -2529,6 +2552,8 @@ mod tests {
         let run = f.run(&config, RunOptions::default()).await;
         assert_eq!(run.status, RunStatus::Blocked, "{:?}", run.message);
         assert_eq!(Fixture::count_files(&f.dst()), 30, "nothing may change while blocked");
+        let planned = crate::runlog::read(Path::new(&run.log_path), Some(crate::runlog::EntryKind::Planned), "", 0, 100, true).unwrap();
+        assert_eq!(planned.total, 30);
 
         let forced = f.run(&config, RunOptions { force: true, ..Default::default() }).await;
         assert_eq!(forced.status, RunStatus::Succeeded, "{:?}", forced.message);

@@ -337,12 +337,14 @@ export interface Overview {
   todayRuns: number;
 }
 
-export type EntryKind = "new" | "changed" | "deleted" | "error";
+export type EntryKind = "new" | "changed" | "deleted" | "planned" | "error";
 
 export interface RunEntry {
   kind: EntryKind;
   size: number | null;
   path: string;
+  /** A planned deletion due on the source rather than the target. */
+  onSource?: boolean;
 }
 
 export interface RunEntryPage {

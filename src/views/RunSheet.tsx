@@ -5,9 +5,9 @@ import type { ClonqState } from "../hooks/useClonq";
 import { useT } from "../i18n";
 import { api } from "../lib/api";
 import { formatBytes, formatCount, formatDateTime, formatDuration } from "../lib/format";
-import { messageLabel, statusLabel, statusTone } from "../lib/labels";
+import { locationOf, messageLabel, statusLabel, statusTone } from "../lib/labels";
 import { durationSeconds } from "../lib/runs";
-import type { EntryKind, RunEntry } from "../lib/types";
+import type { EntryKind, PlannedDeletion, RunEntry } from "../lib/types";
 import { UiBadge, UiButton, UiInput, UiNotice, UiSegmented, UiSheet, UiStat, type UiSegment } from "../ui";
 import { toneText } from "../ui/tone";
 import type { Tone } from "../lib/labels";
@@ -22,9 +22,11 @@ interface RunSheetProps {
 type Filter = "all" | EntryKind;
 
 const PAGE = 300;
+/** How often the sheet rereads the log of a run that is still going. */
+const FOLLOW_MS = 2000;
 
-const kindIcon: Record<EntryKind, LucideIcon> = { new: FilePlus, changed: FilePen, deleted: FileMinus, error: CircleAlert };
-const kindTone: Record<EntryKind, Tone> = { new: "ok", changed: "accent", deleted: "danger", error: "danger" };
+const kindIcon: Record<EntryKind, LucideIcon> = { new: FilePlus, changed: FilePen, deleted: FileMinus, planned: FileMinus, error: CircleAlert };
+const kindTone: Record<EntryKind, Tone> = { new: "ok", changed: "accent", deleted: "danger", planned: "warn", error: "danger" };
 
 /** Everything one run did, file by file; for a dry run, everything it would do. */
 export function RunSheet({ open, runId, state, onClose }: RunSheetProps) {
@@ -35,10 +37,34 @@ export function RunSheet({ open, runId, state, onClose }: RunSheetProps) {
   const [entries, setEntries] = useState<RunEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [planned, setPlanned] = useState<PlannedDeletion[]>([]);
+  const [tick, setTick] = useState(0);
   const t = useT();
   const r = t.detail.run;
   const c = t.detail.counts;
   const triggers: Record<string, string> = r.triggers;
+  const running = run?.status === "running";
+  const blocked = run?.status === "blocked";
+
+  // A running run writes its log as it goes; the sheet follows it.
+  useEffect(() => {
+    if (!open || !running) return;
+    const timer = window.setInterval(() => setTick((value) => value + 1), FOLLOW_MS);
+    return () => window.clearInterval(timer);
+  }, [open, running]);
+
+  // A run the safety rule stopped deleted nothing; what it would have deleted is kept per folder.
+  useEffect(() => {
+    if (!open || !runId || !blocked) {
+      setPlanned([]);
+      return;
+    }
+    let current = true;
+    api.plannedDeletions(runId).then((list) => current && setPlanned(list), () => undefined);
+    return () => {
+      current = false;
+    };
+  }, [open, runId, blocked]);
 
   useEffect(() => {
     if (!open || !runId) return;
@@ -55,7 +81,7 @@ export function RunSheet({ open, runId, state, onClose }: RunSheetProps) {
     return () => {
       current = false;
     };
-  }, [open, runId, filter, query]);
+  }, [open, runId, filter, query, tick]);
 
   const loadMore = () => {
     if (!runId) return;
@@ -70,10 +96,11 @@ export function RunSheet({ open, runId, state, onClose }: RunSheetProps) {
     { value: "all", label: r.all },
     { value: "new", label: would ? c.wouldCreate : c.created },
     { value: "changed", label: would ? c.wouldChange : c.changed },
-    { value: "deleted", label: would ? c.wouldDelete : c.deleted },
+    blocked ? { value: "planned", label: c.wouldDelete } : { value: "deleted", label: would ? c.wouldDelete : c.deleted },
     { value: "error", label: r.errors },
   ];
   const seconds = run ? durationSeconds(run) : null;
+  const sideName = (onTarget: boolean) => (job ? (locationOf(onTarget ? job.target : job.source, state.config)?.name ?? "") : "");
 
   return (
     <UiSheet
@@ -88,11 +115,25 @@ export function RunSheet({ open, runId, state, onClose }: RunSheetProps) {
             <UiBadge tone={statusTone[run.status]}>{statusLabel(run.status)}</UiBadge>
             {would ? <UiBadge tone="accent">{r.nothingChanged}</UiBadge> : null}
           </div>
-          {run.message ? <UiNotice tone={run.status === "failed" ? "danger" : "warn"}>{messageLabel(run.message)}</UiNotice> : null}
+          {run.message ? (
+            <UiNotice tone={run.status === "failed" ? "danger" : "warn"}>
+              {messageLabel(run.message)}
+              {planned.length > 0 ? (
+                <ul className="mt-1.5 flex flex-col gap-0.5">
+                  {planned.map((item) => (
+                    <li key={`${item.onTarget}:${item.folder}`} className="text-xs">
+                      {t.detail.job.blockedDeletes(item.files, formatCount(item.files), sideName(item.onTarget))}{" "}
+                      <span className="font-mono">{item.folder || t.detail.job.blockedTopLevel}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </UiNotice>
+          ) : null}
           <div className="grid grid-cols-4 gap-4">
             <UiStat size="md" label={would ? c.wouldCreate : c.created} value={formatCount(run.filesNew)} tone={run.filesNew > 0 ? "ok" : "ink"} />
             <UiStat size="md" label={would ? c.wouldChange : c.changed} value={formatCount(run.filesChanged)} tone={run.filesChanged > 0 ? "accent" : "ink"} />
-            <UiStat size="md" label={would ? c.wouldDelete : c.deleted} value={formatCount(run.filesDeleted)} tone={run.filesDeleted > 0 ? "danger" : "ink"} />
+            <UiStat size="md" label={would || blocked ? c.wouldDelete : c.deleted} value={formatCount(run.filesDeleted)} tone={run.filesDeleted > 0 ? "danger" : "ink"} />
             <UiStat size="md" label={t.detail.data} value={formatBytes(run.bytesNew + run.bytesChanged)} />
           </div>
           <div className="flex items-center gap-3">
@@ -104,7 +145,7 @@ export function RunSheet({ open, runId, state, onClose }: RunSheetProps) {
           {error ? <UiNotice tone="danger">{messageLabel(error)}</UiNotice> : null}
           <ul className="hairline flex flex-col overflow-hidden rounded-[var(--radius-panel)] bg-well">
             {entries.length === 0 ? (
-              <li className="px-3 py-6 text-center text-xs text-ink-faint">{query || filter !== "all" ? r.noMatch : r.noFiles}</li>
+              <li className="px-3 py-6 text-center text-xs text-ink-faint">{query || filter !== "all" ? r.noMatch : running ? r.noFilesYet : r.noFiles}</li>
             ) : (
               entries.map((entry, index) => {
                 const Icon = kindIcon[entry.kind];
@@ -114,6 +155,7 @@ export function RunSheet({ open, runId, state, onClose }: RunSheetProps) {
                     <span className="min-w-0 flex-1 truncate font-mono text-[0.6875rem] text-ink" title={entry.path}>
                       {entry.path}
                     </span>
+                    {entry.kind === "planned" ? <span className="shrink-0 text-[0.6875rem] text-ink-faint">{sideName(!entry.onSource)}</span> : null}
                     {entry.size !== null ? <span className="shrink-0 text-[0.6875rem] text-ink-faint tabular">{formatBytes(entry.size)}</span> : null}
                   </li>
                 );

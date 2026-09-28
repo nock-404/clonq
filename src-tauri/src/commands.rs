@@ -221,7 +221,8 @@ pub fn run_entries(
     if !path.exists() {
         return Ok(crate::runlog::Page { entries: vec![], total: 0 });
     }
-    crate::runlog::read(&path, kind, &query, offset, limit.clamp(1, 2000))
+    let stopped = state.history.status_of(&run_id)? == Some(crate::history::RunStatus::Blocked);
+    crate::runlog::read(&path, kind, &query, offset, limit.clamp(1, 2000), stopped)
 }
 
 fn job_and_config(state: &AppState, job_id: &str) -> Result<(crate::config::Job, crate::config::Config)> {

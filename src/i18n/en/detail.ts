@@ -78,6 +78,7 @@ export const detail = {
     pausedAfterCancel: "Since it was stopped, this job does not start by itself until you start it again.",
     resumeAutomation: "Resume automation",
     showDryRun: "Show dry run",
+    showLog: "Log of the latest run",
     waiting: (name: string | undefined, reach: string) =>
       `${name ?? "A location"} isn't available right now (${reach}). This job can run as soon as it is.`,
     tapeRunning: "Tape running",
@@ -325,6 +326,7 @@ export const detail = {
     search: "Search paths…",
     noMatch: "Nothing matches the filter.",
     noFiles: "This run moved no files.",
+    noFilesYet: "No files moved yet. clonq is still comparing both sides.",
     shown: (shown: string, total: string) => `${shown} of ${total} items`,
     loadMore: "Load more",
     gone: "This run is no longer in the history.",
