@@ -477,8 +477,12 @@ impl Engine {
             }
         }
         let mut result = self.rsync(&job.id, plan, &extra, log, &mut cancel, true, false).await?;
-        if two_way && !result.cancelled && result.errors.iter().any(|error| rclone_output::needs_resync(error)) {
-            log.write_all(b"# no earlier listings, merging both sides first\n").await?;
+        // bisync stops and asks for a merge when it has no listings, or after a run cut short by
+        // files that vanished or changed while being read (a build in progress). The merge
+        // deletes nothing, so it is safe to do it at once, once, instead of failing every run.
+        let merged_already = extra.iter().any(|arg| arg == "--resync");
+        if two_way && !merged_already && !result.cancelled && result.errors.iter().any(|error| rclone_output::needs_resync(error)) {
+            log.write_all(b"# bisync asks for a merge of both sides (it deletes nothing); merging now\n").await?;
             extra.extend(plan.resync_args(job));
             result = self.rsync(&job.id, plan, &extra, log, &mut cancel, true, false).await?;
         }
@@ -1483,6 +1487,9 @@ impl Plan {
             "--recover".into(),
             "--max-lock".into(),
             "2m".into(),
+            // A file that grows while it is copied (a log) is copied as far as it is; the next run
+            // takes the rest. Without this, rclone calls it an error and deletes nothing more.
+            "--local-no-check-updated".into(),
             // A working folder changes while it is synced (logs, build output). bisync's final
             // comparison of both listings would then abort the run and demand a new --resync,
             // every time; what changed meanwhile is simply taken up by the next run.

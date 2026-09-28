@@ -175,8 +175,10 @@ pub fn is_delete_limit(error: &str) -> bool {
 }
 
 /// bisync has no state for this pair yet (first run, or the places changed).
+/// bisync can only go on after a merge (--resync): no listings yet, or a run that was cut
+/// short (IO errors, files that changed while being read). A merge deletes nothing.
 pub fn needs_resync(error: &str) -> bool {
-    error.contains("cannot find prior Path1 or Path2 listings")
+    error.contains("cannot find prior Path1 or Path2 listings") || error.contains("Must run --resync to recover")
 }
 
 #[cfg(test)]
@@ -266,5 +268,12 @@ mod tests {
         );
         assert_eq!(parse(&line("- Path2             File was deleted                            - x.txt")), Event::PlannedDelete { on_target: false, path: "x.txt".into() });
         assert!(!matches!(parse(&line("- Path1             File is new                                 - x.txt")), Event::PlannedDelete { .. }));
+    }
+
+    #[test]
+    fn a_cut_short_bisync_asks_for_a_merge() {
+        assert!(needs_resync("Bisync aborted. Must run --resync to recover."));
+        assert!(needs_resync("Bisync critical error: cannot find prior Path1 or Path2 listings, likely due to critical error on prior run"));
+        assert!(!needs_resync("Safety abort: too many deletes (>10%, 583256 of 2371765) on Path2. Run with --force if desired."));
     }
 }
