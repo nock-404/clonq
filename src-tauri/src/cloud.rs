@@ -270,6 +270,7 @@ pub async fn count(rclone: &str, config_file: &Path, spec: &str, excludes: &[Str
     for filter in excludes.iter().flat_map(|pattern| rclone_filters(pattern)) {
         command.arg("--exclude").arg(filter);
     }
+    crate::background::lower(&mut command);
     // kill_on_drop: a cancelled run drops this future, and rclone must stop with it.
     let output = command.arg("--config").arg(config_file).kill_on_drop(true).output().await?;
     if !output.status.success() {

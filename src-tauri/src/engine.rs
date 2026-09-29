@@ -588,6 +588,7 @@ impl Engine {
             .kill_on_drop(true)
             // Its own process group, so a cancel also reaches the ssh child rsync starts.
             .process_group(0);
+        crate::background::lower(&mut command);
         let mut child = command
             .spawn()
             .map_err(|error| Error::Job(format!("could not start {}: {error}", plan.program)))?;
@@ -976,6 +977,7 @@ impl Engine {
                 command.args(rclone_excludes(&job.excludes));
                 command.arg(format!("--exclude=/{ARCHIVE_DIR}/**"));
                 command.env("LC_ALL", "C").stdin(Stdio::null()).kill_on_drop(true);
+                crate::background::lower(&mut command);
                 let output = tokio::select! {
                     output = command.output() => output?,
                     _ = cancel.changed() => {

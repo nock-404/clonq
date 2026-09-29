@@ -1,4 +1,5 @@
 mod archive;
+mod background;
 mod browse;
 mod cloud;
 mod commands;
