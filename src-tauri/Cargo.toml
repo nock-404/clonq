@@ -1,6 +1,6 @@
 [package]
 name = "clonq"
-version = "0.4.9"
+version = "0.4.10"
 description = "Sync and backup for macOS"
 authors = ["nock-404"]
 edition = "2024"
@@ -20,7 +20,6 @@ tauri = { version = "2.11.6", features = ["tray-icon", "macos-private-api", "ima
 tauri-plugin-opener = "2.5.5"
 tauri-plugin-dialog = "2.7.3"
 tauri-plugin-notification = "2.4.0"
-tauri-plugin-autostart = "2.5.1"
 tauri-plugin-updater = "2.12.0"
 tauri-plugin-process = "2.3.1"
 notify = "8.2.0"
@@ -33,6 +32,7 @@ plist = "1.10.1"
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "3.7.0"
 security-framework-sys = "2.17.0"
+objc2-service-management = { version = "0.3.2", default-features = false, features = ["std", "SMAppService", "objc2", "objc2-foundation"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 tokio = { version = "1.53.1", features = ["process", "io-util", "sync", "macros", "rt-multi-thread", "time", "fs"] }

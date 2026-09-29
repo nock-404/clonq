@@ -304,3 +304,20 @@ pub async fn browse_delete(state: State<'_, AppState>, location: String, path: S
     let (config, rclone) = browse_context(&state);
     crate::browse::delete(&crate::config::Place { location, path }, &config, &rclone).await
 }
+
+/// Whether clonq opens at login.
+#[tauri::command]
+pub fn login_item() -> crate::login_item::LoginItem {
+    crate::login_item::state()
+}
+
+#[tauri::command]
+pub fn set_login_item(on: bool) -> Result<crate::login_item::LoginItem> {
+    crate::login_item::set(on)
+}
+
+/// Login Items in System Settings, for a login item that waits for approval there.
+#[tauri::command]
+pub fn open_login_items() {
+    crate::login_item::open_settings();
+}

@@ -119,6 +119,8 @@ export const shell: Shape<typeof source> = {
     lampsSwitch: "Lämpchen",
     autostart: "Beim Anmelden starten",
     autostartDetail: "Automatische Auslöser laufen nur, solange clonq läuft.",
+    autostartNeedsApproval: "clonq ist unter Anmeldeobjekte in den Systemeinstellungen ausgeschaltet und startet deshalb nicht beim Anmelden.",
+    autostartOpenSettings: "Anmeldeobjekte öffnen",
     notifications: "Mitteilungen",
     notificationsDetail: "Probleme bei automatischen Läufen meldet clonq immer. Auf Wunsch auch jeden erfolgreichen Lauf.",
     notifySuccess: "Erfolgreiche Läufe melden",

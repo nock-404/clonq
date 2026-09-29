@@ -1,13 +1,12 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getVersion } from "@tauri-apps/api/app";
-import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { useEffect, useState } from "react";
 import type { ClonqState } from "../hooks/useClonq";
 import { reportError } from "../hooks/useClonq";
 import { api } from "../lib/api";
 import { LANGUAGES, useT } from "../i18n";
-import type { Accent, Language, Reels, UiSettings } from "../lib/types";
-import { UiPanel, UiSegmented, UiSwitch, type UiSegment } from "../ui";
+import type { Accent, Language, LoginItem, Reels, UiSettings } from "../lib/types";
+import { UiButton, UiNotice, UiPanel, UiSegmented, UiSwitch, type UiSegment } from "../ui";
 import { UiLogo } from "../ui/UiLogo";
 import { LicencePanel } from "./LicencePanel";
 import { UpdateCheck } from "./UpdateBand";
@@ -20,10 +19,10 @@ interface SettingsViewProps {
 }
 
 export function SettingsView({ state }: SettingsViewProps) {
-  const [autostart, setAutostart] = useState<boolean | null>(null);
+  const [loginItem, setLoginItem] = useState<LoginItem | null>(null);
   const [version, setVersion] = useState<string | null>(null);
   useEffect(() => {
-    isEnabled().then(setAutostart).catch(() => setAutostart(null));
+    api.loginItem().then(setLoginItem).catch(() => setLoginItem(null));
     getVersion().then(setVersion).catch(() => setVersion(null));
   }, []);
   const t = useT();
@@ -46,9 +45,7 @@ export function SettingsView({ state }: SettingsViewProps) {
   const ui = state.config?.ui;
   if (!ui || !state.config) return null;
   const toggleAutostart = (next: boolean) => {
-    (next ? enable() : disable())
-      .then(() => setAutostart(next))
-      .catch(reportError);
+    api.setLoginItem(next).then(setLoginItem).catch(reportError);
   };
   const save = (change: Partial<UiSettings>) => void api.setUiSettings({ ...ui, ...change }).catch(reportError);
   return (
@@ -72,8 +69,20 @@ export function SettingsView({ state }: SettingsViewProps) {
       <UiPanel title={s.autostart}>
         <div className="flex items-center justify-between gap-4">
           <span className="text-xs text-ink-soft">{s.autostartDetail}</span>
-          <UiSwitch label={s.autostart} checked={autostart ?? false} onChange={toggleAutostart} />
+          <UiSwitch label={s.autostart} checked={loginItem === "on"} onChange={toggleAutostart} />
         </div>
+        {loginItem === "needsApproval" ? (
+          <UiNotice
+            tone="warn"
+            actions={
+              <UiButton variant="secondary" onPress={() => void api.openLoginItems().catch(reportError)}>
+                {s.autostartOpenSettings}
+              </UiButton>
+            }
+          >
+            {s.autostartNeedsApproval}
+          </UiNotice>
+        ) : null}
       </UiPanel>
       <UiPanel title={s.notifications}>
         <div className="flex items-center justify-between gap-4">

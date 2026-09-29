@@ -116,6 +116,8 @@ export const shell = {
     lampsSwitch: "Lamps",
     autostart: "Open at login",
     autostartDetail: "Automatic triggers only run while clonq is running.",
+    autostartNeedsApproval: "clonq is switched off under Login Items in System Settings, so it does not open at login.",
+    autostartOpenSettings: "Open Login Items",
     notifications: "Notifications",
     notificationsDetail: "clonq always reports problems with automatic runs. Optionally, every successful run too.",
     notifySuccess: "Report successful runs",

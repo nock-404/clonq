@@ -154,6 +154,9 @@ pub fn parse(text: &str) -> Event {
         // In a dry run rclone does not tell new from changed; both count as a transfer.
         (_, Some("copy")) => Event::File { change: Change::NewFile, size: line.size.unwrap_or(0), path },
         (_, Some("delete")) => Event::Deleted(path),
+        // bisync compares files changed on both sides and reports each difference at error
+        // level; that is how it finds a conflict, not a failure. The conflict itself is logged.
+        _ if line.level == "error" && !path.is_empty() && line.msg.ends_with(" differ") => Event::Other,
         _ if line.level == "error" => Event::Error(if path.is_empty() { line.msg } else { format!("{path}: {}", line.msg) }),
         _ => Event::Other,
     }
@@ -247,6 +250,8 @@ mod tests {
         let Event::Error(message) = parse(line) else { panic!("not an error") };
         assert!(is_delete_limit(&message));
         assert_eq!(parse("plain text"), Event::Error("plain text".into()));
+        let compared = r#"{"level":"error","msg":"md5 differ","object":"out/404.html"}"#;
+        assert_eq!(parse(compared), Event::Other);
     }
 
     #[test]

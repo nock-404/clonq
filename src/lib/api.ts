@@ -21,6 +21,7 @@ import type { LicenceStatus, ArchiveSide,
   LocationStatus,
   MountedVolume,
   Overview,
+  LoginItem,
   PlannedDeletion,
   WeeklyReport,
   Run,
@@ -77,6 +78,9 @@ export const api = {
   licencePro: () => invoke<boolean>("licence_pro"),
   /** The shop page for buying a licence, or null in a build without a licence service. */
   licenceShopUrl: () => invoke<string | null>("licence_shop_url"),
+  loginItem: () => invoke<LoginItem>("login_item"),
+  setLoginItem: (on: boolean) => invoke<LoginItem>("set_login_item", { on }),
+  openLoginItems: () => invoke<void>("open_login_items"),
   /** Checks and saves a pasted key; rejects with the reason when it is not valid. */
   enterLicence: (key: string) => invoke<LicenceStatus>("enter_licence", { key }),
   removeLicence: () => invoke<LicenceStatus>("remove_licence"),

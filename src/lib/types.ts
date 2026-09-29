@@ -323,6 +323,9 @@ export interface WeeklyReport {
 }
 
 /** What a run stopped by its safety rule would have deleted, per folder. */
+/** Whether clonq opens at login; "needsApproval" is switched off in System Settings. */
+export type LoginItem = "off" | "on" | "needsApproval";
+
 export interface PlannedDeletion {
   /** Up to three folders deep, "" for the top level. */
   folder: string;

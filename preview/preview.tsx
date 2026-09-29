@@ -62,6 +62,10 @@ mockIPC(
           { folder: englishData ? "Photos/2026/exports" : "GM8/iemoncrewdex-build/out", files: 583208, onTarget: true },
           { folder: englishData ? "Photos/drafts" : "GM8/iemoncrewdex/.cache", files: 48, onTarget: false },
         ];
+      // ?login=needsApproval: the login item is switched off in System Settings.
+      case "login_item":
+      case "set_login_item":
+        return params.get("login") ?? "on";
       case "paused_jobs":
         return params.get("paused") ? [params.get("paused")] : [];
       case "licence_shop_url":

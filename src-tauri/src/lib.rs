@@ -10,6 +10,7 @@ mod glass;
 mod history;
 mod licence;
 mod locations;
+mod login_item;
 mod report;
 #[cfg(test)]
 mod box_tests;
@@ -57,12 +58,12 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            login_item::replace_launch_agent();
 
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
@@ -124,6 +125,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_config,
+            commands::login_item,
+            commands::set_login_item,
+            commands::open_login_items,
             commands::live_runs,
             commands::latest_runs,
             commands::recent_runs,
